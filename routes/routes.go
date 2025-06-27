@@ -55,6 +55,24 @@ func SetupRoutes(router *gin.Engine) {
 				applications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApproveApplication) // 3 = admin
 				applications.POST("/:id/reject", middleware.RequireRole(3), controllers.RejectApplication)
 			}
+
+			// Documents
+			documents := protected.Group("/documents")
+			{
+				documents.POST("/upload/:id", controllers.UploadDocument)
+				documents.GET("/application/:id", controllers.GetDocuments)
+				documents.GET("/download/:document_id", controllers.DownloadDocument)
+				documents.DELETE("/:document_id", controllers.DeleteDocument)
+				documents.GET("/types", controllers.GetDocumentTypes)
+			}
+
+			// Dashboard
+			dashboard := protected.Group("/dashboard")
+			{
+				dashboard.GET("/stats", controllers.GetDashboardStats)
+				dashboard.GET("/budget-summary", controllers.GetBudgetSummary)
+				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
+			}
 		}
 	}
 }
