@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -18,7 +19,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates JWT token
+// AuthMiddleware validates JWT token and session
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get token from header
@@ -38,7 +39,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Parse token
-		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return []byte(os.Getenv("JWT_SECRET")), nil
 		})
 
@@ -49,25 +50,45 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Get claims
-		claims, ok := token.Claims.(*Claims)
+		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
 			c.Abort()
 			return
 		}
 
+		// Extract user info
+		userID := int(claims["user_id"].(float64))
+		email := claims["email"].(string)
+		roleID := int(claims["role_id"].(float64))
+		jti := claims["jti"].(string)
+
+		// Check if session is still active
+		var session models.UserSession
+		if err := config.DB.Where("access_token_jti = ? AND is_active = true", jti).First(&session).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session not found or inactive"})
+			c.Abort()
+			return
+		}
+
+		// Update last activity
+		now := time.Now()
+		session.LastActivity = &now
+		config.DB.Save(&session)
+
 		// Check if user still exists
 		var user models.User
-		if err := config.DB.Where("user_id = ? AND delete_at IS NULL", claims.UserID).First(&user).Error; err != nil {
+		if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userID).First(&user).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			c.Abort()
 			return
 		}
 
 		// Set user info in context
-		c.Set("userID", claims.UserID)
-		c.Set("email", claims.Email)
-		c.Set("roleID", claims.RoleID)
+		c.Set("userID", userID)
+		c.Set("email", email)
+		c.Set("roleID", roleID)
+		c.Set("sessionID", session.SessionID)
 
 		c.Next()
 	}

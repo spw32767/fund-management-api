@@ -66,7 +66,9 @@ type FundSubcategory struct {
 	SubcategoryName     string     `gorm:"column:subcategorie_name" json:"subcategory_name"`
 	YearID              int        `gorm:"column:year_id" json:"year_id"`
 	SubcategoryBudgetID int        `gorm:"column:subcategorie_budget_id" json:"subcategory_budget_id"`
+	FundCondition       string     `gorm:"column:fund_condition" json:"fund_condition,omitempty"`
 	Status              string     `gorm:"column:status" json:"status"`
+	Comment             string     `gorm:"column:comment" json:"comment,omitempty"`
 	CreateAt            *time.Time `gorm:"column:create_at" json:"create_at"`
 	UpdateAt            *time.Time `gorm:"column:update_at" json:"update_at"`
 	DeleteAt            *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
@@ -78,13 +80,17 @@ type FundSubcategory struct {
 
 type SubcategoryBudget struct {
 	SubcategoryBudgetID int        `gorm:"primaryKey;column:subcategorie_budget_id" json:"subcategory_budget_id"`
+	SubcategoryID       int        `gorm:"column:subcatagorie_id" json:"subcategory_id"` // Note: typo in DB
 	AllocatedAmount     float64    `gorm:"column:allocated_amount" json:"allocated_amount"`
 	UsedAmount          float64    `gorm:"column:used_amount" json:"used_amount"`
 	RemainingBudget     float64    `gorm:"column:remaining_budget" json:"remaining_budget"`
 	MaxGrants           int        `gorm:"column:max_grants" json:"max_grants"`
 	MaxAmountPerGrant   float64    `gorm:"column:max_amount_per_grant" json:"max_amount_per_grant"`
 	RemainingGrant      int        `gorm:"column:remaining_grant" json:"remaining_grant"`
+	Level               string     `gorm:"column:level" json:"level,omitempty"`
 	Status              string     `gorm:"column:status" json:"status"`
+	FundDescription     string     `gorm:"column:fund_description" json:"fund_description,omitempty"`
+	Comment             string     `gorm:"column:comment" json:"comment,omitempty"`
 	CreateAt            *time.Time `gorm:"column:create_at" json:"create_at"`
 	UpdateAt            *time.Time `gorm:"column:update_at" json:"update_at"`
 	DeleteAt            *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`

@@ -16,6 +16,7 @@ func SetupRoutes(router *gin.Engine) {
 		{
 			// Authentication
 			public.POST("/login", controllers.Login)
+			public.POST("/refresh", controllers.RefreshToken)
 
 			// Health check
 			public.GET("/health", func(c *gin.Context) {
@@ -30,6 +31,12 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
+			// Auth management
+			protected.POST("/logout", controllers.Logout)
+			protected.POST("/logout-all", controllers.LogoutAllDevices)
+			protected.GET("/sessions", controllers.GetActiveSessions)
+			protected.DELETE("/sessions/:session_id", controllers.RevokeSession)
+
 			// User profile
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
@@ -72,6 +79,26 @@ func SetupRoutes(router *gin.Engine) {
 				dashboard.GET("/stats", controllers.GetDashboardStats)
 				dashboard.GET("/budget-summary", controllers.GetBudgetSummary)
 				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
+			}
+			// Publication Rewards
+			publications := protected.Group("/publication-rewards")
+			{
+				// All authenticated users can view their publication rewards
+				publications.GET("", controllers.GetPublicationRewards)
+				publications.GET("/:id", controllers.GetPublicationReward)
+				publications.GET("/rates", controllers.GetPublicationRewardRates)
+
+				// Only teachers can create/update/delete
+				publications.POST("", middleware.RequireRole(1), controllers.CreatePublicationReward)
+				publications.PUT("/:id", middleware.RequireRole(1), controllers.UpdatePublicationReward)
+				publications.DELETE("/:id", middleware.RequireRole(1), controllers.DeletePublicationReward)
+
+				// Only admin can approve
+				publications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApprovePublicationReward)
+
+				// Document upload for publication rewards
+				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
+				publications.GET("/:id/documents", controllers.GetPublicationDocuments)
 			}
 		}
 	}
