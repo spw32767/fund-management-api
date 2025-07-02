@@ -1,20 +1,17 @@
 package controllers
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"fund-management-api/config"
+	"fund-management-api/middleware"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type LoginRequest struct {
@@ -23,21 +20,46 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	AccessToken  string      `json:"access_token"`
-	RefreshToken string      `json:"refresh_token"`
-	TokenType    string      `json:"token_type"`
-	ExpiresIn    int         `json:"expires_in"`
-	User         models.User `json:"user"`
-	Message      string      `json:"message"`
+	Token   string      `json:"token"`
+	User    UserProfile `json:"user"`
+	Message string      `json:"message"`
 }
 
-// Login handles user authentication with session management
+type UserProfile struct {
+	UserID       int    `json:"user_id"`
+	UserFname    string `json:"user_fname"`
+	UserLname    string `json:"user_lname"`
+	Email        string `json:"email"`
+	RoleID       int    `json:"role_id"`
+	PositionID   int    `json:"position_id"`
+	Role         string `json:"role"`
+	PositionName string `json:"position_name"`
+}
+
+// Login handles user authentication with bcrypt password verification
 func Login(c *gin.Context) {
 	var req LoginRequest
 
 	// Bind request
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request format",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Sanitize input
+	req.Email = utils.SanitizeInput(req.Email)
+	req.Password = utils.SanitizeInput(req.Password)
+
+	// Validate email format
+	if !utils.ValidateEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid email format",
+		})
 		return
 	}
 
@@ -46,154 +68,50 @@ func Login(c *gin.Context) {
 	if err := config.DB.Preload("Role").Preload("Position").
 		Where("email = ? AND delete_at IS NULL", req.Email).
 		First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "Invalid email or password",
+		})
 		return
 	}
 
-	// Check password (TODO: ใช้ bcrypt ในระบบจริง)
-	if user.Password != req.Password {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+	// Check password using bcrypt
+	if !utils.CheckPasswordHash(req.Password, user.Password) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "Invalid email or password",
+		})
 		return
 	}
 
-	// Generate tokens
-	accessToken, accessExp, jti, err := generateAccessToken(user)
+	// Generate JWT token
+	token, err := generateToken(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to generate authentication token",
+		})
 		return
 	}
 
-	refreshToken, refreshExp, err := generateRefreshToken()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate refresh token"})
-		return
-	}
-
-	// Save session
-	session := models.UserSession{
-		UserID:         user.UserID,
-		AccessTokenJTI: jti,
-		RefreshToken:   refreshToken,
-		DeviceName:     c.Request.Header.Get("X-Device-Name"),
-		DeviceType:     detectDeviceType(c.Request.UserAgent()),
-		IPAddress:      c.ClientIP(),
-		UserAgent:      c.Request.UserAgent(),
-		ExpiresAt:      refreshExp,
-		IsActive:       true,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
-
-	// Deactivate old sessions if needed (optional: limit to 5 active sessions)
-	var activeCount int64
-	config.DB.Model(&models.UserSession{}).
-		Where("user_id = ? AND is_active = true", user.UserID).
-		Count(&activeCount)
-
-	if activeCount >= 5 {
-		// Deactivate oldest session
-		var oldestSession models.UserSession
-		config.DB.Where("user_id = ? AND is_active = true", user.UserID).
-			Order("created_at ASC").
-			First(&oldestSession)
-		oldestSession.IsActive = false
-		config.DB.Save(&oldestSession)
-	}
-
-	// Create new session
-	if err := config.DB.Create(&session).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
+	// Create user profile response
+	userProfile := UserProfile{
+		UserID:       user.UserID,
+		UserFname:    user.UserFname,
+		UserLname:    user.UserLname,
+		Email:        user.Email,
+		RoleID:       user.RoleID,
+		PositionID:   user.PositionID,
+		Role:         user.Role.Role,
+		PositionName: user.Position.PositionName,
 	}
 
 	// Response
 	c.JSON(http.StatusOK, LoginResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(accessExp.Sub(time.Now()).Seconds()),
-		User:         user,
-		Message:      "Login successful",
+		Token:   token,
+		User:    userProfile,
+		Message: "Login successful",
 	})
-}
-
-// RefreshToken generates new access token using refresh token
-func RefreshToken(c *gin.Context) {
-	type RefreshRequest struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
-	}
-
-	var req RefreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Find session by refresh token
-	var session models.UserSession
-	if err := config.DB.Preload("User.Role").Preload("User.Position").
-		Where("refresh_token = ? AND is_active = true AND expires_at > ?", req.RefreshToken, time.Now()).
-		First(&session).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
-		return
-	}
-
-	// Generate new access token
-	accessToken, accessExp, jti, err := generateAccessToken(session.User)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
-		return
-	}
-
-	// Update session
-	now := time.Now()
-	session.AccessTokenJTI = jti
-	session.LastActivity = &now
-	session.UpdatedAt = now
-
-	if err := config.DB.Save(&session).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update session"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"access_token": accessToken,
-		"token_type":   "Bearer",
-		"expires_in":   int(accessExp.Sub(time.Now()).Seconds()),
-	})
-}
-
-// Logout invalidates user session
-func Logout(c *gin.Context) {
-	// Get token from header
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No token provided"})
-		return
-	}
-
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-	// Parse token to get JTI
-	token, _ := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(os.Getenv("JWT_SECRET")), nil
-	})
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		if jti, ok := claims["jti"].(string); ok {
-			// Deactivate session
-			result := config.DB.Model(&models.UserSession{}).
-				Where("access_token_jti = ?", jti).
-				Update("is_active", false)
-
-			if result.Error != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
-				return
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
 
 // GetProfile returns current user profile
@@ -202,27 +120,65 @@ func GetProfile(c *gin.Context) {
 
 	var user models.User
 	if err := config.DB.Preload("Role").Preload("Position").
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND delete_at IS NULL", userID).
 		First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "User not found",
+		})
 		return
 	}
 
+	userProfile := UserProfile{
+		UserID:       user.UserID,
+		UserFname:    user.UserFname,
+		UserLname:    user.UserLname,
+		Email:        user.Email,
+		RoleID:       user.RoleID,
+		PositionID:   user.PositionID,
+		Role:         user.Role.Role,
+		PositionName: user.Position.PositionName,
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"user": user,
+		"success": true,
+		"user":    userProfile,
 	})
 }
 
-// ChangePassword handles password change
+// ChangePassword handles password change with proper validation
 func ChangePassword(c *gin.Context) {
 	type PasswordChangeRequest struct {
 		CurrentPassword string `json:"current_password" binding:"required"`
-		NewPassword     string `json:"new_password" binding:"required,min=6"`
+		NewPassword     string `json:"new_password" binding:"required,min=8"`
+		ConfirmPassword string `json:"confirm_password" binding:"required"`
 	}
 
 	var req PasswordChangeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request format",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Validate new password
+	if valid, message := utils.ValidatePassword(req.NewPassword); !valid {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   message,
+		})
+		return
+	}
+
+	// Check password confirmation
+	if req.NewPassword != req.ConfirmPassword {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "New password and confirmation do not match",
+		})
 		return
 	}
 
@@ -230,157 +186,127 @@ func ChangePassword(c *gin.Context) {
 
 	// Get current user
 	var user models.User
-	if err := config.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "User not found",
+		})
 		return
 	}
 
 	// Verify current password
-	// TODO: ในระบบจริงต้องใช้ bcrypt
-	if user.Password != req.CurrentPassword {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Current password is incorrect"})
+	if !utils.CheckPasswordHash(req.CurrentPassword, user.Password) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "Current password is incorrect",
+		})
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to process new password",
+		})
 		return
 	}
 
 	// Update password
-	// TODO: ในระบบจริงต้อง hash password ด้วย bcrypt
 	now := time.Now()
-	user.Password = req.NewPassword
+	user.Password = hashedPassword
 	user.UpdateAt = &now
 
 	if err := config.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
-		return
-	}
-
-	// Logout all sessions after password change
-	config.DB.Model(&models.UserSession{}).
-		Where("user_id = ?", userID).
-		Update("is_active", false)
-
-	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully. Please login again."})
-}
-
-// GetActiveSessions returns user's active sessions
-func GetActiveSessions(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	var sessions []models.UserSession
-	if err := config.DB.
-		Where("user_id = ? AND is_active = true AND expires_at > ?", userID, time.Now()).
-		Order("last_activity DESC").
-		Find(&sessions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sessions"})
-		return
-	}
-
-	// Hide sensitive data
-	for i := range sessions {
-		sessions[i].RefreshToken = ""
-		sessions[i].AccessTokenJTI = ""
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"sessions": sessions,
-		"total":    len(sessions),
-	})
-}
-
-// RevokeSession revokes a specific session
-func RevokeSession(c *gin.Context) {
-	sessionID := c.Param("session_id")
-	userID, _ := c.Get("userID")
-
-	result := config.DB.Model(&models.UserSession{}).
-		Where("session_id = ? AND user_id = ?", sessionID, userID).
-		Update("is_active", false)
-
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke session"})
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Session revoked successfully"})
-}
-
-// LogoutAllDevices logs out from all devices
-func LogoutAllDevices(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	result := config.DB.Model(&models.UserSession{}).
-		Where("user_id = ?", userID).
-		Update("is_active", false)
-
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout from all devices"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to update password",
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":           "Logged out from all devices successfully",
-		"affected_sessions": result.RowsAffected,
+		"success": true,
+		"message": "Password changed successfully",
 	})
 }
 
-// Helper functions
-func generateAccessToken(user models.User) (string, time.Time, string, error) {
+// generateToken creates JWT token with proper claims
+func generateToken(user models.User) (string, error) {
+	// Get expiration hours from env
 	expireHours, err := strconv.Atoi(os.Getenv("JWT_EXPIRE_HOURS"))
 	if err != nil {
-		expireHours = 24
+		expireHours = 24 // default 24 hours
 	}
 
-	expiresAt := time.Now().Add(time.Duration(expireHours) * time.Hour)
-	jti := uuid.New().String()
-
-	claims := jwt.MapClaims{
-		"user_id": user.UserID,
-		"email":   user.Email,
-		"role_id": user.RoleID,
-		"jti":     jti,
-		"exp":     expiresAt.Unix(),
-		"iat":     time.Now().Unix(),
+	// Create claims
+	claims := middleware.Claims{
+		UserID: user.UserID,
+		Email:  user.Email,
+		RoleID: user.RoleID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    "fund-management-api",
+			Subject:   user.Email,
+		},
 	}
 
+	// Create token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 
-	return tokenString, expiresAt, jti, err
-}
-
-func generateRefreshToken() (string, time.Time, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", time.Time{}, err
+	// Sign token
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default-secret-change-this-in-production"
 	}
 
-	token := base64.URLEncoding.EncodeToString(b)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour) // 30 days
-
-	return token, expiresAt, nil
-}
-
-func detectDeviceType(userAgent string) string {
-	ua := strings.ToLower(userAgent)
-	if strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone") {
-		return "mobile"
-	} else if strings.Contains(ua, "tablet") || strings.Contains(ua, "ipad") {
-		return "tablet"
+	tokenString, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		return "", err
 	}
-	return "web"
+
+	return tokenString, nil
 }
 
-// Utility functions for bcrypt (ยังไม่ได้ใช้)
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
+// RefreshToken handles token refresh (optional endpoint)
+func RefreshToken(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "Invalid token",
+		})
+		return
+	}
 
-func CheckPasswordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	// Get user
+	var user models.User
+	if err := config.DB.Preload("Role").Preload("Position").
+		Where("user_id = ? AND delete_at IS NULL", userID).
+		First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "User not found",
+		})
+		return
+	}
+
+	// Generate new token
+	token, err := generateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to refresh token",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"token":   token,
+		"message": "Token refreshed successfully",
+	})
 }

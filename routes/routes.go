@@ -3,11 +3,21 @@ package routes
 import (
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(router *gin.Engine) {
+	// Add security headers middleware
+	router.Use(func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Next()
+	})
+
 	// API v1 group
 	v1 := router.Group("/api/v1")
 	{
@@ -16,13 +26,41 @@ func SetupRoutes(router *gin.Engine) {
 		{
 			// Authentication
 			public.POST("/login", controllers.Login)
-			public.POST("/refresh", controllers.RefreshToken)
 
 			// Health check
 			public.GET("/health", func(c *gin.Context) {
-				c.JSON(200, gin.H{
+				c.JSON(http.StatusOK, gin.H{
 					"status":  "ok",
 					"message": "Fund Management API is running",
+					"timestamp": gin.H{
+						"server": "2025-07-02T10:00:00Z",
+					},
+					"version": "1.0.0",
+				})
+			})
+
+			// API Info
+			public.GET("/info", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"name":        "Fund Management API",
+					"version":     "1.0.0",
+					"description": "API for managing research fund applications",
+					"endpoints": gin.H{
+						"auth": gin.H{
+							"login":           "POST /api/v1/login",
+							"refresh":         "POST /api/v1/refresh-token",
+							"profile":         "GET /api/v1/profile",
+							"change_password": "PUT /api/v1/change-password",
+						},
+						"applications": gin.H{
+							"list":   "GET /api/v1/applications",
+							"create": "POST /api/v1/applications",
+							"detail": "GET /api/v1/applications/:id",
+						},
+						"dashboard": gin.H{
+							"stats": "GET /api/v1/dashboard/stats",
+						},
+					},
 				})
 			})
 		}
@@ -31,15 +69,10 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
-			// Auth management
-			protected.POST("/logout", controllers.Logout)
-			protected.POST("/logout-all", controllers.LogoutAllDevices)
-			protected.GET("/sessions", controllers.GetActiveSessions)
-			protected.DELETE("/sessions/:session_id", controllers.RevokeSession)
-
-			// User profile
+			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
+			protected.POST("/refresh-token", controllers.RefreshToken)
 
 			// Common endpoints (all authenticated users)
 			protected.GET("/years", controllers.GetYears)
@@ -80,26 +113,31 @@ func SetupRoutes(router *gin.Engine) {
 				dashboard.GET("/budget-summary", controllers.GetBudgetSummary)
 				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
 			}
-			// Publication Rewards
-			publications := protected.Group("/publication-rewards")
+
+			// Admin only routes
+			admin := protected.Group("/admin")
+			admin.Use(middleware.RequireRole(3)) // 3 = admin
 			{
-				// All authenticated users can view their publication rewards
-				publications.GET("", controllers.GetPublicationRewards)
-				publications.GET("/:id", controllers.GetPublicationReward)
-				publications.GET("/rates", controllers.GetPublicationRewardRates)
+				// User management
+				admin.GET("/users", func(c *gin.Context) {
+					c.JSON(http.StatusOK, gin.H{"message": "Admin users endpoint - coming soon"})
+				})
 
-				// Only teachers can create/update/delete
-				publications.POST("", middleware.RequireRole(1), controllers.CreatePublicationReward)
-				publications.PUT("/:id", middleware.RequireRole(1), controllers.UpdatePublicationReward)
-				publications.DELETE("/:id", middleware.RequireRole(1), controllers.DeletePublicationReward)
-
-				// Only admin can approve
-				publications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApprovePublicationReward)
-
-				// Document upload for publication rewards
-				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
-				publications.GET("/:id/documents", controllers.GetPublicationDocuments)
+				// System settings
+				admin.GET("/settings", func(c *gin.Context) {
+					c.JSON(http.StatusOK, gin.H{"message": "Admin settings endpoint - coming soon"})
+				})
 			}
 		}
 	}
+
+	// Catch-all route for 404
+	router.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "Endpoint not found",
+			"path":    c.Request.URL.Path,
+			"method":  c.Request.Method,
+		})
+	})
 }
