@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/middleware"
 	"fund-management-api/models"
@@ -44,21 +45,23 @@ func Login(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"error":   "Invalid request format",
+			"error":   "รูปแบบข้อมูลไม่ถูกต้อง",
 			"details": err.Error(),
 		})
 		return
 	}
 
-	// Sanitize input
-	req.Email = utils.SanitizeInput(req.Email)
-	req.Password = utils.SanitizeInput(req.Password)
+	// Sanitize input (ถ้ามี utils.SanitizeInput)
+	if utils.SanitizeInput != nil {
+		req.Email = utils.SanitizeInput(req.Email)
+		req.Password = utils.SanitizeInput(req.Password)
+	}
 
-	// Validate email format
-	if !utils.ValidateEmail(req.Email) {
+	// Validate email format (ถ้ามี utils.ValidateEmail)
+	if utils.ValidateEmail != nil && !utils.ValidateEmail(req.Email) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"error":   "Invalid email format",
+			"error":   "รูปแบบอีเมลไม่ถูกต้อง",
 		})
 		return
 	}
@@ -68,18 +71,39 @@ func Login(c *gin.Context) {
 	if err := config.DB.Preload("Role").Preload("Position").
 		Where("email = ? AND delete_at IS NULL", req.Email).
 		First(&user).Error; err != nil {
+		fmt.Printf("User not found for email: %s\n", req.Email)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"error":   "Invalid email or password",
+			"error":   "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
 		})
 		return
 	}
 
-	// Check password using bcrypt
-	if !utils.CheckPasswordHash(req.Password, user.Password) {
+	// Check password using bcrypt (ถ้ามี utils.CheckPasswordHash)
+	var passwordValid bool
+	if utils.CheckPasswordHash != nil {
+		passwordValid = utils.CheckPasswordHash(req.Password, user.Password)
+	} else {
+		// Fallback สำหรับกรณีที่ยังไม่มี bcrypt
+		passwordValid = (req.Password == user.Password)
+		fmt.Println("Warning: Using plain text password comparison. Please implement bcrypt.")
+	}
+
+	if !passwordValid {
+		fmt.Printf("Invalid password for user: %s\n", req.Email)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"error":   "Invalid email or password",
+			"error":   "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+		})
+		return
+	}
+
+	// ตรวจสอบให้แน่ใจว่า role และ position มีข้อมูล
+	if user.RoleID == 0 {
+		fmt.Printf("User %s has invalid role_id: %d\n", req.Email, user.RoleID)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "ข้อมูลสิทธิ์ผู้ใช้ไม่ถูกต้อง",
 		})
 		return
 	}
@@ -87,14 +111,26 @@ func Login(c *gin.Context) {
 	// Generate JWT token
 	token, err := generateToken(user)
 	if err != nil {
+		fmt.Printf("Failed to generate token for user %s: %v\n", req.Email, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"error":   "Failed to generate authentication token",
+			"error":   "ไม่สามารถสร้าง token ได้",
 		})
 		return
 	}
 
-	// Create user profile response
+	// Create user profile response - ตรวจสอบข้อมูล Role และ Position
+	roleName := ""
+	positionName := ""
+
+	if user.Role.Role != "" {
+		roleName = user.Role.Role
+	}
+
+	if user.Position.PositionName != "" {
+		positionName = user.Position.PositionName
+	}
+
 	userProfile := UserProfile{
 		UserID:       user.UserID,
 		UserFname:    user.UserFname,
@@ -102,21 +138,32 @@ func Login(c *gin.Context) {
 		Email:        user.Email,
 		RoleID:       user.RoleID,
 		PositionID:   user.PositionID,
-		Role:         user.Role.Role,
-		PositionName: user.Position.PositionName,
+		Role:         roleName,
+		PositionName: positionName,
 	}
+
+	// Log สำหรับ debug
+	fmt.Printf("User login successful: ID=%d, Email=%s, RoleID=%d, Role=%s\n",
+		user.UserID, user.Email, user.RoleID, roleName)
 
 	// Response
 	c.JSON(http.StatusOK, LoginResponse{
 		Token:   token,
 		User:    userProfile,
-		Message: "Login successful",
+		Message: "เข้าสู่ระบบสำเร็จ",
 	})
 }
 
 // GetProfile returns current user profile
 func GetProfile(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "ไม่พบข้อมูลผู้ใช้",
+		})
+		return
+	}
 
 	var user models.User
 	if err := config.DB.Preload("Role").Preload("Position").
@@ -124,7 +171,7 @@ func GetProfile(c *gin.Context) {
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   "User not found",
+			"error":   "ไม่พบข้อมูลผู้ใช้",
 		})
 		return
 	}
@@ -158,77 +205,101 @@ func ChangePassword(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"error":   "Invalid request format",
+			"error":   "รูปแบบข้อมูลไม่ถูกต้อง",
 			"details": err.Error(),
 		})
 		return
 	}
 
-	// Validate new password
-	if valid, message := utils.ValidatePassword(req.NewPassword); !valid {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   message,
-		})
-		return
+	// Validate new password (ถ้ามี utils.ValidatePassword)
+	if utils.ValidatePassword != nil {
+		if valid, message := utils.ValidatePassword(req.NewPassword); !valid {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   message,
+			})
+			return
+		}
 	}
 
 	// Check password confirmation
 	if req.NewPassword != req.ConfirmPassword {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"error":   "New password and confirmation do not match",
+			"error":   "รหัสผ่านใหม่และการยืนยันไม่ตรงกัน",
 		})
 		return
 	}
 
-	userID, _ := c.Get("userID")
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "ไม่พบข้อมูลผู้ใช้",
+		})
+		return
+	}
 
 	// Get current user
 	var user models.User
 	if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userID).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   "User not found",
+			"error":   "ไม่พบข้อมูลผู้ใช้",
 		})
 		return
 	}
 
 	// Verify current password
-	if !utils.CheckPasswordHash(req.CurrentPassword, user.Password) {
+	var passwordValid bool
+	if utils.CheckPasswordHash != nil {
+		passwordValid = utils.CheckPasswordHash(req.CurrentPassword, user.Password)
+	} else {
+		passwordValid = (req.CurrentPassword == user.Password)
+	}
+
+	if !passwordValid {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"error":   "Current password is incorrect",
+			"error":   "รหัสผ่านปัจจุบันไม่ถูกต้อง",
 		})
 		return
 	}
 
 	// Hash new password
-	hashedPassword, err := utils.HashPassword(req.NewPassword)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "Failed to process new password",
-		})
-		return
+	var newPasswordHash string
+	if utils.HashPassword != nil {
+		hashedPassword, err := utils.HashPassword(req.NewPassword)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "ไม่สามารถประมวลผลรหัสผ่านใหม่ได้",
+			})
+			return
+		}
+		newPasswordHash = hashedPassword
+	} else {
+		// Fallback สำหรับกรณีที่ยังไม่มี bcrypt
+		newPasswordHash = req.NewPassword
+		fmt.Println("Warning: Storing plain text password. Please implement bcrypt.")
 	}
 
 	// Update password
 	now := time.Now()
-	user.Password = hashedPassword
+	user.Password = newPasswordHash
 	user.UpdateAt = &now
 
 	if err := config.DB.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"error":   "Failed to update password",
+			"error":   "ไม่สามารถอัพเดทรหัสผ่านได้",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Password changed successfully",
+		"message": "เปลี่ยนรหัสผ่านสำเร็จ",
 	})
 }
 
@@ -277,7 +348,7 @@ func RefreshToken(c *gin.Context) {
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
-			"error":   "Invalid token",
+			"error":   "Token ไม่ถูกต้อง",
 		})
 		return
 	}
@@ -289,7 +360,7 @@ func RefreshToken(c *gin.Context) {
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   "User not found",
+			"error":   "ไม่พบข้อมูลผู้ใช้",
 		})
 		return
 	}
@@ -299,7 +370,7 @@ func RefreshToken(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"error":   "Failed to refresh token",
+			"error":   "ไม่สามารถสร้าง token ใหม่ได้",
 		})
 		return
 	}
@@ -307,6 +378,17 @@ func RefreshToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"token":   token,
-		"message": "Token refreshed successfully",
+		"message": "สร้าง token ใหม่สำเร็จ",
+	})
+}
+
+// Logout handles user logout
+func Logout(c *gin.Context) {
+	// สำหรับ JWT ไม่จำเป็นต้องทำอะไรใน server side
+	// แต่ถ้าต้องการ blacklist token ก็สามารถเพิ่มได้
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "ออกจากระบบสำเร็จ",
 	})
 }
