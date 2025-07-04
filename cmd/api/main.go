@@ -52,8 +52,22 @@ func main() {
 	// router.Use(middleware.RateLimitMiddleware())
 
 	// Register Log route
-	// This should be done before setting up other routes to ensure logging works correctly
-	routes.RegisterLogRoute(router)
+	// Register /logs route early (before 404 catch-all in SetupRoutes)
+	router.GET("/logs", func(c *gin.Context) {
+		const accessToken = "secret-token"
+		if c.Query("token") != accessToken {
+			c.JSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		logData, err := os.ReadFile("fund-api.log")
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Unable to read log"})
+			return
+		}
+
+		c.Data(200, "text/plain; charset=utf-8", logData)
+	})
 
 	// Setup routes
 	routes.SetupRoutes(router)
