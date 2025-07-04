@@ -37,6 +37,7 @@ func SetupRoutes(router *gin.Engine) {
 						"server": "2025-07-02T10:00:00Z",
 					},
 					"version": "1.0.0",
+					"success": true,
 				})
 			})
 
