@@ -4,6 +4,7 @@ import (
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -144,5 +145,28 @@ func SetupRoutes(router *gin.Engine) {
 			"path":    c.Request.URL.Path,
 			"method":  c.Request.Method,
 		})
+	})
+}
+
+func RegisterLogRoute(r *gin.Engine) {
+	r.GET("/logs", func(c *gin.Context) {
+		// Set your access token here
+		const accessToken = "secret-token"
+
+		// Validate query token
+		if c.Query("token") != accessToken {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		// Path to your log file
+		logData, err := os.ReadFile("fund-api.log")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read log"})
+			return
+		}
+
+		// Return log content
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", logData)
 	})
 }

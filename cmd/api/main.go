@@ -54,6 +54,8 @@ func main() {
 	// Setup routes
 	routes.SetupRoutes(router)
 
+	routes.RegisterLogRoute(router)
+
 	// Create upload directory if not exists
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
