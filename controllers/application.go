@@ -1,11 +1,13 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -404,24 +406,82 @@ func RejectApplication(c *gin.Context) {
 	})
 }
 
-// GetCategories returns all active fund categories
+// GetCategories - Fixed SQL syntax
 func GetCategories(c *gin.Context) {
 	yearID := c.Query("year_id")
 
 	var categories []models.FundCategory
-	query := config.DB.Where("status = 'active' AND delete_at IS NULL")
+
+	// สร้าง query ใหม่โดยไม่มี semicolon
+	query := config.DB.Table("fund_categories").
+		Where("status = ?", "active").
+		Where("delete_at IS NULL")
 
 	if yearID != "" {
 		query = query.Where("year_id = ?", yearID)
 	}
 
 	if err := query.Find(&categories).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch categories"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch categories",
+			"debug": err.Error(),
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"categories": categories,
+	})
+}
+
+// GetSubcategories - Fixed version without semicolon
+func GetSubcategories(c *gin.Context) {
+	categoryID := c.Query("category_id")
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
+
+	fmt.Printf("\n=== GetSubcategories Debug ===\n")
+	fmt.Printf("categoryID: %s\n", categoryID)
+	fmt.Printf("userID: %v\n", userID)
+	fmt.Printf("roleID: %v\n", roleID)
+
+	// Use query builder instead of raw SQL
+	query := config.DB.Table("fund_subcategorie fs").
+		Select("fs.*, sb.*").
+		Joins("LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id AND sb.delete_at IS NULL AND sb.status = 'active'").
+		Where("fs.status = ?", "active").
+		Where("fs.delete_at IS NULL")
+
+	if categoryID != "" {
+		query = query.Where("fs.category_id = ?", categoryID)
+	}
+
+	// Apply role-based filtering
+	roleIDStr := fmt.Sprintf("%d", roleID.(int))
+	if roleID.(int) != 3 { // Not admin
+		query = query.Where("(fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))",
+			fmt.Sprintf(`"%s"`, roleIDStr))
+		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
+	}
+
+	var subcategories []models.FundSubcategory
+	if err := query.Find(&subcategories).Error; err != nil {
+		fmt.Printf("Query error: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch subcategories",
+			"debug": err.Error(),
+		})
+		return
+	}
+
+	fmt.Printf("Found %d subcategories\n", len(subcategories))
+	fmt.Printf("=== End GetSubcategories Debug ===\n\n")
+
+	c.JSON(http.StatusOK, gin.H{
+		"subcategories": subcategories,
+		"role_id":       roleID,
+		"user_id":       userID,
+		"total":         len(subcategories),
 	})
 }
 
@@ -439,57 +499,7 @@ func GetYears(c *gin.Context) {
 	})
 }
 
-// GetSubcategories returns subcategories
-func GetSubcategories(c *gin.Context) {
-	categoryID := c.Query("category_id")
-	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
-
-	fmt.Printf("\n=== GetSubcategories Debug ===\n")
-	fmt.Printf("categoryID: %s\n", categoryID)
-	fmt.Printf("userID: %v\n", userID)
-	fmt.Printf("roleID: %v\n", roleID)
-
-	var subcategories []models.FundSubcategory
-	query := config.DB.Preload("Category").Preload("SubcategoryBudget").
-		Where("status = 'active' AND fund_subcategorie.delete_at IS NULL")
-
-	if categoryID != "" {
-		query = query.Where("category_id = ?", categoryID)
-	}
-
-	// Apply role-based filtering
-	roleIDStr := fmt.Sprintf("%d", roleID.(int))
-
-	// Admin sees everything, others see based on target_roles
-	if roleID.(int) != 3 { // 3 = admin role
-		query = query.Where(`
-			target_roles IS NULL 
-			OR JSON_CONTAINS(target_roles, ?)
-		`, fmt.Sprintf(`"%s"`, roleIDStr))
-		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
-	} else {
-		fmt.Printf("Admin user - no role filtering\n")
-	}
-
-	if err := query.Find(&subcategories).Error; err != nil {
-		fmt.Printf("Query error: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch subcategories"})
-		return
-	}
-
-	fmt.Printf("Found %d subcategories\n", len(subcategories))
-	fmt.Printf("=== End GetSubcategories Debug ===\n\n")
-
-	c.JSON(http.StatusOK, gin.H{
-		"subcategories": subcategories,
-		"role_id":       roleID,
-		"user_id":       userID,
-		"total":         len(subcategories),
-	})
-}
-
-// GetTeacherSubcategories - Role-based subcategory retrieval using raw SQL
+// GetTeacherSubcategories - Fixed SQL syntax for production server
 func GetTeacherSubcategories(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	yearID := c.Query("year_id")
@@ -503,8 +513,11 @@ func GetTeacherSubcategories(c *gin.Context) {
 	fmt.Printf("userID: %v\n", userID)
 	fmt.Printf("roleID: %v\n", roleID)
 
-	// Build base query with joins
-	query := `
+	// Initialize response
+	var results []map[string]interface{}
+
+	// Build base query - ลบ semicolon ออก
+	baseQuery := `
 		SELECT DISTINCT
 			fs.subcategorie_id,
 			fs.subcategorie_name,
@@ -531,31 +544,44 @@ func GetTeacherSubcategories(c *gin.Context) {
 		WHERE fs.delete_at IS NULL 
 			AND fs.status = 'active'`
 
+	var conditions []string
 	var args []interface{}
 
 	// Add filters
 	if categoryID != "" {
-		query += " AND fs.category_id = ?"
+		conditions = append(conditions, "fs.category_id = ?")
 		args = append(args, categoryID)
 	}
 	if yearID != "" {
-		query += " AND fs.year_id = ?"
+		conditions = append(conditions, "fs.year_id = ?")
 		args = append(args, yearID)
 	}
 
 	// Role-based filtering
 	roleIDStr := fmt.Sprintf("%d", roleID.(int))
 	if roleID.(int) != 3 { // Not admin
-		query += " AND (fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))"
+		// ใช้ IFNULL เพื่อจัดการ NULL values
+		conditions = append(conditions, "(fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))")
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
 		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
 	}
 
-	// Add ordering
-	query += " ORDER BY fs.subcategorie_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
+	// Append conditions
+	if len(conditions) > 0 {
+		baseQuery += " AND " + strings.Join(conditions, " AND ")
+	}
 
-	// Execute query
-	rows, err := config.DB.Raw(query, args...).Rows()
+	// Add ordering - ไม่มี semicolon
+	baseQuery += " ORDER BY fs.subcategorie_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
+
+	fmt.Printf("Final SQL: %s\n", baseQuery)
+	fmt.Printf("Args: %v\n", args)
+
+	// Execute query with timeout
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := config.DB.WithContext(ctx).Raw(baseQuery, args...).Rows()
 	if err != nil {
 		fmt.Printf("Query error: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -567,7 +593,6 @@ func GetTeacherSubcategories(c *gin.Context) {
 	defer rows.Close()
 
 	// Process results
-	var results []map[string]interface{}
 	processedIDs := make(map[string]bool)
 
 	for rows.Next() {
@@ -649,6 +674,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 			"fund_condition":           fundCondition,
 			"target_roles":             targetRoles,
 			"comment":                  subComment,
+			"visible_to_role":          roleID,
 		}
 
 		// Add budget information if available
@@ -703,6 +729,16 @@ func GetTeacherSubcategories(c *gin.Context) {
 		fmt.Printf("Added fund: %s (ID: %s)\n", displayName, uniqueID)
 	}
 
+	// Check for any errors during iteration
+	if err = rows.Err(); err != nil {
+		fmt.Printf("Rows iteration error: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Error processing results",
+			"debug": err.Error(),
+		})
+		return
+	}
+
 	fmt.Printf("Final result: %d subcategories for role %s\n", len(results), roleIDStr)
 	fmt.Printf("=== End Debug ===\n\n")
 
@@ -743,7 +779,7 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			COALESCE(SUM(sb.allocated_amount), 0) as total_allocated,
 			COALESCE(SUM(sb.remaining_budget), 0) as total_remaining
 		FROM fund_subcategorie fs
-		LEFT JOIN fund_categorie fc ON fs.category_id = fc.categorie_id
+		LEFT JOIN fund_categories fc ON fs.category_id = fc.categorie_id
 		LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id 
 			AND sb.delete_at IS NULL
 		WHERE fs.delete_at IS NULL`
