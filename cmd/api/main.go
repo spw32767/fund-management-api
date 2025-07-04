@@ -51,10 +51,12 @@ func main() {
 	// Optional: Add rate limiting (uncomment in production)
 	// router.Use(middleware.RateLimitMiddleware())
 
+	// Register Log route
+	// This should be done before setting up other routes to ensure logging works correctly
+	routes.RegisterLogRoute(router)
+
 	// Setup routes
 	routes.SetupRoutes(router)
-
-	routes.RegisterLogRoute(router)
 
 	// Create upload directory if not exists
 	uploadPath := os.Getenv("UPLOAD_PATH")
