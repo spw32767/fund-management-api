@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -9,6 +10,51 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Helper function to generate application number
+func generateApplicationNumber() string {
+	// Format: APP-YYYYMMDD-XXXX
+	now := time.Now()
+	dateStr := now.Format("20060102")
+
+	// Count today's applications
+	var count int64
+	config.DB.Model(&models.FundApplication{}).
+		Where("DATE(create_at) = DATE(NOW())").
+		Count(&count)
+
+	return fmt.Sprintf("APP-%s-%04d", dateStr, count+1)
+}
+
+// checkSubcategoryVisibility - Helper function to check if user can see subcategory
+func checkSubcategoryVisibility(targetRolesJSON *string, userRoleID int) bool {
+	// Admin sees everything
+	if userRoleID == 3 {
+		return true
+	}
+
+	// If no target_roles, everyone can see
+	if targetRolesJSON == nil || *targetRolesJSON == "" {
+		return true
+	}
+
+	// Parse target_roles
+	var targetRoles []string
+	if err := json.Unmarshal([]byte(*targetRolesJSON), &targetRoles); err != nil {
+		// If parsing fails, hide by default
+		return false
+	}
+
+	// Check if user's role is in target_roles
+	userRoleStr := fmt.Sprintf("%d", userRoleID)
+	for _, role := range targetRoles {
+		if role == userRoleStr {
+			return true
+		}
+	}
+
+	return false
+}
 
 // GetApplications returns list of applications
 func GetApplications(c *gin.Context) {
@@ -358,21 +404,6 @@ func RejectApplication(c *gin.Context) {
 	})
 }
 
-// Helper function to generate application number
-func generateApplicationNumber() string {
-	// Format: APP-YYYYMMDD-XXXX
-	now := time.Now()
-	dateStr := now.Format("20060102")
-
-	// Count today's applications
-	var count int64
-	config.DB.Model(&models.FundApplication{}).
-		Where("DATE(create_at) = DATE(NOW())").
-		Count(&count)
-
-	return fmt.Sprintf("APP-%s-%04d", dateStr, count+1)
-}
-
 // GetCategories returns all active fund categories
 func GetCategories(c *gin.Context) {
 	yearID := c.Query("year_id")
@@ -394,28 +425,6 @@ func GetCategories(c *gin.Context) {
 	})
 }
 
-// GetSubcategories returns subcategories with budget info
-func GetSubcategories(c *gin.Context) {
-	categoryID := c.Query("category_id")
-
-	var subcategories []models.FundSubcategory
-	query := config.DB.Preload("Category").Preload("SubcategoryBudget").
-		Where("status = 'active' AND fund_subcategorie.delete_at IS NULL")
-
-	if categoryID != "" {
-		query = query.Where("category_id = ?", categoryID)
-	}
-
-	if err := query.Find(&subcategories).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch subcategories"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"subcategories": subcategories,
-	})
-}
-
 // GetYears returns all active years
 func GetYears(c *gin.Context) {
 	var years []models.Year
@@ -427,5 +436,701 @@ func GetYears(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"years": years,
+	})
+}
+
+// GetSubcategories returns subcategories
+func GetSubcategories(c *gin.Context) {
+	categoryID := c.Query("category_id")
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
+
+	fmt.Printf("\n=== GetSubcategories Debug ===\n")
+	fmt.Printf("categoryID: %s\n", categoryID)
+	fmt.Printf("userID: %v\n", userID)
+	fmt.Printf("roleID: %v\n", roleID)
+
+	var subcategories []models.FundSubcategory
+	query := config.DB.Preload("Category").Preload("SubcategoryBudget").
+		Where("status = 'active' AND fund_subcategorie.delete_at IS NULL")
+
+	if categoryID != "" {
+		query = query.Where("category_id = ?", categoryID)
+	}
+
+	// Apply role-based filtering
+	roleIDStr := fmt.Sprintf("%d", roleID.(int))
+
+	// Admin sees everything, others see based on target_roles
+	if roleID.(int) != 3 { // 3 = admin role
+		query = query.Where(`
+			target_roles IS NULL 
+			OR JSON_CONTAINS(target_roles, ?)
+		`, fmt.Sprintf(`"%s"`, roleIDStr))
+		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
+	} else {
+		fmt.Printf("Admin user - no role filtering\n")
+	}
+
+	if err := query.Find(&subcategories).Error; err != nil {
+		fmt.Printf("Query error: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch subcategories"})
+		return
+	}
+
+	fmt.Printf("Found %d subcategories\n", len(subcategories))
+	fmt.Printf("=== End GetSubcategories Debug ===\n\n")
+
+	c.JSON(http.StatusOK, gin.H{
+		"subcategories": subcategories,
+		"role_id":       roleID,
+		"user_id":       userID,
+		"total":         len(subcategories),
+	})
+}
+
+// GetTeacherSubcategories - Role-based subcategory retrieval using raw SQL
+func GetTeacherSubcategories(c *gin.Context) {
+	categoryID := c.Query("category_id")
+	yearID := c.Query("year_id")
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
+
+	// Debug log
+	fmt.Printf("\n=== GetTeacherSubcategories Debug ===\n")
+	fmt.Printf("categoryID: %s\n", categoryID)
+	fmt.Printf("yearID: %s\n", yearID)
+	fmt.Printf("userID: %v\n", userID)
+	fmt.Printf("roleID: %v\n", roleID)
+
+	// Build base query with joins
+	query := `
+		SELECT DISTINCT
+			fs.subcategorie_id,
+			fs.subcategorie_name,
+			fs.category_id,
+			fs.year_id,
+			fs.status,
+			fs.fund_condition,
+			fs.target_roles,
+			fs.comment as sub_comment,
+			sb.subcategorie_budget_id,
+			sb.allocated_amount,
+			sb.used_amount,
+			sb.remaining_budget,
+			sb.max_grants,
+			sb.max_amount_per_grant,
+			sb.remaining_grant,
+			sb.level,
+			sb.fund_description,
+			sb.comment as budget_comment
+		FROM fund_subcategorie fs
+		LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id 
+			AND sb.delete_at IS NULL 
+			AND sb.status = 'active'
+		WHERE fs.delete_at IS NULL 
+			AND fs.status = 'active'`
+
+	var args []interface{}
+
+	// Add filters
+	if categoryID != "" {
+		query += " AND fs.category_id = ?"
+		args = append(args, categoryID)
+	}
+	if yearID != "" {
+		query += " AND fs.year_id = ?"
+		args = append(args, yearID)
+	}
+
+	// Role-based filtering
+	roleIDStr := fmt.Sprintf("%d", roleID.(int))
+	if roleID.(int) != 3 { // Not admin
+		query += " AND (fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))"
+		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
+		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
+	}
+
+	// Add ordering
+	query += " ORDER BY fs.subcategorie_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
+
+	// Execute query
+	rows, err := config.DB.Raw(query, args...).Rows()
+	if err != nil {
+		fmt.Printf("Query error: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch subcategories",
+			"debug": err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Process results
+	var results []map[string]interface{}
+	processedIDs := make(map[string]bool)
+
+	for rows.Next() {
+		var (
+			subcategorieID       int
+			subcategorieName     string
+			categoryID           int
+			yearID               int
+			status               string
+			fundCondition        *string
+			targetRoles          *string
+			subComment           *string
+			subcategorieBudgetID *int
+			allocatedAmount      *float64
+			usedAmount           *float64
+			remainingBudget      *float64
+			maxGrants            *int
+			maxAmountPerGrant    *float64
+			remainingGrant       *int
+			level                *string
+			fundDescription      *string
+			budgetComment        *string
+		)
+
+		err := rows.Scan(
+			&subcategorieID,
+			&subcategorieName,
+			&categoryID,
+			&yearID,
+			&status,
+			&fundCondition,
+			&targetRoles,
+			&subComment,
+			&subcategorieBudgetID,
+			&allocatedAmount,
+			&usedAmount,
+			&remainingBudget,
+			&maxGrants,
+			&maxAmountPerGrant,
+			&remainingGrant,
+			&level,
+			&fundDescription,
+			&budgetComment,
+		)
+		if err != nil {
+			fmt.Printf("Scan error: %v\n", err)
+			continue
+		}
+
+		// Create unique ID
+		uniqueID := fmt.Sprintf("%d", subcategorieID)
+		displayName := subcategorieName
+
+		// Handle level-based naming
+		if subcategorieBudgetID != nil {
+			if level != nil && *level != "" {
+				uniqueID = fmt.Sprintf("%d_%s", subcategorieID, *level)
+				displayName = fmt.Sprintf("%s (ระดับ%s)", subcategorieName, *level)
+			} else if fundDescription != nil && *fundDescription != "" {
+				uniqueID = fmt.Sprintf("%d_budget_%d", subcategorieID, *subcategorieBudgetID)
+				displayName = fmt.Sprintf("%s - %s", subcategorieName, *fundDescription)
+			}
+		}
+
+		// Skip if already processed
+		if processedIDs[uniqueID] {
+			continue
+		}
+		processedIDs[uniqueID] = true
+
+		// Create result object
+		result := map[string]interface{}{
+			"subcategorie_id":          uniqueID,
+			"original_subcategorie_id": subcategorieID,
+			"subcategorie_name":        displayName,
+			"category_id":              categoryID,
+			"year_id":                  yearID,
+			"status":                   status,
+			"fund_condition":           fundCondition,
+			"target_roles":             targetRoles,
+			"comment":                  subComment,
+		}
+
+		// Add budget information if available
+		if subcategorieBudgetID != nil {
+			result["subcategorie_budget_id"] = *subcategorieBudgetID
+			result["allocated_amount"] = 0.0
+			result["used_amount"] = 0.0
+			result["remaining_budget"] = 0.0
+			result["max_amount_per_grant"] = 0.0
+			result["is_unlimited_grants"] = true
+
+			if allocatedAmount != nil {
+				result["allocated_amount"] = *allocatedAmount
+			}
+			if usedAmount != nil {
+				result["used_amount"] = *usedAmount
+			}
+			if remainingBudget != nil {
+				result["remaining_budget"] = *remainingBudget
+			}
+			if maxAmountPerGrant != nil {
+				result["max_amount_per_grant"] = *maxAmountPerGrant
+			}
+			if maxGrants != nil {
+				result["max_grants"] = *maxGrants
+				result["is_unlimited_grants"] = false
+				if remainingGrant != nil {
+					result["remaining_grant"] = *remainingGrant
+				}
+			}
+			if level != nil {
+				result["level"] = *level
+			}
+			if fundDescription != nil {
+				result["fund_description"] = *fundDescription
+			}
+			if budgetComment != nil {
+				result["budget_comment"] = *budgetComment
+			}
+		} else {
+			// Default values when no budget
+			result["allocated_amount"] = 0.0
+			result["used_amount"] = 0.0
+			result["remaining_budget"] = 0.0
+			result["max_grants"] = nil
+			result["max_amount_per_grant"] = 0.0
+			result["remaining_grant"] = nil
+			result["is_unlimited_grants"] = false
+		}
+
+		results = append(results, result)
+		fmt.Printf("Added fund: %s (ID: %s)\n", displayName, uniqueID)
+	}
+
+	fmt.Printf("Final result: %d subcategories for role %s\n", len(results), roleIDStr)
+	fmt.Printf("=== End Debug ===\n\n")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"subcategories": results,
+		"role_id":       roleID,
+		"user_id":       userID,
+		"total":         len(results),
+	})
+}
+
+// GetSubcategoryForRole - Unified function for role-based subcategory retrieval using raw SQL
+func GetSubcategoryForRole(c *gin.Context) {
+	// This function can use the same logic as GetTeacherSubcategories
+	// since it handles all roles properly
+	GetTeacherSubcategories(c)
+}
+
+// GetAllSubcategoriesAdmin - Admin endpoint to see all subcategories without filtering
+func GetAllSubcategoriesAdmin(c *gin.Context) {
+	categoryID := c.Query("category_id")
+	yearID := c.Query("year_id")
+
+	// Build query
+	baseQuery := `
+		SELECT 
+			fs.subcategorie_id,
+			fs.subcategorie_name,
+			fs.category_id,
+			fs.year_id,
+			fs.status,
+			fs.fund_condition,
+			fs.target_roles,
+			fs.comment,
+			fc.categorie_name,
+			COUNT(DISTINCT sb.subcategorie_budget_id) as budget_count,
+			COALESCE(SUM(sb.allocated_amount), 0) as total_allocated,
+			COALESCE(SUM(sb.remaining_budget), 0) as total_remaining
+		FROM fund_subcategorie fs
+		LEFT JOIN fund_categorie fc ON fs.category_id = fc.categorie_id
+		LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id 
+			AND sb.delete_at IS NULL
+		WHERE fs.delete_at IS NULL`
+
+	var args []interface{}
+
+	// Add filters
+	if categoryID != "" {
+		baseQuery += " AND fs.category_id = ?"
+		args = append(args, categoryID)
+	}
+	if yearID != "" {
+		baseQuery += " AND fs.year_id = ?"
+		args = append(args, yearID)
+	}
+
+	baseQuery += ` GROUP BY fs.subcategorie_id, fs.subcategorie_name, fs.category_id, 
+			fs.year_id, fs.status, fs.fund_condition, fs.target_roles, 
+			fs.comment, fc.categorie_name
+		ORDER BY fs.subcategorie_id`
+
+	// Execute query
+	rows, err := config.DB.Raw(baseQuery, args...).Rows()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch subcategories",
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Process results
+	var results []map[string]interface{}
+	roleStats := map[string]int{
+		"total":           0,
+		"teacher_visible": 0,
+		"staff_visible":   0,
+		"admin_only":      0,
+		"all_roles":       0,
+	}
+
+	for rows.Next() {
+		var (
+			subcategorieID   int
+			subcategorieName string
+			categoryID       int
+			yearID           int
+			status           string
+			fundCondition    *string
+			targetRoles      *string
+			comment          *string
+			categoryName     *string
+			budgetCount      int
+			totalAllocated   float64
+			totalRemaining   float64
+		)
+
+		err := rows.Scan(
+			&subcategorieID,
+			&subcategorieName,
+			&categoryID,
+			&yearID,
+			&status,
+			&fundCondition,
+			&targetRoles,
+			&comment,
+			&categoryName,
+			&budgetCount,
+			&totalAllocated,
+			&totalRemaining,
+		)
+		if err != nil {
+			continue
+		}
+
+		// Parse target roles
+		var targetRolesList []string
+		if targetRoles != nil && *targetRoles != "" {
+			json.Unmarshal([]byte(*targetRoles), &targetRolesList)
+		}
+
+		// Update statistics
+		roleStats["total"]++
+		if checkSubcategoryVisibility(targetRoles, 1) {
+			roleStats["teacher_visible"]++
+		}
+		if checkSubcategoryVisibility(targetRoles, 2) {
+			roleStats["staff_visible"]++
+		}
+		if targetRoles == nil || *targetRoles == "" {
+			roleStats["all_roles"]++
+		} else if len(targetRolesList) == 1 && targetRolesList[0] == "3" {
+			roleStats["admin_only"]++
+		}
+
+		result := map[string]interface{}{
+			"subcategorie_id":   subcategorieID,
+			"subcategorie_name": subcategorieName,
+			"category_id":       categoryID,
+			"category_name":     categoryName,
+			"year_id":           yearID,
+			"status":            status,
+			"fund_condition":    fundCondition,
+			"target_roles":      targetRolesList,
+			"target_roles_json": targetRoles,
+			"comment":           comment,
+			"has_budget":        budgetCount > 0,
+			"budget_count":      budgetCount,
+			"total_allocated":   totalAllocated,
+			"total_remaining":   totalRemaining,
+		}
+
+		results = append(results, result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"subcategories": results,
+		"total":         len(results),
+		"statistics":    roleStats,
+	})
+}
+
+// UpdateSubcategoryTargetRoles - Admin only endpoint to update target_roles
+func UpdateSubcategoryTargetRoles(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	subcategoryID := c.Param("id")
+
+	type UpdateTargetRolesRequest struct {
+		TargetRoles []string `json:"target_roles"`
+	}
+
+	var req UpdateTargetRolesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find subcategory
+	var subcategory models.FundSubcategory
+	if err := config.DB.Where("subcategorie_id = ? AND delete_at IS NULL", subcategoryID).
+		First(&subcategory).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory not found"})
+		return
+	}
+
+	// Convert target_roles to JSON string
+	var targetRolesJSON string
+	if len(req.TargetRoles) > 0 {
+		jsonBytes, err := json.Marshal(req.TargetRoles)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target_roles format"})
+			return
+		}
+		targetRolesJSON = string(jsonBytes)
+	} else {
+		targetRolesJSON = ""
+	}
+
+	// Update subcategory
+	now := time.Now()
+	subcategory.TargetRoles = &targetRolesJSON
+	subcategory.UpdateAt = &now
+
+	if err := config.DB.Save(&subcategory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update subcategory"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"message":     "Target roles updated successfully",
+		"subcategory": subcategory,
+	})
+}
+
+// CreateSubcategoryWithRoles - Admin only endpoint to create subcategory with target_roles
+func CreateSubcategoryWithRoles(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type CreateSubcategoryRequest struct {
+		CategoryID       int      `json:"category_id" binding:"required"`
+		SubcategorieName string   `json:"subcategorie_name" binding:"required"`
+		YearID           int      `json:"year_id" binding:"required"`
+		FundCondition    string   `json:"fund_condition"`
+		TargetRoles      []string `json:"target_roles"`
+		Comment          string   `json:"comment"`
+	}
+
+	var req CreateSubcategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert target_roles to JSON string
+	var targetRolesJSON *string
+	if len(req.TargetRoles) > 0 {
+		jsonBytes, err := json.Marshal(req.TargetRoles)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target_roles format"})
+			return
+		}
+		jsonStr := string(jsonBytes)
+		targetRolesJSON = &jsonStr
+	}
+
+	// Create new subcategory
+	now := time.Now()
+	subcategory := models.FundSubcategory{
+		CategoryID:       req.CategoryID,
+		SubcategorieName: req.SubcategorieName,
+		YearID:           req.YearID,
+		FundCondition:    &req.FundCondition,
+		TargetRoles:      targetRolesJSON,
+		Status:           "active",
+		Comment:          &req.Comment,
+		CreateAt:         &now,
+		UpdateAt:         &now,
+	}
+
+	if err := config.DB.Create(&subcategory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subcategory"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success":     true,
+		"message":     "Subcategory created successfully",
+		"subcategory": subcategory,
+	})
+}
+
+// TestTargetRoles - Test endpoint to check target_roles in database
+func TestTargetRoles(c *gin.Context) {
+	fmt.Printf("\n=== Testing Target Roles ===\n")
+
+	rows, err := config.DB.Raw(`
+		SELECT subcategorie_id, subcategorie_name, target_roles 
+		FROM fund_subcategorie 
+		WHERE delete_at IS NULL 
+		ORDER BY subcategorie_id
+	`).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var results []gin.H
+	for rows.Next() {
+		var id int
+		var name string
+		var targetRoles *string
+
+		rows.Scan(&id, &name, &targetRoles)
+
+		var roles []string
+		if targetRoles != nil && *targetRoles != "" {
+			json.Unmarshal([]byte(*targetRoles), &roles)
+		}
+
+		result := gin.H{
+			"id":           id,
+			"name":         name,
+			"target_roles": roles,
+		}
+		results = append(results, result)
+
+		fmt.Printf("ID %d: %s -> %v\n", id, name, roles)
+	}
+
+	fmt.Printf("=== End Test ===\n\n")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    results,
+		"total":   len(results),
+	})
+}
+
+// DebugUserRoleAccess - Debug endpoint to check what user can see
+func DebugUserRoleAccess(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
+
+	// Get all subcategories
+	query := `
+		SELECT subcategorie_id, subcategorie_name, target_roles
+		FROM fund_subcategorie
+		WHERE delete_at IS NULL AND status = 'active'
+		ORDER BY subcategorie_id`
+
+	rows, err := config.DB.Raw(query).Rows()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	visible := []map[string]interface{}{}
+	hidden := []map[string]interface{}{}
+
+	for rows.Next() {
+		var (
+			id          int
+			name        string
+			targetRoles *string
+		)
+		rows.Scan(&id, &name, &targetRoles)
+
+		info := map[string]interface{}{
+			"id":           id,
+			"name":         name,
+			"target_roles": targetRoles,
+		}
+
+		if checkSubcategoryVisibility(targetRoles, roleID.(int)) {
+			visible = append(visible, info)
+		} else {
+			hidden = append(hidden, info)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":       userID,
+		"role_id":       roleID,
+		"visible":       visible,
+		"hidden":        hidden,
+		"visible_count": len(visible),
+		"hidden_count":  len(hidden),
+		"total_count":   len(visible) + len(hidden),
+	})
+}
+
+// TestRoleFiltering - Test endpoint to verify role filtering logic
+func TestRoleFiltering(c *gin.Context) {
+	testCases := []struct {
+		TargetRoles string
+		UserRole    int
+		Expected    bool
+		Description string
+	}{
+		{`["1"]`, 1, true, "Teacher can see teacher-only fund"},
+		{`["1"]`, 2, false, "Staff cannot see teacher-only fund"},
+		{`["1","2"]`, 1, true, "Teacher can see teacher+staff fund"},
+		{`["1","2"]`, 2, true, "Staff can see teacher+staff fund"},
+		{`["3"]`, 1, false, "Teacher cannot see admin-only fund"},
+		{`[]`, 1, true, "Empty array = all can see"},
+		{``, 1, true, "Null/empty = all can see"},
+		{`["1"]`, 3, true, "Admin can see everything"},
+	}
+
+	results := []map[string]interface{}{}
+
+	for _, tc := range testCases {
+		var targetRoles *string
+		if tc.TargetRoles != "" {
+			targetRoles = &tc.TargetRoles
+		}
+
+		actual := checkSubcategoryVisibility(targetRoles, tc.UserRole)
+		passed := actual == tc.Expected
+
+		results = append(results, map[string]interface{}{
+			"description":  tc.Description,
+			"target_roles": tc.TargetRoles,
+			"user_role":    tc.UserRole,
+			"expected":     tc.Expected,
+			"actual":       actual,
+			"passed":       passed,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"test_results": results,
 	})
 }

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -61,21 +63,21 @@ type FundCategory struct {
 }
 
 type FundSubcategory struct {
-	SubcategoryID       int        `gorm:"primaryKey;column:subcategorie_id" json:"subcategory_id"`
-	CategoryID          int        `gorm:"column:category_id" json:"category_id"`
-	SubcategoryName     string     `gorm:"column:subcategorie_name" json:"subcategory_name"`
-	YearID              int        `gorm:"column:year_id" json:"year_id"`
-	SubcategoryBudgetID int        `gorm:"column:subcategorie_budget_id" json:"subcategory_budget_id"`
-	FundCondition       string     `gorm:"column:fund_condition" json:"fund_condition,omitempty"`
-	Status              string     `gorm:"column:status" json:"status"`
-	Comment             string     `gorm:"column:comment" json:"comment,omitempty"`
-	CreateAt            *time.Time `gorm:"column:create_at" json:"create_at"`
-	UpdateAt            *time.Time `gorm:"column:update_at" json:"update_at"`
-	DeleteAt            *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+	SubcategorieID   int        `gorm:"primaryKey;column:subcategorie_id" json:"subcategorie_id"`
+	CategoryID       int        `gorm:"column:category_id" json:"category_id"`
+	SubcategorieName string     `gorm:"column:subcategorie_name" json:"subcategorie_name"`
+	YearID           int        `gorm:"column:year_id" json:"year_id"`
+	FundCondition    *string    `gorm:"column:fund_condition" json:"fund_condition"`
+	Status           string     `gorm:"column:status" json:"status"`
+	Comment          *string    `gorm:"column:comment" json:"comment"`
+	TargetRoles      *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
+	CreateAt         *time.Time `gorm:"column:create_at" json:"create_at"`
+	UpdateAt         *time.Time `gorm:"column:update_at" json:"update_at"`
+	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// Relations
 	Category          FundCategory      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
-	SubcategoryBudget SubcategoryBudget `gorm:"foreignKey:SubcategoryBudgetID" json:"subcategory_budget,omitempty"`
+	SubcategoryBudget SubcategoryBudget `gorm:"foreignKey:SubcategorieID" json:"subcategory_budget,omitempty"`
 }
 
 type SubcategoryBudget struct {
@@ -119,4 +121,60 @@ func (FundSubcategory) TableName() string {
 
 func (SubcategoryBudget) TableName() string {
 	return "subcategorie_budgets"
+}
+
+// Helper methods for target_roles JSON handling
+func (fs *FundSubcategory) GetTargetRoles() []string {
+	if fs.TargetRoles == nil || *fs.TargetRoles == "" {
+		return nil
+	}
+
+	var roles []string
+	if err := json.Unmarshal([]byte(*fs.TargetRoles), &roles); err != nil {
+		return nil
+	}
+	return roles
+}
+
+func (fs *FundSubcategory) SetTargetRoles(roles []string) error {
+	if roles == nil || len(roles) == 0 {
+		fs.TargetRoles = nil
+		return nil
+	}
+
+	jsonBytes, err := json.Marshal(roles)
+	if err != nil {
+		return err
+	}
+
+	jsonStr := string(jsonBytes)
+	fs.TargetRoles = &jsonStr
+	return nil
+}
+
+func (fs *FundSubcategory) IsVisibleToRole(roleID int) bool {
+	// Admin (role_id = 3) sees everything
+	if roleID == 3 {
+		return true
+	}
+
+	// If target_roles is null or empty, everyone can see it
+	if fs.TargetRoles == nil || *fs.TargetRoles == "" {
+		return true
+	}
+
+	// Check if role is in target_roles
+	roles := fs.GetTargetRoles()
+	if roles == nil {
+		return true
+	}
+
+	roleStr := fmt.Sprintf("%d", roleID)
+	for _, role := range roles {
+		if role == roleStr {
+			return true
+		}
+	}
+
+	return false
 }

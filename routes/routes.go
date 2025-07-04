@@ -60,6 +60,11 @@ func SetupRoutes(router *gin.Engine) {
 						"dashboard": gin.H{
 							"stats": "GET /api/v1/dashboard/stats",
 						},
+						"role_based": gin.H{
+							"teacher_subcategories": "GET /api/v1/teacher/subcategories",
+							"staff_subcategories":   "GET /api/v1/staff/subcategories",
+							"admin_manage_roles":    "PUT /api/v1/admin/subcategories/:id/roles",
+						},
 					},
 				})
 			})
@@ -78,6 +83,20 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/years", controllers.GetYears)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
+
+			// Teacher-specific endpoints
+			teacher := protected.Group("/teacher")
+			{
+				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
+				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
+			}
+
+			// Staff-specific endpoints
+			staff := protected.Group("/staff")
+			{
+				// ใช้ function เดียวกัน
+				staff.GET("/subcategories", controllers.GetSubcategoryForRole)
+			}
 
 			// Fund Applications
 			applications := protected.Group("/applications")
@@ -114,20 +133,6 @@ func SetupRoutes(router *gin.Engine) {
 				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
 			}
 
-			// Admin only routes
-			admin := protected.Group("/admin")
-			admin.Use(middleware.RequireRole(3)) // 3 = admin
-			{
-				// User management
-				admin.GET("/users", func(c *gin.Context) {
-					c.JSON(http.StatusOK, gin.H{"message": "Admin users endpoint - coming soon"})
-				})
-
-				// System settings
-				admin.GET("/settings", func(c *gin.Context) {
-					c.JSON(http.StatusOK, gin.H{"message": "Admin settings endpoint - coming soon"})
-				})
-			}
 		}
 	}
 
