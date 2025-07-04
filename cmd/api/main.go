@@ -3,6 +3,7 @@ package main
 import (
 	"fund-management-api/config"
 	"fund-management-api/middleware"
+	"fund-management-api/monitor"
 	"fund-management-api/routes"
 	"log"
 	"os"
@@ -51,23 +52,9 @@ func main() {
 	// Optional: Add rate limiting (uncomment in production)
 	// router.Use(middleware.RateLimitMiddleware())
 
-	// Register Log route
-	// Register /logs route early (before 404 catch-all in SetupRoutes)
-	router.GET("/logs", func(c *gin.Context) {
-		const accessToken = "secret-token"
-		if c.Query("token") != accessToken {
-			c.JSON(401, gin.H{"error": "Unauthorized"})
-			return
-		}
-
-		logData, err := os.ReadFile("fund-api.log")
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Unable to read log"})
-			return
-		}
-
-		c.Data(200, "text/plain; charset=utf-8", logData)
-	})
+	// Register monitoring routes
+	monitor.RegisterMonitorPage(router)
+	monitor.RegisterLogsRoute(router)
 
 	// Setup routes
 	routes.SetupRoutes(router)
