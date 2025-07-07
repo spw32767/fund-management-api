@@ -28,6 +28,9 @@ func SetupRoutes(router *gin.Engine) {
 			// Authentication
 			public.POST("/login", controllers.Login)
 
+			// NEW: Refresh token endpoint (public)
+			public.POST("/refresh", controllers.RefreshTokenWithRefreshToken)
+
 			// Health check
 			public.GET("/health", func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{
@@ -50,9 +53,11 @@ func SetupRoutes(router *gin.Engine) {
 					"endpoints": gin.H{
 						"auth": gin.H{
 							"login":           "POST /api/v1/login",
-							"refresh":         "POST /api/v1/refresh-token",
+							"refresh":         "POST /api/v1/refresh",
 							"profile":         "GET /api/v1/profile",
 							"change_password": "PUT /api/v1/change-password",
+							"logout":          "POST /api/v1/logout",
+							"sessions":        "GET /api/v1/sessions",
 						},
 						"applications": gin.H{
 							"list":   "GET /api/v1/applications",
@@ -79,7 +84,12 @@ func SetupRoutes(router *gin.Engine) {
 			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
-			protected.POST("/refresh-token", controllers.RefreshToken)
+			protected.POST("/refresh-token", controllers.RefreshToken) // Legacy endpoint
+
+			// NEW: Session management endpoints
+			protected.POST("/logout", controllers.Logout)
+			protected.GET("/sessions", controllers.GetActiveSessions)
+			protected.POST("/sessions/revoke-others", controllers.RevokeOtherSessions)
 
 			// Common endpoints (all authenticated users)
 			protected.GET("/years", controllers.GetYears)

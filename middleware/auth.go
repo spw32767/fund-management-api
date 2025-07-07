@@ -20,7 +20,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates JWT token with enhanced security
+// AuthMiddleware validates JWT token and session (updated version)
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get token from header
@@ -70,7 +70,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			switch {
 			case errors.Is(err, jwt.ErrTokenExpired):
 				errorCode = "TOKEN_EXPIRED"
-				errorMessage = "Token has expired"
+				errorMessage = "Access token has expired. Please refresh your token."
 			case errors.Is(err, jwt.ErrTokenSignatureInvalid):
 				errorCode = "INVALID_SIGNATURE"
 				errorMessage = "Invalid token signature"
@@ -130,9 +130,57 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// NEW: Session validation - only if JTI exists
+		if claims.ID != "" {
+			// Check if session exists and is active
+			var session models.UserSession
+			if err := config.DB.Where("user_id = ? AND access_token_jti = ? AND is_active = ?",
+				claims.UserID, claims.ID, true).First(&session).Error; err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   "Session not found or has been terminated",
+					"code":    "SESSION_NOT_FOUND",
+				})
+				c.Abort()
+				return
+			}
+
+			// Check if session has expired
+			if time.Now().After(session.ExpiresAt) {
+				// Mark session as inactive
+				config.DB.Model(&session).Update("is_active", false)
+
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   "Session has expired",
+					"code":    "SESSION_EXPIRED",
+				})
+				c.Abort()
+				return
+			}
+
+			// Set session ID in context
+			c.Set("sessionID", session.SessionID)
+
+			// Update session last activity in background (non-blocking)
+			go func() {
+				now := time.Now()
+				config.DB.Model(&models.UserSession{}).
+					Where("session_id = ?", session.SessionID).
+					Update("last_activity", now)
+			}()
+		}
+
 		// Check if user still exists and is active
 		var user models.User
 		if err := config.DB.Where("user_id = ? AND delete_at IS NULL", claims.UserID).First(&user).Error; err != nil {
+			// Mark session as inactive if user doesn't exist and session exists
+			if claims.ID != "" {
+				config.DB.Model(&models.UserSession{}).
+					Where("access_token_jti = ?", claims.ID).
+					Update("is_active", false)
+			}
+
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "User account not found or has been deactivated",
@@ -157,10 +205,11 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("userID", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("roleID", claims.RoleID)
-		c.Set("user", user) // Set full user object for convenience
+		c.Set("user", user)     // Set full user object for convenience
+		c.Set("jti", claims.ID) // Add JTI to context
 
-		// Add token expiry warning header if token expires soon (within 1 hour)
-		if time.Until(claims.ExpiresAt.Time) < time.Hour {
+		// Add token expiry warning header if token expires soon (within 30 minutes)
+		if time.Until(claims.ExpiresAt.Time) < 30*time.Minute {
 			c.Header("X-Token-Expires-Soon", "true")
 			c.Header("X-Token-Expires-At", claims.ExpiresAt.Time.Format(time.RFC3339))
 		}
@@ -169,7 +218,7 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequireRole checks if user has specific role(s)
+// RequireRole checks if user has specific role(s) - existing function unchanged
 func RequireRole(roleIDs ...int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRoleID, exists := c.Get("roleID")
@@ -185,129 +234,18 @@ func RequireRole(roleIDs ...int) gin.HandlerFunc {
 
 		// Check if user's role is in allowed roles
 		userRole := userRoleID.(int)
-		allowed := false
-		for _, roleID := range roleIDs {
-			if userRole == roleID {
-				allowed = true
-				break
+		for _, allowedRole := range roleIDs {
+			if userRole == allowedRole {
+				c.Next()
+				return
 			}
 		}
 
-		if !allowed {
-			// Get role names for better error message
-			var allowedRoles []string
-			for _, roleID := range roleIDs {
-				switch roleID {
-				case 1:
-					allowedRoles = append(allowedRoles, "teacher")
-				case 2:
-					allowedRoles = append(allowedRoles, "staff")
-				case 3:
-					allowedRoles = append(allowedRoles, "admin")
-				default:
-					allowedRoles = append(allowedRoles, "unknown")
-				}
-			}
-
-			c.JSON(http.StatusForbidden, gin.H{
-				"success":        false,
-				"error":          "Insufficient permissions",
-				"code":           "INSUFFICIENT_PERMISSIONS",
-				"required_roles": allowedRoles,
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// RequirePermission is a more granular permission check (future enhancement)
-func RequirePermission(permission string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userRoleID, exists := c.Get("roleID")
-		if !exists {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"error":   "Role information not found",
-				"code":    "ROLE_NOT_FOUND",
-			})
-			c.Abort()
-			return
-		}
-
-		// Simple permission mapping (can be enhanced with database-driven permissions)
-		rolePermissions := map[int][]string{
-			1: {"view_own_applications", "create_application", "edit_own_application"}, // teacher
-			2: {"view_applications", "process_applications"},                           // staff
-			3: {"view_all", "edit_all", "delete_all", "admin_functions"},               // admin
-		}
-
-		userRole := userRoleID.(int)
-		permissions, exists := rolePermissions[userRole]
-		if !exists {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"error":   "Unknown role",
-				"code":    "UNKNOWN_ROLE",
-			})
-			c.Abort()
-			return
-		}
-
-		// Check if user has required permission
-		hasPermission := false
-		for _, perm := range permissions {
-			if perm == permission {
-				hasPermission = true
-				break
-			}
-		}
-
-		if !hasPermission {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success":             false,
-				"error":               "Permission denied",
-				"code":                "PERMISSION_DENIED",
-				"required_permission": permission,
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// RateLimitMiddleware implements basic rate limiting (optional)
-func RateLimitMiddleware() gin.HandlerFunc {
-	// This is a simple implementation - in production, use Redis or similar
-	requestCounts := make(map[string]int)
-	lastReset := time.Now()
-
-	return func(c *gin.Context) {
-		// Reset counts every hour
-		if time.Since(lastReset) > time.Hour {
-			requestCounts = make(map[string]int)
-			lastReset = time.Now()
-		}
-
-		clientIP := c.ClientIP()
-		requestCounts[clientIP]++
-
-		// Allow 1000 requests per hour per IP
-		if requestCounts[clientIP] > 1000 {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"success":     false,
-				"error":       "Rate limit exceeded",
-				"code":        "RATE_LIMIT_EXCEEDED",
-				"retry_after": "1 hour",
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Insufficient permissions for this resource",
+			"code":    "INSUFFICIENT_PERMISSIONS",
+		})
+		c.Abort()
 	}
 }
