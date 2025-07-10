@@ -154,6 +154,37 @@ func SetupRoutes(router *gin.Engine) {
 				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
 			}
 
+			// Publication Rewards
+			publications := protected.Group("/publication-rewards")
+			{
+				// List and view (teachers can see their own, admin can see all)
+				publications.GET("", controllers.GetPublicationRewards)
+				publications.GET("/:id", controllers.GetPublicationReward)
+
+				// Only teachers can create/update/delete
+				publications.POST("", middleware.RequireRole(1), controllers.CreatePublicationReward)
+				publications.PUT("/:id", middleware.RequireRole(1), controllers.UpdatePublicationReward)
+				publications.DELETE("/:id", middleware.RequireRole(1), controllers.DeletePublicationReward)
+
+				// Only admin can approve/reject
+				publications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApprovePublicationReward)
+				publications.POST("/:id/reject", middleware.RequireRole(3), controllers.RejectPublicationReward)
+
+				// Documents
+				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
+				publications.GET("/:id/documents", controllers.GetPublicationDocuments)
+
+				// Reward rates configuration (admin only)
+				publications.GET("/rates", controllers.GetPublicationRewardRates)
+				publications.PUT("/rates", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)
+			}
+
+			// Users endpoint for form dropdown
+			protected.GET("/users", controllers.GetUsers)
+
+			// Document types with category filter
+			protected.GET("/document-types", controllers.GetDocumentTypes)
+
 		}
 	}
 

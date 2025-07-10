@@ -246,15 +246,35 @@ func DeleteDocument(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Document deleted successfully"})
 }
 
-// GetDocumentTypes returns all document types
+// GetDocumentTypes returns available document types
 func GetDocumentTypes(c *gin.Context) {
 	var documentTypes []models.DocumentType
-	if err := config.DB.Where("delete_at IS NULL").Find(&documentTypes).Error; err != nil {
+	query := config.DB.Where("delete_at IS NULL")
+
+	// Filter by category if specified
+	if category := c.Query("category"); category != "" {
+		query = query.Where("category = ?", category)
+	}
+
+	if err := query.Order("document_order").Find(&documentTypes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch document types"})
 		return
 	}
 
+	// Transform for frontend
+	var result []map[string]interface{}
+	for _, dt := range documentTypes {
+		result = append(result, map[string]interface{}{
+			"id":       dt.DocumentTypeID,
+			"code":     dt.Code,
+			"name":     dt.DocumentTypeName,
+			"required": dt.Required,
+			"multiple": dt.Multiple,
+			"category": dt.Category,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"document_types": documentTypes,
+		"document_types": result,
 	})
 }

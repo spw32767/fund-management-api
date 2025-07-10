@@ -6,10 +6,14 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // GetPublicationRewards returns list of publication rewards
@@ -425,17 +429,96 @@ func generateRewardNumber() string {
 // UploadPublicationDocument handles document upload for publication rewards
 func UploadPublicationDocument(c *gin.Context) {
 	id := c.Param("id")
+	userID, _ := c.Get("userID")
 
+	// Verify ownership
 	var reward models.PublicationReward
-	if err := config.DB.Where("reward_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("reward_id = ? AND user_id = ? AND delete_at IS NULL", id, userID).
 		First(&reward).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Publication reward not found"})
 		return
 	}
 
-	// Handle file upload (omitted for brevity)
+	// Parse multipart form
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Document uploaded successfully"})
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
+	var uploadedFiles []models.PublicationDocument
+	now := time.Now()
+
+	// Process all files
+	for fieldName, files := range form.File {
+		// Extract document type from field name (e.g., "doc_1", "doc_11_0", "doc_11_1")
+		var documentType string
+		if strings.HasPrefix(fieldName, "doc_") {
+			parts := strings.Split(fieldName, "_")
+			if len(parts) >= 2 {
+				// Use document type ID as string for now
+				documentType = parts[1]
+			}
+		}
+
+		if documentType == "" {
+			continue
+		}
+
+		for _, fileHeader := range files {
+			// Generate unique filename
+			ext := filepath.Ext(fileHeader.Filename)
+			newFilename := fmt.Sprintf("pub_%d_%s_%s%s",
+				reward.RewardID,
+				documentType,
+				uuid.New().String(),
+				ext)
+
+			// Save file
+			dst := filepath.Join(uploadPath, "publications", newFilename)
+			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
+				return
+			}
+
+			if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+				return
+			}
+
+			// Get file extension
+			fileType := strings.TrimPrefix(ext, ".")
+
+			// Create document record using correct field names
+			doc := models.PublicationDocument{
+				RewardID:         reward.RewardID,
+				DocumentType:     documentType,
+				OriginalFilename: fileHeader.Filename,
+				StoredFilename:   newFilename,
+				FileType:         fileType,
+				UploadedBy:       userID.(int),
+				UploadedAt:       &now,
+				CreateAt:         &now,
+			}
+
+			if err := config.DB.Create(&doc).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
+				return
+			}
+
+			uploadedFiles = append(uploadedFiles, doc)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "Documents uploaded successfully",
+		"documents": uploadedFiles,
+	})
 }
 
 // GetPublicationDocuments returns documents for a publication reward
@@ -456,4 +539,82 @@ func GetPublicationDocuments(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"documents": documents})
+}
+
+// RejectPublicationReward rejects a publication reward (admin only)
+func RejectPublicationReward(c *gin.Context) {
+	id := c.Param("id")
+
+	var reward models.PublicationReward
+	if err := config.DB.Where("reward_id = ? AND delete_at IS NULL", id).
+		First(&reward).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Publication reward not found"})
+		return
+	}
+
+	// Check if already processed
+	if reward.Status != "submitted" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Reward not in submitted status"})
+		return
+	}
+
+	// Update status
+	now := time.Now()
+	reward.Status = "rejected"
+	reward.UpdateAt = &now
+
+	if err := config.DB.Save(&reward).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject publication reward"})
+		return
+	}
+
+	// Add comment if provided
+	var requestBody struct {
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&requestBody); err == nil && requestBody.Comment != "" {
+		userID, _ := c.Get("userID")
+		comment := models.PublicationComment{
+			RewardID:      reward.RewardID,
+			CommentBy:     userID.(int),
+			CommentText:   requestBody.Comment,
+			CommentStatus: "rejected",
+			CreateAt:      &now,
+		}
+		config.DB.Create(&comment)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Publication reward rejected",
+		"reward":  reward,
+	})
+}
+
+// UpdatePublicationRewardRates updates reward rates configuration (admin only)
+func UpdatePublicationRewardRates(c *gin.Context) {
+	var rates []models.PublicationRewardRate
+	if err := c.ShouldBindJSON(&rates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update rates in transaction
+	tx := config.DB.Begin()
+
+	for _, rate := range rates {
+		if err := tx.Model(&models.PublicationRewardRate{}).
+			Where("rate_id = ?", rate.RateID).
+			Updates(&rate).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rates"})
+			return
+		}
+	}
+
+	tx.Commit()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Reward rates updated successfully",
+		"rates":   rates,
+	})
 }
