@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
 	"net/http"
@@ -25,6 +26,9 @@ func SetupRoutes(router *gin.Engine) {
 		// Public routes
 		public := v1.Group("")
 		{
+
+			RegisterUploadRoutes(public)
+
 			// Authentication
 			public.POST("/login", controllers.Login)
 
@@ -179,5 +183,26 @@ func RegisterLogRoute(r *gin.Engine) {
 
 		// Return log content
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", logData)
+	})
+}
+
+func RegisterUploadRoutes(rg *gin.RouterGroup) {
+	rg.POST("/upload", func(c *gin.Context) {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file found"})
+			return
+		}
+
+		dst := fmt.Sprintf("./uploads/%s", file.Filename)
+		if err := c.SaveUploadedFile(file, dst); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "File uploaded successfully",
+			"url":     "/uploads/" + file.Filename,
+		})
 	})
 }

@@ -59,6 +59,9 @@ func main() {
 	// Setup routes
 	routes.SetupRoutes(router)
 
+	// Serve static files
+	router.Static("/uploads", "./uploads")
+
 	// Create upload directory if not exists
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
