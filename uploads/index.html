@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>File Manager</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background-color: #f4f4f4;
+    }
+    h1 {
+      text-align: center;
+    }
+    input[type="file"] {
+      margin-bottom: 1rem;
+    }
+    input[type="text"] {
+      margin-bottom: 1rem;
+      padding: 0.5rem;
+      width: 300px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    th, td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #ccc;
+      text-align: left;
+    }
+    tr:hover {
+      background-color: #f0f8ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>📁 Uploaded Files</h1>
+
+  <!-- Upload Form -->
+  <form id="uploadForm">
+    <input type="file" name="file" required />
+    <button type="submit">Upload</button>
+  </form>
+
+  <!-- Search -->
+  <input type="text" id="searchInput" placeholder="🔍 Search file name..." />
+
+  <!-- File Table -->
+  <table>
+    <thead>
+      <tr>
+        <th>File Name</th>
+        <th>Size</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="fileList">
+      <!-- Files will be inserted here -->
+    </tbody>
+  </table>
+
+  <script>
+    async function fetchFiles() {
+      const res = await fetch("/api/v1/files");
+      const data = await res.json();
+      allFiles = data.files;
+      renderFileList(allFiles);
+    }
+
+    function renderFileList(files) {
+      const tbody = document.getElementById("fileList");
+      tbody.innerHTML = "";
+      files.forEach(file => {
+        const row = document.createElement("tr");
+        const sizeKB = (file.size / 1024).toFixed(2);
+        row.innerHTML = `
+          <td><a href="${file.url}" target="_blank">${file.name}</a></td>
+          <td>${sizeKB} KB</td>
+          <td><button onclick="deleteFile('${file.name}')">🗑️ Delete</button></td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    async function deleteFile(name) {
+      if (!confirm(`Delete "${name}"?`)) return;
+      const res = await fetch(`/api/v1/files/${name}`, { method: "DELETE" });
+      const data = await res.json();
+      alert(data.message || data.error);
+      fetchFiles();
+    }
+
+    // Upload Handler
+    document.getElementById("uploadForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const res = await fetch("/api/v1/upload", {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      alert(data.message || data.error);
+      e.target.reset();
+      fetchFiles();
+    });
+
+    // Search Handler
+    document.getElementById("searchInput").addEventListener("input", e => {
+      const keyword = e.target.value.toLowerCase();
+      const filtered = allFiles.filter(f => f.name.toLowerCase().includes(keyword));
+      renderFileList(filtered);
+    });
+
+    // Initialize
+    let allFiles = [];
+    fetchFiles();
+  </script>
+</body>
+</html>

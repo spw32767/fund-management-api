@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,7 +31,8 @@ func SetupRoutes(router *gin.Engine) {
 		public := v1.Group("")
 		{
 
-			RegisterUploadRoutes(public)
+			RegisterUploadRoutes(public) // สำหรับ POST /upload
+			RegisterFileRoutes(public)   // สำหรับ GET /files, DELETE /files/:name
 
 			// Authentication
 			public.POST("/login", controllers.Login)
@@ -204,5 +209,67 @@ func RegisterUploadRoutes(rg *gin.RouterGroup) {
 			"message": "File uploaded successfully",
 			"url":     "/uploads/" + file.Filename,
 		})
+	})
+}
+
+func RegisterFileRoutes(rg *gin.RouterGroup) {
+	// List uploaded files
+	rg.GET("/files", func(c *gin.Context) {
+		files, err := os.ReadDir("./uploads")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read uploads folder"})
+			return
+		}
+
+		var fileList []gin.H
+		for _, f := range files {
+			if !f.IsDir() {
+				info, err := os.Stat("./uploads/" + f.Name())
+				if err != nil {
+					continue // ข้ามไฟล์ที่มีปัญหา
+				}
+
+				fileList = append(fileList, gin.H{
+					"name": f.Name(),
+					"url":  "/uploads/" + f.Name(),
+					"size": info.Size(), // size เป็น byte
+				})
+			}
+		}
+		// จัดเรียงชื่อไฟล์ A-Z
+		sort.Slice(fileList, func(i, j int) bool {
+			return fileList[i]["name"].(string) < fileList[j]["name"].(string)
+		})
+
+		c.JSON(http.StatusOK, gin.H{
+			"files": fileList,
+		})
+	})
+
+	// (Optional) Delete file
+	rg.DELETE("/files/:name", func(c *gin.Context) {
+		rawName := c.Param("name")
+
+		// Decode URL เช่น %20 เป็นช่องว่าง
+		filename, err := url.QueryUnescape(rawName)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file name"})
+			return
+		}
+
+		// ป้องกันลบไฟล์ HTML
+		if strings.HasSuffix(filename, ".html") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete HTML files"})
+			return
+		}
+
+		path := "./uploads/" + filename
+		if err := os.Remove(path); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to delete file"})
+			return
+		}
+
+		log.Printf("✅ Deleted file: %s", filename) // << Log file deletion
+		c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
 	})
 }
