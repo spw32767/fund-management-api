@@ -19,6 +19,7 @@ type PublicationReward struct {
 	JournalYear              string     `gorm:"column:journal_year" json:"journal_year,omitempty"`
 	JournalURL               string     `gorm:"column:journal_url" json:"journal_url,omitempty"`
 	DOI                      string     `gorm:"column:doi" json:"doi,omitempty"`
+	ArticleOnlineDB          string     `gorm:"column:article_online_db" json:"article_online_db,omitempty"`
 	ArticleOnlineDate        *time.Time `gorm:"column:article_online_date" json:"article_online_date,omitempty"`
 	JournalTier              string     `gorm:"column:journal_tier" json:"journal_tier,omitempty"`
 	JournalQuartile          string     `gorm:"column:journal_quartile" json:"journal_quartile,omitempty"`

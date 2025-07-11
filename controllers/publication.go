@@ -2,9 +2,11 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,21 +79,38 @@ func GetPublicationReward(c *gin.Context) {
 	})
 }
 
-// CreatePublicationReward creates new publication reward request
+// CreatePublicationReward creates new publication reward request with file upload
 func CreatePublicationReward(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	// Parse multipart form
+	err := c.Request.ParseMultipartForm(32 << 20) // 32 MB max
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form"})
+		return
+	}
+
+	// Get JSON data from form
+	jsonData := c.PostForm("data")
+	if jsonData == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No data provided"})
+		return
+	}
+
+	// Parse JSON data
 	type CreateRewardRequest struct {
-		AuthorStatus             string  `json:"author_status" binding:"required"`
-		ArticleTitle             string  `json:"article_title" binding:"required"`
-		JournalName              string  `json:"journal_name" binding:"required"`
+		AuthorStatus             string  `json:"author_status"`
+		ArticleTitle             string  `json:"article_title"`
+		JournalName              string  `json:"journal_name"`
 		JournalIssue             string  `json:"journal_issue"`
 		JournalPages             string  `json:"journal_pages"`
 		JournalMonth             string  `json:"journal_month"`
 		JournalYear              string  `json:"journal_year"`
 		JournalURL               string  `json:"journal_url"`
 		DOI                      string  `json:"doi"`
-		ArticleOnlineDate        string  `json:"article_online_date"`
+		ArticleOnlineDB          string  `json:"article_online_db"`
 		JournalTier              string  `json:"journal_tier"`
-		JournalQuartile          string  `json:"journal_quartile" binding:"required"`
+		JournalQuartile          string  `json:"journal_quartile"`
 		InISI                    bool    `json:"in_isi"`
 		InScopus                 bool    `json:"in_scopus"`
 		ArticleType              string  `json:"article_type"`
@@ -100,22 +119,28 @@ func CreatePublicationReward(c *gin.Context) {
 		PublicationFeeUniversity float64 `json:"publication_fee_university"`
 		PublicationFeeCollege    float64 `json:"publication_fee_college"`
 		UniversityRanking        string  `json:"university_ranking"`
-		BankAccount              string  `json:"bank_account" binding:"required"`
-		BankName                 string  `json:"bank_name" binding:"required"`
-		PhoneNumber              string  `json:"phone_number" binding:"required"`
-		HasUniversityFund        bool    `json:"has_university_fund"`
+		BankAccount              string  `json:"bank_account"`
+		BankName                 string  `json:"bank_name"`
+		PhoneNumber              string  `json:"phone_number"`
+		HasUniversityFund        string  `json:"has_university_fund"`
 		UniversityFundRef        string  `json:"university_fund_ref"`
 		Coauthors                []int   `json:"coauthors"`
 		Status                   string  `json:"status"`
 	}
 
 	var req CreateRewardRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := json.Unmarshal([]byte(jsonData), &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid data format"})
 		return
 	}
 
-	userID, _ := c.Get("userID")
+	// Validate required fields
+	if req.AuthorStatus == "" || req.ArticleTitle == "" || req.JournalName == "" ||
+		req.JournalQuartile == "" || req.BankAccount == "" || req.BankName == "" ||
+		req.PhoneNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required fields"})
+		return
+	}
 
 	// Calculate publication reward based on author status and quartile
 	publicationReward := calculatePublicationReward(req.AuthorStatus, req.JournalQuartile)
@@ -125,14 +150,6 @@ func CreatePublicationReward(c *gin.Context) {
 
 	// Generate reward number
 	rewardNumber := generateRewardNumber()
-
-	// Parse article online date
-	var articleOnlineDate *time.Time
-	if req.ArticleOnlineDate != "" {
-		if date, err := time.Parse("2006-01-02", req.ArticleOnlineDate); err == nil {
-			articleOnlineDate = &date
-		}
-	}
 
 	// Create reward
 	now := time.Now()
@@ -148,7 +165,7 @@ func CreatePublicationReward(c *gin.Context) {
 		JournalYear:              req.JournalYear,
 		JournalURL:               req.JournalURL,
 		DOI:                      req.DOI,
-		ArticleOnlineDate:        articleOnlineDate,
+		ArticleOnlineDB:          req.ArticleOnlineDB,
 		JournalTier:              req.JournalTier,
 		JournalQuartile:          req.JournalQuartile,
 		InISI:                    req.InISI,
@@ -164,7 +181,7 @@ func CreatePublicationReward(c *gin.Context) {
 		BankAccount:              req.BankAccount,
 		BankName:                 req.BankName,
 		PhoneNumber:              req.PhoneNumber,
-		HasUniversityFund:        req.HasUniversityFund,
+		HasUniversityFund:        req.HasUniversityFund == "yes",
 		UniversityFundRef:        req.UniversityFundRef,
 		Status:                   req.Status,
 		CreateAt:                 &now,
@@ -201,6 +218,92 @@ func CreatePublicationReward(c *gin.Context) {
 		}
 	}
 
+	// Handle file uploads
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
+	// Process all uploaded files
+	if c.Request.MultipartForm != nil && c.Request.MultipartForm.File != nil {
+		for fieldName, files := range c.Request.MultipartForm.File {
+			// Extract document type from field name (e.g., "doc_1", "doc_11_0")
+			var documentType string
+			if strings.HasPrefix(fieldName, "doc_") {
+				parts := strings.Split(fieldName, "_")
+				if len(parts) >= 2 {
+					documentType = parts[1]
+				}
+			}
+
+			if documentType == "" {
+				continue
+			}
+
+			for _, fileHeader := range files {
+				// Generate unique filename
+				ext := filepath.Ext(fileHeader.Filename)
+				newFilename := fmt.Sprintf("pub_%d_%s_%s%s",
+					reward.RewardID,
+					documentType,
+					uuid.New().String(),
+					ext)
+
+				// Save file
+				dst := filepath.Join(uploadPath, "publications", newFilename)
+				if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
+					return
+				}
+
+				src, err := fileHeader.Open()
+				if err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open uploaded file"})
+					return
+				}
+				defer src.Close()
+
+				out, err := os.Create(dst)
+				if err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create file"})
+					return
+				}
+				defer out.Close()
+
+				_, err = io.Copy(out, src)
+				if err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+					return
+				}
+
+				// Get file type
+				fileType := strings.TrimPrefix(ext, ".")
+
+				// Create document record
+				doc := models.PublicationDocument{
+					RewardID:         reward.RewardID,
+					DocumentType:     documentType,
+					OriginalFilename: fileHeader.Filename,
+					StoredFilename:   newFilename,
+					FileType:         fileType,
+					UploadedBy:       userID.(int),
+					UploadedAt:       &now,
+					CreateAt:         &now,
+				}
+
+				if err := tx.Create(&doc).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
+					return
+				}
+			}
+		}
+	}
+
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save publication reward"})
@@ -208,7 +311,7 @@ func CreatePublicationReward(c *gin.Context) {
 	}
 
 	// Load relations
-	config.DB.Preload("User").Preload("Coauthors.User").First(&reward, reward.RewardID)
+	config.DB.Preload("User").Preload("Coauthors.User").Preload("Documents").First(&reward, reward.RewardID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Publication reward created successfully",
