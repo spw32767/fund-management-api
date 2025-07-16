@@ -63,17 +63,17 @@ type FundCategory struct {
 }
 
 type FundSubcategory struct {
-	SubcategorieID   int        `gorm:"primaryKey;column:subcategorie_id" json:"subcategorie_id"`
-	CategoryID       int        `gorm:"column:category_id" json:"category_id"`
-	SubcategorieName string     `gorm:"column:subcategorie_name" json:"subcategorie_name"`
-	YearID           int        `gorm:"column:year_id" json:"year_id"`
-	FundCondition    *string    `gorm:"column:fund_condition" json:"fund_condition"`
-	Status           string     `gorm:"column:status" json:"status"`
-	Comment          *string    `gorm:"column:comment" json:"comment"`
-	TargetRoles      *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
-	CreateAt         *time.Time `gorm:"column:create_at" json:"create_at"`
-	UpdateAt         *time.Time `gorm:"column:update_at" json:"update_at"`
-	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+	SubcategoryID   int    `gorm:"primaryKey;column:subcategory_id" json:"subcategory_id"`
+	CategoryID      int    `gorm:"column:category_id" json:"category_id"`
+	SubcategoryName string `gorm:"column:subcategory_name" json:"subcategory_name"`
+	//YearID          int        `gorm:"column:year_id" json:"year_id"`
+	FundCondition *string    `gorm:"column:fund_condition" json:"fund_condition"`
+	Status        string     `gorm:"column:status" json:"status"`
+	Comment       *string    `gorm:"column:comment" json:"comment"`
+	TargetRoles   *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
+	CreateAt      *time.Time `gorm:"column:create_at" json:"create_at"`
+	UpdateAt      *time.Time `gorm:"column:update_at" json:"update_at"`
+	DeleteAt      *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// Relations
 	Category          FundCategory      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
@@ -81,8 +81,8 @@ type FundSubcategory struct {
 }
 
 type SubcategoryBudget struct {
-	SubcategoryBudgetID int        `gorm:"primaryKey;column:subcategorie_budget_id" json:"subcategory_budget_id"`
-	SubcategoryID       int        `gorm:"column:subcatagorie_id" json:"subcategory_id"` // Note: typo in DB
+	SubcategoryBudgetID int        `gorm:"primaryKey;column:subcategory_budget_id" json:"subcategory_budget_id"`
+	SubcategoryID       int        `gorm:"column:subcategory_id" json:"subcategory_id"` // Note: typo in DB
 	AllocatedAmount     float64    `gorm:"column:allocated_amount" json:"allocated_amount"`
 	UsedAmount          float64    `gorm:"column:used_amount" json:"used_amount"`
 	RemainingBudget     float64    `gorm:"column:remaining_budget" json:"remaining_budget"`
@@ -116,11 +116,11 @@ func (FundCategory) TableName() string {
 }
 
 func (FundSubcategory) TableName() string {
-	return "fund_subcategorie"
+	return "fund_subcategories"
 }
 
 func (SubcategoryBudget) TableName() string {
-	return "subcategorie_budgets"
+	return "subcategory_budgets"
 }
 
 // Helper methods for target_roles JSON handling

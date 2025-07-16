@@ -141,7 +141,7 @@ func CreateApplication(c *gin.Context) {
 	// Check if subcategory exists and has budget
 	var subcategory models.FundSubcategory
 	if err := config.DB.Preload("SubcategoryBudget").
-		Where("subcategorie_id = ? AND status = 'active'", req.SubcategoryID).
+		Where("subcategory_id = ? AND status = 'active'", req.SubcategoryID).
 		First(&subcategory).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory"})
 		return
@@ -446,9 +446,9 @@ func GetSubcategories(c *gin.Context) {
 	fmt.Printf("roleID: %v\n", roleID)
 
 	// Use query builder instead of raw SQL
-	query := config.DB.Table("fund_subcategorie fs").
+	query := config.DB.Table("fund_subcategories fs").
 		Select("fs.*, sb.*").
-		Joins("LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id AND sb.delete_at IS NULL AND sb.status = 'active'").
+		Joins("LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id AND sb.delete_at IS NULL AND sb.status = 'active'").
 		Where("fs.status = ?", "active").
 		Where("fs.delete_at IS NULL")
 
@@ -502,14 +502,14 @@ func GetYears(c *gin.Context) {
 // GetTeacherSubcategories - Fixed SQL syntax for production server
 func GetTeacherSubcategories(c *gin.Context) {
 	categoryID := c.Query("category_id")
-	yearID := c.Query("year_id")
+	//yearID := c.Query("year_id")
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
 	// Debug log
 	fmt.Printf("\n=== GetTeacherSubcategories Debug ===\n")
 	fmt.Printf("categoryID: %s\n", categoryID)
-	fmt.Printf("yearID: %s\n", yearID)
+	//fmt.Printf("yearID: %s\n", yearID)
 	fmt.Printf("userID: %v\n", userID)
 	fmt.Printf("roleID: %v\n", roleID)
 
@@ -519,15 +519,14 @@ func GetTeacherSubcategories(c *gin.Context) {
 	// Build base query - ลบ semicolon ออก
 	baseQuery := `
 		SELECT DISTINCT
-			fs.subcategorie_id,
-			fs.subcategorie_name,
+			fs.subcategory_id,
+			fs.subcategory_name,
 			fs.category_id,
-			fs.year_id,
 			fs.status,
 			fs.fund_condition,
 			fs.target_roles,
 			fs.comment as sub_comment,
-			sb.subcategorie_budget_id,
+			sb.subcategory_budget_id,
 			sb.allocated_amount,
 			sb.used_amount,
 			sb.remaining_budget,
@@ -537,9 +536,9 @@ func GetTeacherSubcategories(c *gin.Context) {
 			sb.level,
 			sb.fund_description,
 			sb.comment as budget_comment
-		FROM fund_subcategorie fs
-		LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id 
-			AND sb.delete_at IS NULL 
+		FROM fund_subcategories fs
+		LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id
+			AND sb.delete_at IS NULL
 			AND sb.status = 'active'
 		WHERE fs.delete_at IS NULL 
 			AND fs.status = 'active'`
@@ -552,10 +551,10 @@ func GetTeacherSubcategories(c *gin.Context) {
 		conditions = append(conditions, "fs.category_id = ?")
 		args = append(args, categoryID)
 	}
-	if yearID != "" {
-		conditions = append(conditions, "fs.year_id = ?")
-		args = append(args, yearID)
-	}
+	// if yearID != "" {
+	// 	conditions = append(conditions, "fs.year_id = ?")
+	// 	args = append(args, yearID)
+	// }
 
 	// Role-based filtering
 	roleIDStr := fmt.Sprintf("%d", roleID.(int))
@@ -572,7 +571,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 	}
 
 	// Add ordering - ไม่มี semicolon
-	baseQuery += " ORDER BY fs.subcategorie_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
+	baseQuery += " ORDER BY fs.subcategory_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
 
 	fmt.Printf("Final SQL: %s\n", baseQuery)
 	fmt.Printf("Args: %v\n", args)
@@ -597,10 +596,10 @@ func GetTeacherSubcategories(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			subcategorieID       int
-			subcategorieName     string
-			categoryID           int
-			yearID               int
+			subcategorieID   int
+			subcategorieName string
+			categoryID       int
+			//yearID               int
 			status               string
 			fundCondition        *string
 			targetRoles          *string
@@ -621,7 +620,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 			&subcategorieID,
 			&subcategorieName,
 			&categoryID,
-			&yearID,
+			//&yearID,
 			&status,
 			&fundCondition,
 			&targetRoles,
@@ -665,16 +664,16 @@ func GetTeacherSubcategories(c *gin.Context) {
 
 		// Create result object
 		result := map[string]interface{}{
-			"subcategorie_id":          uniqueID,
-			"original_subcategorie_id": subcategorieID,
-			"subcategorie_name":        displayName,
-			"category_id":              categoryID,
-			"year_id":                  yearID,
-			"status":                   status,
-			"fund_condition":           fundCondition,
-			"target_roles":             targetRoles,
-			"comment":                  subComment,
-			"visible_to_role":          roleID,
+			"subcategory_id":          uniqueID,
+			"original_subcategory_id": subcategorieID,
+			"subcategory_name":        displayName,
+			"category_id":             categoryID,
+			//"year_id":                 yearID,
+			"status":          status,
+			"fund_condition":  fundCondition,
+			"target_roles":    targetRoles,
+			"comment":         subComment,
+			"visible_to_role": roleID,
 		}
 
 		// Add budget information if available
@@ -761,26 +760,25 @@ func GetSubcategoryForRole(c *gin.Context) {
 // GetAllSubcategoriesAdmin - Admin endpoint to see all subcategories without filtering
 func GetAllSubcategoriesAdmin(c *gin.Context) {
 	categoryID := c.Query("category_id")
-	yearID := c.Query("year_id")
+	//yearID := c.Query("year_id")
 
 	// Build query
 	baseQuery := `
 		SELECT 
-			fs.subcategorie_id,
-			fs.subcategorie_name,
+			fs.subcategory_id,
+			fs.subcategory_name,
 			fs.category_id,
-			fs.year_id,
 			fs.status,
 			fs.fund_condition,
 			fs.target_roles,
 			fs.comment,
-			fc.categorie_name,
-			COUNT(DISTINCT sb.subcategorie_budget_id) as budget_count,
+			fc.category_name,
+			COUNT(DISTINCT sb.subcategory_budget_id) as budget_count,
 			COALESCE(SUM(sb.allocated_amount), 0) as total_allocated,
 			COALESCE(SUM(sb.remaining_budget), 0) as total_remaining
-		FROM fund_subcategorie fs
-		LEFT JOIN fund_categories fc ON fs.category_id = fc.categorie_id
-		LEFT JOIN subcategorie_budgets sb ON fs.subcategorie_id = sb.subcategorie_id 
+		FROM fund_subcategories fs
+		LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
+		LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id
 			AND sb.delete_at IS NULL
 		WHERE fs.delete_at IS NULL`
 
@@ -791,15 +789,15 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 		baseQuery += " AND fs.category_id = ?"
 		args = append(args, categoryID)
 	}
-	if yearID != "" {
-		baseQuery += " AND fs.year_id = ?"
-		args = append(args, yearID)
-	}
+	// if yearID != "" {
+	// 	baseQuery += " AND fs.year_id = ?"
+	// 	args = append(args, yearID)
+	// }
 
-	baseQuery += ` GROUP BY fs.subcategorie_id, fs.subcategorie_name, fs.category_id, 
+	baseQuery += ` GROUP BY fs.subcategory_id, fs.subcategory_name, fs.category_id, 
 			fs.year_id, fs.status, fs.fund_condition, fs.target_roles, 
-			fs.comment, fc.categorie_name
-		ORDER BY fs.subcategorie_id`
+			fs.comment, fc.category_name
+		ORDER BY fs.subcategory_id`
 
 	// Execute query
 	rows, err := config.DB.Raw(baseQuery, args...).Rows()
@@ -876,8 +874,8 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 		}
 
 		result := map[string]interface{}{
-			"subcategorie_id":   subcategorieID,
-			"subcategorie_name": subcategorieName,
+			"subcategory_id":    subcategorieID,
+			"subcategory_name":  subcategorieName,
 			"category_id":       categoryID,
 			"category_name":     categoryName,
 			"year_id":           yearID,
@@ -926,7 +924,7 @@ func UpdateSubcategoryTargetRoles(c *gin.Context) {
 
 	// Find subcategory
 	var subcategory models.FundSubcategory
-	if err := config.DB.Where("subcategorie_id = ? AND delete_at IS NULL", subcategoryID).
+	if err := config.DB.Where("subcategory_id = ? AND delete_at IS NULL", subcategoryID).
 		First(&subcategory).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory not found"})
 		return
@@ -972,12 +970,12 @@ func CreateSubcategoryWithRoles(c *gin.Context) {
 	}
 
 	type CreateSubcategoryRequest struct {
-		CategoryID       int      `json:"category_id" binding:"required"`
-		SubcategorieName string   `json:"subcategorie_name" binding:"required"`
-		YearID           int      `json:"year_id" binding:"required"`
-		FundCondition    string   `json:"fund_condition"`
-		TargetRoles      []string `json:"target_roles"`
-		Comment          string   `json:"comment"`
+		CategoryID      int      `json:"category_id" binding:"required"`
+		SubcategoryName string   `json:"subcategory_name" binding:"required"`
+		YearID          int      `json:"year_id" binding:"required"`
+		FundCondition   string   `json:"fund_condition"`
+		TargetRoles     []string `json:"target_roles"`
+		Comment         string   `json:"comment"`
 	}
 
 	var req CreateSubcategoryRequest
@@ -1001,15 +999,15 @@ func CreateSubcategoryWithRoles(c *gin.Context) {
 	// Create new subcategory
 	now := time.Now()
 	subcategory := models.FundSubcategory{
-		CategoryID:       req.CategoryID,
-		SubcategorieName: req.SubcategorieName,
-		YearID:           req.YearID,
-		FundCondition:    &req.FundCondition,
-		TargetRoles:      targetRolesJSON,
-		Status:           "active",
-		Comment:          &req.Comment,
-		CreateAt:         &now,
-		UpdateAt:         &now,
+		CategoryID:      req.CategoryID,
+		SubcategoryName: req.SubcategoryName,
+		//YearID:          req.YearID,
+		FundCondition: &req.FundCondition,
+		TargetRoles:   targetRolesJSON,
+		Status:        "active",
+		Comment:       &req.Comment,
+		CreateAt:      &now,
+		UpdateAt:      &now,
 	}
 
 	if err := config.DB.Create(&subcategory).Error; err != nil {
@@ -1029,10 +1027,10 @@ func TestTargetRoles(c *gin.Context) {
 	fmt.Printf("\n=== Testing Target Roles ===\n")
 
 	rows, err := config.DB.Raw(`
-		SELECT subcategorie_id, subcategorie_name, target_roles 
-		FROM fund_subcategorie 
+		SELECT subcategory_id, subcategory_name, target_roles 
+		FROM fund_subcategories 
 		WHERE delete_at IS NULL 
-		ORDER BY subcategorie_id
+		ORDER BY subcategory_id
 	`).Rows()
 
 	if err != nil {
@@ -1080,10 +1078,10 @@ func DebugUserRoleAccess(c *gin.Context) {
 
 	// Get all subcategories
 	query := `
-		SELECT subcategorie_id, subcategorie_name, target_roles
-		FROM fund_subcategorie
+		SELECT subcategory_id, subcategory_name, target_roles
+		FROM fund_subcategories
 		WHERE delete_at IS NULL AND status = 'active'
-		ORDER BY subcategorie_id`
+		ORDER BY subcategory_id`
 
 	rows, err := config.DB.Raw(query).Rows()
 	if err != nil {
