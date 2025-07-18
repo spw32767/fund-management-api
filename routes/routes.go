@@ -185,6 +185,59 @@ func SetupRoutes(router *gin.Engine) {
 			// Document types with category filter
 			protected.GET("/document-types", controllers.GetDocumentTypes)
 
+			// เพิ่มส่วนนี้ใน admin group หลังจาก middleware.RequireRole(3)
+			admin := protected.Group("/admin")
+			admin.Use(middleware.RequireRole(3)) // Require admin role
+			{
+				// Dashboard
+				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
+
+				// ========== FUND CATEGORIES MANAGEMENT ==========
+				categories := admin.Group("/categories")
+				{
+					categories.GET("", controllers.GetAllCategories)                  // GET /api/v1/admin/categories
+					categories.POST("", controllers.CreateCategory)                   // POST /api/v1/admin/categories
+					categories.PUT("/:id", controllers.UpdateCategory)                // PUT /api/v1/admin/categories/:id
+					categories.DELETE("/:id", controllers.DeleteCategory)             // DELETE /api/v1/admin/categories/:id
+					categories.PATCH("/:id/toggle", controllers.ToggleCategoryStatus) // PATCH /api/v1/admin/categories/:id/toggle
+				}
+
+				// ========== FUND SUBCATEGORIES MANAGEMENT ==========
+				subcategories := admin.Group("/subcategories")
+				{
+					subcategories.GET("", controllers.GetAllSubcategories)                  // GET /api/v1/admin/subcategories
+					subcategories.POST("", controllers.CreateSubcategory)                   // POST /api/v1/admin/subcategories
+					subcategories.PUT("/:id", controllers.UpdateSubcategory)                // PUT /api/v1/admin/subcategories/:id
+					subcategories.DELETE("/:id", controllers.DeleteSubcategory)             // DELETE /api/v1/admin/subcategories/:id
+					subcategories.PATCH("/:id/toggle", controllers.ToggleSubcategoryStatus) // PATCH /api/v1/admin/subcategories/:id/toggle
+
+					// Target roles management (existing functionality)
+					subcategories.PUT("/:id/roles", controllers.UpdateSubcategoryTargetRoles) // PUT /api/v1/admin/subcategories/:id/roles
+					subcategories.POST("/bulk-roles", controllers.BulkUpdateSubcategoryRoles) // POST /api/v1/admin/subcategories/bulk-roles
+				}
+
+				// ========== STATISTICS AND REPORTING ==========
+				reports := admin.Group("/reports")
+				{
+					reports.GET("/categories", controllers.GetCategoryStats) // GET /api/v1/admin/reports/categories
+				}
+
+				// ========== APPLICATION MANAGEMENT (existing) ==========
+				applications := admin.Group("/applications")
+				{
+					applications.GET("", controllers.GetApplications)                 // GET /api/v1/admin/applications
+					applications.GET("/:id", controllers.GetApplication)              // GET /api/v1/admin/applications/:id
+					applications.POST("/:id/approve", controllers.ApproveApplication) // POST /api/v1/admin/applications/:id/approve
+					applications.POST("/:id/reject", controllers.RejectApplication)   // POST /api/v1/admin/applications/:id/reject
+				}
+
+				// ========== USER MANAGEMENT (if needed in future) ==========
+				// users := admin.Group("/users")
+				// {
+				//     users.GET("", controllers.GetAllUsers)
+				//     users.PUT("/:id/role", controllers.UpdateUserRole)
+				// }
+			}
 		}
 	}
 
