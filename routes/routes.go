@@ -216,6 +216,17 @@ func SetupRoutes(router *gin.Engine) {
 					subcategories.POST("/bulk-roles", controllers.BulkUpdateSubcategoryRoles) // POST /api/v1/admin/subcategories/bulk-roles
 				}
 
+				// ========== SUBCATEGORY BUDGETS MANAGEMENT ==========
+				budgets := admin.Group("/budgets")
+				{
+					budgets.GET("", controllers.GetAllSubcategoryBudgets)                   // GET /api/v1/admin/budgets
+					budgets.GET("/:id", controllers.GetSubcategoryBudget)                   // GET /api/v1/admin/budgets/:id
+					budgets.POST("", controllers.CreateSubcategoryBudget)                   // POST /api/v1/admin/budgets
+					budgets.PUT("/:id", controllers.UpdateSubcategoryBudget)                // PUT /api/v1/admin/budgets/:id
+					budgets.DELETE("/:id", controllers.DeleteSubcategoryBudget)             // DELETE /api/v1/admin/budgets/:id
+					budgets.PATCH("/:id/toggle", controllers.ToggleSubcategoryBudgetStatus) // PATCH /api/v1/admin/budgets/:id/toggle
+				}
+
 				// ========== STATISTICS AND REPORTING ==========
 				reports := admin.Group("/reports")
 				{

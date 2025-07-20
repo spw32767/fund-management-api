@@ -7,6 +7,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -755,7 +756,550 @@ func BulkUpdateSubcategoryRoles(c *gin.Context) {
 	})
 }
 
-// ===================== STATISTICS AND REPORTING =====================
+// ===================== SUBCATEGORY BUDGETS MANAGEMENT =====================
+
+// GetAllSubcategoryBudgets - Admin can view all subcategory budgets
+func GetAllSubcategoryBudgets(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	subcategoryID := c.Query("subcategory_id")
+
+	// Use raw SQL to get budget data with subcategory info
+	baseQuery := `
+		SELECT 
+			sb.subcategory_budget_id,
+			sb.subcategory_id,
+			sb.allocated_amount,
+			sb.used_amount,
+			sb.remaining_budget,
+			sb.max_grants,
+			sb.max_amount_per_grant,
+			sb.remaining_grant,
+			sb.level,
+			sb.status,
+			sb.fund_description,
+			sb.comment,
+			sb.create_at,
+			sb.update_at,
+			fs.subcategory_name,
+			fc.category_name
+		FROM subcategory_budgets sb
+		LEFT JOIN fund_subcategories fs ON sb.subcategory_id = fs.subcategory_id
+		LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
+		WHERE sb.delete_at IS NULL`
+
+	var args []interface{}
+
+	if subcategoryID != "" {
+		baseQuery += " AND sb.subcategory_id = ?"
+		args = append(args, subcategoryID)
+	}
+
+	baseQuery += " ORDER BY sb.subcategory_budget_id DESC"
+
+	// Execute query
+	rows, err := config.DB.Raw(baseQuery, args...).Rows()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch subcategory budgets",
+			"debug": err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var budgets []map[string]interface{}
+
+	for rows.Next() {
+		var (
+			budgetID          int
+			subcategoryID     int
+			allocatedAmount   float64
+			usedAmount        float64
+			remainingBudget   float64
+			maxGrants         *int
+			maxAmountPerGrant float64
+			remainingGrant    *int
+			level             *string
+			status            string
+			fundDescription   *string
+			comment           *string
+			createAt          *time.Time
+			updateAt          *time.Time
+			subcategoryName   *string
+			categoryName      *string
+		)
+
+		err := rows.Scan(
+			&budgetID,
+			&subcategoryID,
+			&allocatedAmount,
+			&usedAmount,
+			&remainingBudget,
+			&maxGrants,
+			&maxAmountPerGrant,
+			&remainingGrant,
+			&level,
+			&status,
+			&fundDescription,
+			&comment,
+			&createAt,
+			&updateAt,
+			&subcategoryName,
+			&categoryName,
+		)
+		if err != nil {
+			continue
+		}
+
+		budget := map[string]interface{}{
+			"subcategory_budget_id": budgetID,
+			"subcategory_id":        subcategoryID,
+			"allocated_amount":      allocatedAmount,
+			"used_amount":           usedAmount,
+			"remaining_budget":      remainingBudget,
+			"max_grants":            maxGrants,
+			"max_amount_per_grant":  maxAmountPerGrant,
+			"remaining_grant":       remainingGrant,
+			"level":                 level,
+			"status":                status,
+			"fund_description":      fundDescription,
+			"comment":               comment,
+			"create_at":             createAt,
+			"update_at":             updateAt,
+			"subcategory": map[string]interface{}{
+				"subcategory_id":   subcategoryID,
+				"subcategory_name": subcategoryName,
+				"category_name":    categoryName,
+			},
+		}
+
+		budgets = append(budgets, budget)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"budgets": budgets,
+		"total":   len(budgets),
+	})
+}
+
+// GetSubcategoryBudget - Admin gets specific subcategory budget
+func GetSubcategoryBudget(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	budgetID := c.Param("id")
+
+	// Use raw SQL to get budget data with subcategory info
+	query := `
+		SELECT 
+			sb.subcategory_budget_id,
+			sb.subcategory_id,
+			sb.allocated_amount,
+			sb.used_amount,
+			sb.remaining_budget,
+			sb.max_grants,
+			sb.max_amount_per_grant,
+			sb.remaining_grant,
+			sb.level,
+			sb.status,
+			sb.fund_description,
+			sb.comment,
+			sb.create_at,
+			sb.update_at,
+			fs.subcategory_name,
+			fc.category_name,
+			fc.category_id
+		FROM subcategory_budgets sb
+		LEFT JOIN fund_subcategories fs ON sb.subcategory_id = fs.subcategory_id
+		LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
+		WHERE sb.subcategory_budget_id = ? AND sb.delete_at IS NULL`
+
+	var (
+		budgetIDInt       int
+		subcategoryID     int
+		allocatedAmount   float64
+		usedAmount        float64
+		remainingBudget   float64
+		maxGrants         *int
+		maxAmountPerGrant float64
+		remainingGrant    *int
+		level             *string
+		status            string
+		fundDescription   *string
+		comment           *string
+		createAt          *time.Time
+		updateAt          *time.Time
+		subcategoryName   *string
+		categoryName      *string
+		categoryID        *int
+	)
+
+	err := config.DB.Raw(query, budgetID).Row().Scan(
+		&budgetIDInt,
+		&subcategoryID,
+		&allocatedAmount,
+		&usedAmount,
+		&remainingBudget,
+		&maxGrants,
+		&maxAmountPerGrant,
+		&remainingGrant,
+		&level,
+		&status,
+		&fundDescription,
+		&comment,
+		&createAt,
+		&updateAt,
+		&subcategoryName,
+		&categoryName,
+		&categoryID,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory budget not found"})
+		return
+	}
+
+	budget := map[string]interface{}{
+		"subcategory_budget_id": budgetIDInt,
+		"subcategory_id":        subcategoryID,
+		"allocated_amount":      allocatedAmount,
+		"used_amount":           usedAmount,
+		"remaining_budget":      remainingBudget,
+		"max_grants":            maxGrants,
+		"max_amount_per_grant":  maxAmountPerGrant,
+		"remaining_grant":       remainingGrant,
+		"level":                 level,
+		"status":                status,
+		"fund_description":      fundDescription,
+		"comment":               comment,
+		"create_at":             createAt,
+		"update_at":             updateAt,
+		"subcategory": map[string]interface{}{
+			"subcategory_id":   subcategoryID,
+			"subcategory_name": subcategoryName,
+			"category_id":      categoryID,
+			"category_name":    categoryName,
+		},
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"budget":  budget,
+	})
+}
+
+// CreateSubcategoryBudget - Admin creates new subcategory budget
+func CreateSubcategoryBudget(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type CreateBudgetRequest struct {
+		SubcategoryID     int     `json:"subcategory_id" binding:"required"`
+		AllocatedAmount   float64 `json:"allocated_amount" binding:"required"`
+		MaxGrants         *int    `json:"max_grants"`
+		MaxAmountPerGrant float64 `json:"max_amount_per_grant"`
+		Level             string  `json:"level"`
+		FundDescription   string  `json:"fund_description"`
+		Comment           string  `json:"comment"`
+	}
+
+	var req CreateBudgetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate subcategory exists
+	var subcategory models.FundSubcategory
+	if err := config.DB.Where("subcategory_id = ? AND delete_at IS NULL", req.SubcategoryID).
+		First(&subcategory).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_id"})
+		return
+	}
+
+	// Create new budget using raw SQL
+	now := time.Now()
+	insertQuery := `
+		INSERT INTO subcategory_budgets (
+			subcategory_id, allocated_amount, used_amount, remaining_budget,
+			max_grants, max_amount_per_grant, remaining_grant, level,
+			status, fund_description, comment, create_at, update_at
+		) VALUES (?, ?, 0, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`
+
+	var level, fundDescription, comment interface{}
+	if req.Level != "" {
+		level = req.Level
+	}
+	if req.FundDescription != "" {
+		fundDescription = req.FundDescription
+	}
+	if req.Comment != "" {
+		comment = req.Comment
+	}
+
+	result := config.DB.Exec(insertQuery,
+		req.SubcategoryID,
+		req.AllocatedAmount,
+		req.AllocatedAmount, // remaining_budget = allocated_amount initially
+		req.MaxGrants,
+		req.MaxAmountPerGrant,
+		req.MaxGrants, // remaining_grant = max_grants initially
+		level,
+		fundDescription,
+		comment,
+		now,
+		now,
+	)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subcategory budget"})
+		return
+	}
+
+	// Get the created budget ID
+	var budgetID int64
+	config.DB.Raw("SELECT LAST_INSERT_ID()").Scan(&budgetID)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success":               true,
+		"message":               "Subcategory budget created successfully",
+		"subcategory_budget_id": budgetID,
+	})
+}
+
+// UpdateSubcategoryBudget - Admin updates subcategory budget
+func UpdateSubcategoryBudget(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	budgetID := c.Param("id")
+
+	type UpdateBudgetRequest struct {
+		AllocatedAmount   *float64 `json:"allocated_amount"`
+		MaxGrants         *int     `json:"max_grants"`
+		MaxAmountPerGrant *float64 `json:"max_amount_per_grant"`
+		Level             string   `json:"level"`
+		Status            string   `json:"status"`
+		FundDescription   string   `json:"fund_description"`
+		Comment           string   `json:"comment"`
+	}
+
+	var req UpdateBudgetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if budget exists
+	var existingBudget struct {
+		SubcategoryBudgetID int
+		AllocatedAmount     float64
+		UsedAmount          float64
+	}
+
+	err := config.DB.Raw("SELECT subcategory_budget_id, allocated_amount, used_amount FROM subcategory_budgets WHERE subcategory_budget_id = ? AND delete_at IS NULL", budgetID).
+		Scan(&existingBudget).Error
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory budget not found"})
+		return
+	}
+
+	// Build update query dynamically
+	setParts := []string{}
+	args := []interface{}{}
+
+	if req.AllocatedAmount != nil {
+		setParts = append(setParts, "allocated_amount = ?")
+		args = append(args, *req.AllocatedAmount)
+
+		// Update remaining_budget when allocated_amount changes
+		newRemainingBudget := *req.AllocatedAmount - existingBudget.UsedAmount
+		setParts = append(setParts, "remaining_budget = ?")
+		args = append(args, newRemainingBudget)
+	}
+
+	if req.MaxGrants != nil {
+		setParts = append(setParts, "max_grants = ?")
+		args = append(args, *req.MaxGrants)
+		setParts = append(setParts, "remaining_grant = ?")
+		args = append(args, *req.MaxGrants)
+	}
+
+	if req.MaxAmountPerGrant != nil {
+		setParts = append(setParts, "max_amount_per_grant = ?")
+		args = append(args, *req.MaxAmountPerGrant)
+	}
+
+	if req.Level != "" {
+		setParts = append(setParts, "level = ?")
+		args = append(args, req.Level)
+	}
+
+	if req.Status != "" {
+		setParts = append(setParts, "status = ?")
+		args = append(args, req.Status)
+	}
+
+	if req.FundDescription != "" {
+		setParts = append(setParts, "fund_description = ?")
+		args = append(args, req.FundDescription)
+	}
+
+	if req.Comment != "" {
+		setParts = append(setParts, "comment = ?")
+		args = append(args, req.Comment)
+	}
+
+	if len(setParts) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		return
+	}
+
+	// Add update timestamp
+	setParts = append(setParts, "update_at = ?")
+	args = append(args, time.Now())
+
+	// Add WHERE clause
+	args = append(args, budgetID)
+
+	updateQuery := fmt.Sprintf("UPDATE subcategory_budgets SET %s WHERE subcategory_budget_id = ?",
+		strings.Join(setParts, ", "))
+
+	if err := config.DB.Exec(updateQuery, args...).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update subcategory budget"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Subcategory budget updated successfully",
+	})
+}
+
+// DeleteSubcategoryBudget - Admin soft deletes subcategory budget
+func DeleteSubcategoryBudget(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	budgetID := c.Param("id")
+
+	// Check if budget exists and has any usage
+	var budgetInfo struct {
+		SubcategoryBudgetID int
+		UsedAmount          float64
+		SubcategoryID       int
+	}
+
+	err := config.DB.Raw("SELECT subcategory_budget_id, used_amount, subcategory_id FROM subcategory_budgets WHERE subcategory_budget_id = ? AND delete_at IS NULL", budgetID).
+		Scan(&budgetInfo).Error
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory budget not found"})
+		return
+	}
+
+	// Check if budget has been used
+	if budgetInfo.UsedAmount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Cannot delete budget that has been used",
+			"details": fmt.Sprintf("Budget has used amount: ฿%.2f", budgetInfo.UsedAmount),
+		})
+		return
+	}
+
+	// Check if budget has applications (using the new database structure)
+	var applicationCount int64
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM fund_application_details fad
+		JOIN submissions s ON fad.submission_id = s.submission_id
+		WHERE fad.subcategory_id = ? AND s.deleted_at IS NULL
+	`, budgetInfo.SubcategoryID).Scan(&applicationCount)
+
+	if applicationCount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Cannot delete budget that has applications",
+			"details": fmt.Sprintf("Subcategory has %d applications", applicationCount),
+		})
+		return
+	}
+
+	// Soft delete
+	now := time.Now()
+	if err := config.DB.Exec("UPDATE subcategory_budgets SET delete_at = ? WHERE subcategory_budget_id = ?", now, budgetID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete subcategory budget"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Subcategory budget deleted successfully",
+	})
+}
+
+// ToggleSubcategoryBudgetStatus - Admin toggles budget active/disable status
+func ToggleSubcategoryBudgetStatus(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	budgetID := c.Param("id")
+
+	// Get current status
+	var currentStatus string
+	err := config.DB.Raw("SELECT status FROM subcategory_budgets WHERE subcategory_budget_id = ? AND delete_at IS NULL", budgetID).
+		Scan(&currentStatus).Error
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory budget not found"})
+		return
+	}
+
+	// Toggle status
+	newStatus := "active"
+	if currentStatus == "active" {
+		newStatus = "disable"
+	}
+
+	now := time.Now()
+	if err := config.DB.Exec("UPDATE subcategory_budgets SET status = ?, update_at = ? WHERE subcategory_budget_id = ?", newStatus, now, budgetID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle budget status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"message":    fmt.Sprintf("Budget status changed to %s", newStatus),
+		"new_status": newStatus,
+	})
+}
 
 // GetCategoryStats - Admin gets category statistics
 func GetCategoryStats(c *gin.Context) {
