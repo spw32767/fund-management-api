@@ -756,6 +756,365 @@ func BulkUpdateSubcategoryRoles(c *gin.Context) {
 	})
 }
 
+// ===================== YEAR MANAGEMENT =====================
+
+// GetAllYears - Admin can view all years
+func GetAllYears(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	var years []models.Year
+
+	// Get all years (including inactive ones for admin)
+	if err := config.DB.Where("delete_at IS NULL").Order("year_id DESC").Find(&years).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch years"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"years":   years,
+		"total":   len(years),
+	})
+}
+
+// CreateYear - Admin creates new year
+func CreateYear(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type CreateYearRequest struct {
+		Year   string  `json:"year" binding:"required"`
+		Budget float64 `json:"budget" binding:"required"`
+	}
+
+	var req CreateYearRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if year already exists
+	var existingYear models.Year
+	if err := config.DB.Where("year = ? AND delete_at IS NULL", req.Year).First(&existingYear).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "Year already exists",
+		})
+		return
+	}
+
+	// Create new year
+	now := time.Now()
+	year := models.Year{
+		Year:     req.Year,
+		Budget:   req.Budget,
+		Status:   "active",
+		CreateAt: &now,
+		UpdateAt: &now,
+	}
+
+	if err := config.DB.Create(&year).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create year"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"message": "Year created successfully",
+		"year":    year,
+	})
+}
+
+// UpdateYear - Admin updates year
+func UpdateYear(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	yearID := c.Param("id")
+
+	type UpdateYearRequest struct {
+		Year   string  `json:"year"`
+		Budget float64 `json:"budget"`
+		Status string  `json:"status"`
+	}
+
+	var req UpdateYearRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find year
+	var year models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", yearID).
+		First(&year).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Year not found"})
+		return
+	}
+
+	// Check if new year conflicts (if changed)
+	if req.Year != "" && req.Year != year.Year {
+		var existingYear models.Year
+		if err := config.DB.Where("year = ? AND year_id != ? AND delete_at IS NULL",
+			req.Year, yearID).First(&existingYear).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "Year already exists",
+			})
+			return
+		}
+	}
+
+	// Update year
+	now := time.Now()
+	updates := map[string]interface{}{
+		"update_at": &now,
+	}
+
+	if req.Year != "" {
+		updates["year"] = req.Year
+	}
+	if req.Budget > 0 {
+		updates["budget"] = req.Budget
+	}
+	if req.Status != "" {
+		if req.Status != "active" && req.Status != "inactive" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Status must be 'active' or 'inactive'"})
+			return
+		}
+		updates["status"] = req.Status
+	}
+
+	if err := config.DB.Model(&year).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update year"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Year updated successfully",
+		"year":    year,
+	})
+}
+
+// DeleteYear - Admin soft deletes year
+func DeleteYear(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	yearID := c.Param("id")
+
+	// Find year
+	var year models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", yearID).
+		First(&year).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Year not found"})
+		return
+	}
+
+	// Check if year has categories
+	var categoryCount int64
+	config.DB.Model(&models.FundCategory{}).
+		Where("year_id = ? AND delete_at IS NULL", yearID).
+		Count(&categoryCount)
+
+	if categoryCount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Cannot delete year that has categories",
+			"details": fmt.Sprintf("Year has %d categories", categoryCount),
+		})
+		return
+	}
+
+	// Check if year has applications (using new database structure)
+	var applicationCount int64
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM submissions s
+		WHERE s.year_id = ? AND s.deleted_at IS NULL
+	`, yearID).Scan(&applicationCount)
+
+	if applicationCount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Cannot delete year that has applications",
+			"details": fmt.Sprintf("Year has %d applications", applicationCount),
+		})
+		return
+	}
+
+	// Soft delete
+	now := time.Now()
+	year.DeleteAt = &now
+
+	if err := config.DB.Save(&year).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete year"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Year deleted successfully",
+	})
+}
+
+// ToggleYearStatus - Admin toggles year active/inactive status
+func ToggleYearStatus(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	yearID := c.Param("id")
+
+	// Find year
+	var year models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", yearID).
+		First(&year).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Year not found"})
+		return
+	}
+
+	// Toggle status
+	newStatus := "active"
+	if year.Status == "active" {
+		newStatus = "inactive"
+	}
+
+	now := time.Now()
+	year.Status = newStatus
+	year.UpdateAt = &now
+
+	if err := config.DB.Save(&year).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle year status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"message":    fmt.Sprintf("Year status changed to %s", newStatus),
+		"year":       year,
+		"new_status": newStatus,
+	})
+}
+
+// GetYearStats - Admin gets year statistics
+func GetYearStats(c *gin.Context) {
+	// Check if user is admin
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	yearID := c.Param("id")
+
+	// Get year info
+	var year models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", yearID).
+		First(&year).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Year not found"})
+		return
+	}
+
+	// Get statistics using raw SQL
+	type YearStats struct {
+		YearID           int     `json:"year_id"`
+		Year             string  `json:"year"`
+		Budget           float64 `json:"budget"`
+		Status           string  `json:"status"`
+		CategoryCount    int64   `json:"category_count"`
+		SubcategoryCount int64   `json:"subcategory_count"`
+		ApplicationCount int64   `json:"application_count"`
+		TotalAllocated   float64 `json:"total_allocated"`
+		TotalUsed        float64 `json:"total_used"`
+		TotalRemaining   float64 `json:"total_remaining"`
+		ApprovedApps     int64   `json:"approved_applications"`
+		PendingApps      int64   `json:"pending_applications"`
+		RejectedApps     int64   `json:"rejected_applications"`
+	}
+
+	var stats YearStats
+
+	// Basic year info
+	stats.YearID = year.YearID
+	stats.Year = year.Year
+	stats.Budget = year.Budget
+	stats.Status = year.Status
+
+	// Category count
+	config.DB.Model(&models.FundCategory{}).
+		Where("year_id = ? AND delete_at IS NULL", yearID).
+		Count(&stats.CategoryCount)
+
+	// Subcategory count
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM fund_subcategories fs
+		JOIN fund_categories fc ON fs.category_id = fc.category_id
+		WHERE fc.year_id = ? AND fs.delete_at IS NULL AND fc.delete_at IS NULL
+	`, yearID).Scan(&stats.SubcategoryCount)
+
+	// Application count
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM submissions s
+		WHERE s.year_id = ? AND s.deleted_at IS NULL AND s.submission_type = 'fund_application'
+	`, yearID).Scan(&stats.ApplicationCount)
+
+	// Budget summary
+	config.DB.Raw(`
+		SELECT 
+			COALESCE(SUM(sb.allocated_amount), 0) as total_allocated,
+			COALESCE(SUM(sb.used_amount), 0) as total_used,
+			COALESCE(SUM(sb.remaining_budget), 0) as total_remaining
+		FROM subcategory_budgets sb
+		JOIN fund_subcategories fs ON sb.subcategory_id = fs.subcategory_id
+		JOIN fund_categories fc ON fs.category_id = fc.category_id
+		WHERE fc.year_id = ? AND sb.delete_at IS NULL AND fs.delete_at IS NULL AND fc.delete_at IS NULL
+	`, yearID).Scan(&stats)
+
+	// Application status counts
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM submissions s
+		WHERE s.year_id = ? AND s.status_id = 2 AND s.deleted_at IS NULL AND s.submission_type = 'fund_application'
+	`, yearID).Scan(&stats.ApprovedApps)
+
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM submissions s
+		WHERE s.year_id = ? AND s.status_id = 1 AND s.deleted_at IS NULL AND s.submission_type = 'fund_application'
+	`, yearID).Scan(&stats.PendingApps)
+
+	config.DB.Raw(`
+		SELECT COUNT(*)
+		FROM submissions s
+		WHERE s.year_id = ? AND s.status_id = 3 AND s.deleted_at IS NULL AND s.submission_type = 'fund_application'
+	`, yearID).Scan(&stats.RejectedApps)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"stats":   stats,
+	})
+}
+
 // ===================== SUBCATEGORY BUDGETS MANAGEMENT =====================
 
 // GetAllSubcategoryBudgets - Admin can view all subcategory budgets

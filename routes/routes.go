@@ -192,6 +192,17 @@ func SetupRoutes(router *gin.Engine) {
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 
+				// ========== YEAR MANAGEMENT ==========
+				years := admin.Group("/years")
+				{
+					years.GET("", controllers.GetAllYears)                   // GET /api/v1/admin/years
+					years.POST("", controllers.CreateYear)                   // POST /api/v1/admin/years
+					years.PUT("/:id", controllers.UpdateYear)                // PUT /api/v1/admin/years/:id
+					years.DELETE("/:id", controllers.DeleteYear)             // DELETE /api/v1/admin/years/:id
+					years.PATCH("/:id/toggle", controllers.ToggleYearStatus) // PATCH /api/v1/admin/years/:id/toggle
+					years.GET("/:id/stats", controllers.GetYearStats)        // GET /api/v1/admin/years/:id/stats
+				}
+
 				// ========== FUND CATEGORIES MANAGEMENT ==========
 				categories := admin.Group("/categories")
 				{
