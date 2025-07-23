@@ -1368,13 +1368,13 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	}
 
 	type CreateBudgetRequest struct {
-		SubcategoryID     int     `json:"subcategory_id" binding:"required"`
-		AllocatedAmount   float64 `json:"allocated_amount" binding:"required"`
-		MaxGrants         *int    `json:"max_grants"`
-		MaxAmountPerGrant float64 `json:"max_amount_per_grant"`
-		Level             string  `json:"level"`
-		FundDescription   string  `json:"fund_description"`
-		Comment           string  `json:"comment"`
+		SubcategoryID     int         `json:"subcategory_id" binding:"required"`
+		AllocatedAmount   float64     `json:"allocated_amount" binding:"required"`
+		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
+		MaxAmountPerGrant float64     `json:"max_amount_per_grant"`
+		Level             string      `json:"level"`
+		FundDescription   string      `json:"fund_description"`
+		Comment           string      `json:"comment"`
 	}
 
 	var req CreateBudgetRequest
@@ -1411,13 +1411,38 @@ func CreateSubcategoryBudget(c *gin.Context) {
 		comment = req.Comment
 	}
 
+	var maxGrants interface{}
+	var remainingGrant interface{}
+
+	switch v := req.MaxGrants.(type) {
+	case float64:
+		// JSON numbers come as float64
+		maxGrantsInt := int(v)
+		if maxGrantsInt <= 0 {
+			// ถ้าเป็น 0 หรือน้อยกว่า ให้เป็น NULL
+			maxGrants = nil
+			remainingGrant = nil
+		} else {
+			maxGrants = maxGrantsInt
+			remainingGrant = maxGrantsInt
+		}
+	case nil:
+		// ถ้าเป็น null
+		maxGrants = nil
+		remainingGrant = nil
+	default:
+		// ถ้าเป็น type อื่น ให้เป็น NULL
+		maxGrants = nil
+		remainingGrant = nil
+	}
+
 	result := config.DB.Exec(insertQuery,
 		req.SubcategoryID,
 		req.AllocatedAmount,
 		req.AllocatedAmount, // remaining_budget = allocated_amount initially
-		req.MaxGrants,
+		maxGrants,           // ใช้ตัวแปรที่ process แล้ว
 		req.MaxAmountPerGrant,
-		req.MaxGrants, // remaining_grant = max_grants initially
+		remainingGrant, // ใช้ตัวแปรที่ process แล้ว
 		level,
 		fundDescription,
 		comment,
@@ -1453,13 +1478,13 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 	budgetID := c.Param("id")
 
 	type UpdateBudgetRequest struct {
-		AllocatedAmount   *float64 `json:"allocated_amount"`
-		MaxGrants         *int     `json:"max_grants"`
-		MaxAmountPerGrant *float64 `json:"max_amount_per_grant"`
-		Level             string   `json:"level"`
-		Status            string   `json:"status"`
-		FundDescription   string   `json:"fund_description"`
-		Comment           string   `json:"comment"`
+		AllocatedAmount   *float64    `json:"allocated_amount"`
+		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
+		MaxAmountPerGrant *float64    `json:"max_amount_per_grant"`
+		Level             string      `json:"level"`
+		Status            string      `json:"status"`
+		FundDescription   string      `json:"fund_description"`
+		Comment           string      `json:"comment"`
 	}
 
 	var req UpdateBudgetRequest
@@ -1499,9 +1524,25 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 
 	if req.MaxGrants != nil {
 		setParts = append(setParts, "max_grants = ?")
-		args = append(args, *req.MaxGrants)
 		setParts = append(setParts, "remaining_grant = ?")
-		args = append(args, *req.MaxGrants)
+
+		switch v := req.MaxGrants.(type) {
+		case float64:
+			// JSON numbers come as float64
+			maxGrants := int(v)
+			if maxGrants <= 0 {
+				// ถ้าเป็น 0 หรือน้อยกว่า ให้เป็น NULL
+				args = append(args, nil, nil)
+			} else {
+				args = append(args, maxGrants, maxGrants)
+			}
+		case nil:
+			// ถ้าเป็น null
+			args = append(args, nil, nil)
+		default:
+			// ถ้าเป็น type อื่น ให้เป็น NULL
+			args = append(args, nil, nil)
+		}
 	}
 
 	if req.MaxAmountPerGrant != nil {
