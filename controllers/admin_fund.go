@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -1477,6 +1478,14 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 
 	budgetID := c.Param("id")
 
+	jsonData, _ := c.GetRawData()
+
+	// ตรวจสอบว่ามี "max_grants" field ใน JSON หรือไม่
+	hasMaxGrantsField := strings.Contains(string(jsonData), `"max_grants"`)
+
+	// Parse JSON อีกครั้งเพื่อใช้งาน
+	c.Request.Body = io.NopCloser(strings.NewReader(string(jsonData)))
+
 	type UpdateBudgetRequest struct {
 		AllocatedAmount   *float64    `json:"allocated_amount"`
 		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
@@ -1485,6 +1494,8 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		Status            string      `json:"status"`
 		FundDescription   string      `json:"fund_description"`
 		Comment           string      `json:"comment"`
+		// เพิ่มฟิลด์นี้เพื่อระบุว่า Frontend ส่ง max_grants มาหรือไม่
+		HasMaxGrants bool `json:"has_max_grants"`
 	}
 
 	var req UpdateBudgetRequest
@@ -1522,25 +1533,24 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		args = append(args, newRemainingBudget)
 	}
 
-	if req.MaxGrants != nil {
+	if hasMaxGrantsField {
 		setParts = append(setParts, "max_grants = ?")
 		setParts = append(setParts, "remaining_grant = ?")
 
 		switch v := req.MaxGrants.(type) {
 		case float64:
-			// JSON numbers come as float64
 			maxGrants := int(v)
 			if maxGrants <= 0 {
-				// ถ้าเป็น 0 หรือน้อยกว่า ให้เป็น NULL
+				// 0 หรือน้อยกว่า = NULL
 				args = append(args, nil, nil)
 			} else {
 				args = append(args, maxGrants, maxGrants)
 			}
 		case nil:
-			// ถ้าเป็น null
+			// null = NULL
 			args = append(args, nil, nil)
 		default:
-			// ถ้าเป็น type อื่น ให้เป็น NULL
+			// อื่นๆ = NULL
 			args = append(args, nil, nil)
 		}
 	}
