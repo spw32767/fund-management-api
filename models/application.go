@@ -77,7 +77,7 @@ type FundSubcategory struct {
 
 	// Relations
 	Category          FundCategory      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
-	SubcategoryBudget SubcategoryBudget `gorm:"foreignKey:SubcategorieID" json:"subcategory_budget,omitempty"`
+	SubcategoryBudget SubcategoryBudget `gorm:"foreignKey:SubcategoryID" json:"subcategory_budget,omitempty"`
 }
 
 type SubcategoryBudget struct {
