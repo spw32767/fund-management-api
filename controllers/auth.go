@@ -7,6 +7,7 @@ import (
 	"fund-management-api/middleware"
 	"fund-management-api/models"
 	"fund-management-api/utils"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -93,6 +94,10 @@ func Login(c *gin.Context) {
 		})
 		return
 	}
+	// เพิ่ม debug log
+	log.Printf("User loaded: %+v", user)
+	log.Printf("Role loaded: %+v", user.Role)
+	log.Printf("Position loaded: %+v", user.Position)
 
 	// Check password using bcrypt
 	if !utils.CheckPasswordHash(req.Password, user.Password) {
@@ -220,6 +225,11 @@ func GetProfile(c *gin.Context) {
 		})
 		return
 	}
+
+	// เพิ่ม debug log
+	log.Printf("Profile - User loaded: %+v", user)
+	log.Printf("Profile - Role loaded: %+v", user.Role)
+	log.Printf("Profile - Position loaded: %+v", user.Position)
 
 	// Update session activity
 	updateSessionActivity(c)
