@@ -99,6 +99,16 @@ func Login(c *gin.Context) {
 	log.Printf("Role loaded: %+v", user.Role)
 	log.Printf("Position loaded: %+v", user.Position)
 
+	// Manual load Role
+	if user.RoleID > 0 {
+		config.DB.Where("role_id = ?", user.RoleID).First(&user.Role)
+	}
+
+	// Manual load Position
+	if user.PositionID > 0 {
+		config.DB.Where("position_id = ?", user.PositionID).First(&user.Position)
+	}
+
 	// Check password using bcrypt
 	if !utils.CheckPasswordHash(req.Password, user.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -216,8 +226,7 @@ func GetProfile(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	var user models.User
-	if err := config.DB.Preload("Role").Preload("Position").
-		Where("user_id = ? AND delete_at IS NULL", userID).
+	if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userID).
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
@@ -226,7 +235,17 @@ func GetProfile(c *gin.Context) {
 		return
 	}
 
-	// เพิ่ม debug log
+	// Manual load Role
+	if user.RoleID > 0 {
+		config.DB.Where("role_id = ?", user.RoleID).First(&user.Role)
+	}
+
+	// Manual load Position
+	if user.PositionID > 0 {
+		config.DB.Where("position_id = ?", user.PositionID).First(&user.Position)
+	}
+
+	// Debug log
 	log.Printf("Profile - User loaded: %+v", user)
 	log.Printf("Profile - Role loaded: %+v", user.Role)
 	log.Printf("Profile - Position loaded: %+v", user.Position)
