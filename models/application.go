@@ -68,9 +68,11 @@ type FundSubcategory struct {
 	SubcategoryName string `gorm:"column:subcategory_name" json:"subcategory_name"`
 	//YearID          int        `gorm:"column:year_id" json:"year_id"`
 	FundCondition *string    `gorm:"column:fund_condition" json:"fund_condition"`
+	TargetRoles   *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
+	FormType      string     `gorm:"column:form_type" json:"form_type"`       // 'download', 'publication_reward', 'research_proposal', etc.
+	FormURL       string     `gorm:"column:form_url" json:"form_url"`         // URL สำหรับดาวน์โหลดฟอร์ม
 	Status        string     `gorm:"column:status" json:"status"`
 	Comment       *string    `gorm:"column:comment" json:"comment"`
-	TargetRoles   *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
 	CreateAt      *time.Time `gorm:"column:create_at" json:"create_at"`
 	UpdateAt      *time.Time `gorm:"column:update_at" json:"update_at"`
 	DeleteAt      *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`

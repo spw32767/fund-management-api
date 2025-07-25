@@ -445,9 +445,9 @@ func GetSubcategories(c *gin.Context) {
 	fmt.Printf("userID: %v\n", userID)
 	fmt.Printf("roleID: %v\n", roleID)
 
-	// Use query builder instead of raw SQL
+	// Use query builder - เพิ่ม form_type, form_url ใน SELECT
 	query := config.DB.Table("fund_subcategories fs").
-		Select("fs.*, sb.*").
+		Select("fs.*, fs.form_type, fs.form_url, sb.*"). // เพิ่มฟิลด์ใหม่
 		Joins("LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id AND sb.delete_at IS NULL AND sb.status = 'active'").
 		Where("fs.status = ?", "active").
 		Where("fs.delete_at IS NULL")
@@ -502,21 +502,18 @@ func GetYears(c *gin.Context) {
 // GetTeacherSubcategories - Fixed SQL syntax for production server
 func GetTeacherSubcategories(c *gin.Context) {
 	categoryID := c.Query("category_id")
-	//yearID := c.Query("year_id")
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
 	// Debug log
 	fmt.Printf("\n=== GetTeacherSubcategories Debug ===\n")
 	fmt.Printf("categoryID: %s\n", categoryID)
-	//fmt.Printf("yearID: %s\n", yearID)
 	fmt.Printf("userID: %v\n", userID)
 	fmt.Printf("roleID: %v\n", roleID)
 
-	// Initialize response
 	var results []map[string]interface{}
 
-	// Build base query - ลบ semicolon ออก
+	// Build base query - เพิ่ม form_type, form_url ใน SELECT
 	baseQuery := `
 		SELECT DISTINCT
 			fs.subcategory_id,
@@ -525,6 +522,8 @@ func GetTeacherSubcategories(c *gin.Context) {
 			fs.status,
 			fs.fund_condition,
 			fs.target_roles,
+			fs.form_type,              -- เพิ่มฟิลด์ใหม่
+			fs.form_url,               -- เพิ่มฟิลด์ใหม่
 			fs.comment as sub_comment,
 			sb.subcategory_budget_id,
 			sb.allocated_amount,
@@ -551,15 +550,10 @@ func GetTeacherSubcategories(c *gin.Context) {
 		conditions = append(conditions, "fs.category_id = ?")
 		args = append(args, categoryID)
 	}
-	// if yearID != "" {
-	// 	conditions = append(conditions, "fs.year_id = ?")
-	// 	args = append(args, yearID)
-	// }
 
 	// Role-based filtering
 	roleIDStr := fmt.Sprintf("%d", roleID.(int))
 	if roleID.(int) != 3 { // Not admin
-		// ใช้ IFNULL เพื่อจัดการ NULL values
 		conditions = append(conditions, "(fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))")
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
 		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
@@ -570,7 +564,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 		baseQuery += " AND " + strings.Join(conditions, " AND ")
 	}
 
-	// Add ordering - ไม่มี semicolon
+	// Add ordering
 	baseQuery += " ORDER BY fs.subcategory_id, CASE WHEN sb.level = 'ต้น' THEN 1 WHEN sb.level = 'กลาง' THEN 2 WHEN sb.level = 'สูง' THEN 3 ELSE 4 END"
 
 	fmt.Printf("Final SQL: %s\n", baseQuery)
@@ -596,13 +590,14 @@ func GetTeacherSubcategories(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			subcategorieID   int
-			subcategorieName string
-			categoryID       int
-			//yearID               int
+			subcategorieID       int
+			subcategorieName     string
+			categoryID           int
 			status               string
 			fundCondition        *string
 			targetRoles          *string
+			formType             *string // เพิ่มตัวแปรใหม่
+			formURL              *string // เพิ่มตัวแปรใหม่
 			subComment           *string
 			subcategorieBudgetID *int
 			allocatedAmount      *float64
@@ -620,10 +615,11 @@ func GetTeacherSubcategories(c *gin.Context) {
 			&subcategorieID,
 			&subcategorieName,
 			&categoryID,
-			//&yearID,
 			&status,
 			&fundCondition,
 			&targetRoles,
+			&formType, // เพิ่มใน Scan
+			&formURL,  // เพิ่มใน Scan
 			&subComment,
 			&subcategorieBudgetID,
 			&allocatedAmount,
@@ -662,21 +658,22 @@ func GetTeacherSubcategories(c *gin.Context) {
 		}
 		processedIDs[uniqueID] = true
 
-		// Create result object
+		// Create result object - เพิ่มฟิลด์ใหม่
 		result := map[string]interface{}{
 			"subcategory_id":          uniqueID,
 			"original_subcategory_id": subcategorieID,
 			"subcategory_name":        displayName,
 			"category_id":             categoryID,
-			//"year_id":                 yearID,
-			"status":          status,
-			"fund_condition":  fundCondition,
-			"target_roles":    targetRoles,
-			"comment":         subComment,
-			"visible_to_role": roleID,
+			"status":                  status,
+			"fund_condition":          fundCondition,
+			"target_roles":            targetRoles,
+			"form_type":               formType, // เพิ่มฟิลด์ใหม่
+			"form_url":                formURL,  // เพิ่มฟิลด์ใหม่
+			"comment":                 subComment,
+			"visible_to_role":         roleID,
 		}
 
-		// Add budget information if available
+		// Add budget information if available (เหมือนเดิม)
 		if subcategorieBudgetID != nil {
 			result["subcategorie_budget_id"] = *subcategorieBudgetID
 			result["allocated_amount"] = 0.0
@@ -714,7 +711,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 				result["budget_comment"] = *budgetComment
 			}
 		} else {
-			// Default values when no budget
+			// Default values when no budget (เหมือนเดิม)
 			result["allocated_amount"] = 0.0
 			result["used_amount"] = 0.0
 			result["remaining_budget"] = 0.0
@@ -760,9 +757,8 @@ func GetSubcategoryForRole(c *gin.Context) {
 // GetAllSubcategoriesAdmin - Admin endpoint to see all subcategories without filtering
 func GetAllSubcategoriesAdmin(c *gin.Context) {
 	categoryID := c.Query("category_id")
-	//yearID := c.Query("year_id")
 
-	// Build query
+	// Build query - เพิ่ม form_type, form_url ใน SELECT
 	baseQuery := `
 		SELECT 
 			fs.subcategory_id,
@@ -771,6 +767,8 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			fs.status,
 			fs.fund_condition,
 			fs.target_roles,
+			fs.form_type,           -- เพิ่มฟิลด์ใหม่
+			fs.form_url,            -- เพิ่มฟิลด์ใหม่
 			fs.comment,
 			fc.category_name,
 			COUNT(DISTINCT sb.subcategory_budget_id) as budget_count,
@@ -789,13 +787,9 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 		baseQuery += " AND fs.category_id = ?"
 		args = append(args, categoryID)
 	}
-	// if yearID != "" {
-	// 	baseQuery += " AND fs.year_id = ?"
-	// 	args = append(args, yearID)
-	// }
 
 	baseQuery += ` GROUP BY fs.subcategory_id, fs.subcategory_name, fs.category_id, 
-			fs.year_id, fs.status, fs.fund_condition, fs.target_roles, 
+			fs.status, fs.fund_condition, fs.target_roles, fs.form_type, fs.form_url,  
 			fs.comment, fc.category_name
 		ORDER BY fs.subcategory_id`
 
@@ -824,10 +818,11 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			subcategorieID   int
 			subcategorieName string
 			categoryID       int
-			yearID           int
 			status           string
 			fundCondition    *string
 			targetRoles      *string
+			formType         *string // เพิ่มตัวแปรใหม่
+			formURL          *string // เพิ่มตัวแปรใหม่
 			comment          *string
 			categoryName     *string
 			budgetCount      int
@@ -839,10 +834,11 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			&subcategorieID,
 			&subcategorieName,
 			&categoryID,
-			&yearID,
 			&status,
 			&fundCondition,
 			&targetRoles,
+			&formType, // เพิ่มใน Scan
+			&formURL,  // เพิ่มใน Scan
 			&comment,
 			&categoryName,
 			&budgetCount,
@@ -859,7 +855,7 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			json.Unmarshal([]byte(*targetRoles), &targetRolesList)
 		}
 
-		// Update statistics
+		// Update statistics (เหมือนเดิม)
 		roleStats["total"]++
 		if checkSubcategoryVisibility(targetRoles, 1) {
 			roleStats["teacher_visible"]++
@@ -873,16 +869,18 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 			roleStats["admin_only"]++
 		}
 
+		// Create result - เพิ่มฟิลด์ใหม่
 		result := map[string]interface{}{
 			"subcategory_id":    subcategorieID,
 			"subcategory_name":  subcategorieName,
 			"category_id":       categoryID,
 			"category_name":     categoryName,
-			"year_id":           yearID,
 			"status":            status,
 			"fund_condition":    fundCondition,
 			"target_roles":      targetRolesList,
 			"target_roles_json": targetRoles,
+			"form_type":         formType, // เพิ่มฟิลด์ใหม่
+			"form_url":          formURL,  // เพิ่มฟิลด์ใหม่
 			"comment":           comment,
 			"has_budget":        budgetCount > 0,
 			"budget_count":      budgetCount,
@@ -975,6 +973,8 @@ func CreateSubcategoryWithRoles(c *gin.Context) {
 		YearID          int      `json:"year_id" binding:"required"`
 		FundCondition   string   `json:"fund_condition"`
 		TargetRoles     []string `json:"target_roles"`
+		FormType        string   `json:"form_type"` // เพิ่มฟิลด์ใหม่
+		FormURL         string   `json:"form_url"`  // เพิ่มฟิลด์ใหม่
 		Comment         string   `json:"comment"`
 	}
 
