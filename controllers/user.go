@@ -14,7 +14,9 @@ func GetUsers(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	var users []models.User
-	query := config.DB.Select("user_id, user_fname, user_lname, email, role_id, position_id").
+	// เพิ่ม Preload("Role") และ Preload("Position") เพื่อดึงข้อมูล relationship
+	query := config.DB.Preload("Role").Preload("Position").
+		Select("user_id, user_fname, user_lname, email, role_id, position_id").
 		Where("delete_at IS NULL")
 
 	// Filter by role if specified
