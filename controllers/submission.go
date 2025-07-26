@@ -744,3 +744,124 @@ func generateFileHash(file *multipart.FileHeader) (string, error) {
 
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
+
+// PublicationDetails
+func AddPublicationDetails(c *gin.Context) {
+	submissionID := c.Param("id")
+	userID, _ := c.Get("userID")
+
+	type PublicationDetailsRequest struct {
+		PaperTitle            string  `json:"article_title"` // จาก frontend
+		JournalName           string  `json:"journal_name"`
+		PublicationDate       string  `json:"publication_date"` // รับเป็น string แล้วแปลง
+		PublicationType       string  `json:"publication_type"`
+		Quartile              string  `json:"journal_quartile"` // จาก frontend
+		ImpactFactor          float64 `json:"impact_factor"`
+		DOI                   string  `json:"doi"`
+		URL                   string  `json:"url"`
+		PageNumbers           string  `json:"page_numbers"`
+		VolumeIssue           string  `json:"volume_issue"`
+		Indexing              string  `json:"indexing"`
+		RewardAmount          float64 `json:"publication_reward"` // จาก frontend
+		AuthorCount           int     `json:"author_count"`
+		IsCorrespondingAuthor bool    `json:"is_corresponding_author"`
+		AuthorStatus          string  `json:"author_status"`
+	}
+
+	var req PublicationDetailsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate submission exists and user has permission
+	var submission models.Submission
+	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).First(&submission).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	// แปลง publication_date จาก string เป็น time.Time
+	pubDate, err := time.Parse("2006-01-02", req.PublicationDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid publication date format"})
+		return
+	}
+
+	// สร้าง publication details ตรงกับ database schema
+	publicationDetails := models.PublicationRewardDetail{
+		SubmissionID:          submission.SubmissionID,
+		PaperTitle:            req.PaperTitle,
+		JournalName:           req.JournalName,
+		PublicationDate:       pubDate,
+		PublicationType:       req.PublicationType,
+		Quartile:              req.Quartile,
+		ImpactFactor:          req.ImpactFactor,
+		DOI:                   req.DOI,
+		URL:                   req.URL,
+		PageNumbers:           req.PageNumbers,
+		VolumeIssue:           req.VolumeIssue,
+		Indexing:              req.Indexing,
+		RewardAmount:          req.RewardAmount,
+		AuthorCount:           req.AuthorCount,
+		IsCorrespondingAuthor: req.IsCorrespondingAuthor,
+		AuthorStatus:          req.AuthorStatus,
+	}
+
+	if err := config.DB.Create(&publicationDetails).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save publication details"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Publication details saved successfully",
+		"details": publicationDetails,
+	})
+}
+
+// AddFundDetails
+func AddFundDetails(c *gin.Context) {
+	submissionID := c.Param("id")
+	userID, _ := c.Get("userID")
+
+	type FundDetailsRequest struct {
+		ProjectTitle       string  `json:"project_title"`
+		ProjectDescription string  `json:"project_description"`
+		RequestedAmount    float64 `json:"requested_amount"`
+		SubcategoryID      int     `json:"subcategory_id"`
+	}
+
+	var req FundDetailsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate submission exists and user has permission
+	var submission models.Submission
+	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).First(&submission).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	// Create fund application details
+	fundDetails := models.FundApplicationDetail{
+		SubmissionID:       submission.SubmissionID,
+		SubcategoryID:      req.SubcategoryID,
+		ProjectTitle:       req.ProjectTitle,
+		ProjectDescription: req.ProjectDescription,
+		RequestedAmount:    req.RequestedAmount,
+	}
+
+	if err := config.DB.Create(&fundDetails).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save fund details"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Fund details saved successfully",
+		"details": fundDetails,
+	})
+}

@@ -136,6 +136,35 @@ func SetupRoutes(router *gin.Engine) {
 				applications.POST("/:id/reject", middleware.RequireRole(3), controllers.RejectApplication)
 			}
 
+			submissions := protected.Group("/submissions")
+			{
+				// Basic CRUD
+				submissions.POST("", controllers.CreateSubmission)
+				submissions.GET("/:id", controllers.GetSubmission)
+				submissions.PUT("/:id", controllers.UpdateSubmission)
+				submissions.DELETE("/:id", controllers.DeleteSubmission)
+
+				// Submit submission
+				submissions.POST("/:id/submit", controllers.SubmitSubmission)
+
+				// Add specific details
+				submissions.POST("/:id/publication-details", controllers.AddPublicationDetails)
+				submissions.POST("/:id/fund-details", controllers.AddFundDetails)
+
+				// Documents management
+				submissions.POST("/:id/documents", controllers.AttachDocument)
+				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
+			}
+
+			// Files management
+			files := protected.Group("/files")
+			{
+				files.POST("/upload", controllers.UploadFile)
+				files.GET("/:id", controllers.GetFile)
+				files.GET("/:id/download", controllers.DownloadFile)
+				files.DELETE("/:id", controllers.DeleteFile)
+			}
+
 			// Documents
 			documents := protected.Group("/documents")
 			{

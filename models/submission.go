@@ -59,9 +59,9 @@ type PublicationRewardDetail struct {
 	PaperTitle            string    `gorm:"column:paper_title" json:"paper_title"`
 	JournalName           string    `gorm:"column:journal_name" json:"journal_name"`
 	PublicationDate       time.Time `gorm:"column:publication_date" json:"publication_date"`
-	PublicationType       string    `gorm:"column:publication_type" json:"publication_type"` // 'journal', 'conference', 'book_chapter', 'other'
-	Quartile              string    `gorm:"column:quartile" json:"quartile"`                 // 'Q1', 'Q2', 'Q3', 'Q4', 'N/A'
-	ImpactFactor          *float64  `gorm:"column:impact_factor" json:"impact_factor"`
+	PublicationType       string    `gorm:"column:publication_type;type:enum('journal','conference','book_chapter','other')" json:"publication_type"`
+	Quartile              string    `gorm:"column:quartile;type:enum('Q1','Q2','Q3','Q4','N/A')" json:"quartile"`
+	ImpactFactor          float64   `gorm:"column:impact_factor" json:"impact_factor"`
 	DOI                   string    `gorm:"column:doi" json:"doi"`
 	URL                   string    `gorm:"column:url" json:"url"`
 	PageNumbers           string    `gorm:"column:page_numbers" json:"page_numbers"`
@@ -70,7 +70,7 @@ type PublicationRewardDetail struct {
 	RewardAmount          float64   `gorm:"column:reward_amount" json:"reward_amount"`
 	AuthorCount           int       `gorm:"column:author_count" json:"author_count"`
 	IsCorrespondingAuthor bool      `gorm:"column:is_corresponding_author" json:"is_corresponding_author"`
-	AuthorStatus          string    `gorm:"column:author_status" json:"author_status"` // 'first_author', 'corresponding_author', 'coauthor'
+	AuthorStatus          string    `gorm:"column:author_status;type:enum('first_author','corresponding_author','coauthor')" json:"author_status"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
