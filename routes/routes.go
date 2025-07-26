@@ -160,9 +160,9 @@ func SetupRoutes(router *gin.Engine) {
 			files := protected.Group("/files")
 			{
 				files.POST("/upload", controllers.UploadFile)
-				files.GET("/:id", controllers.GetFile)
-				files.GET("/:id/download", controllers.DownloadFile)
-				files.DELETE("/:id", controllers.DeleteFile)
+				files.GET("/managed/:id", controllers.GetFile)               // เปลี่ยนเป็น /managed/:id
+				files.GET("/managed/:id/download", controllers.DownloadFile) // เปลี่ยนเป็น /managed/:id/download
+				files.DELETE("/managed/:id", controllers.DeleteFile)         // เปลี่ยนเป็น /managed/:id
 			}
 
 			// Documents
