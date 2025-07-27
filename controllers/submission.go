@@ -751,21 +751,34 @@ func AddPublicationDetails(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	type PublicationDetailsRequest struct {
-		PaperTitle            string  `json:"article_title"` // จาก frontend
-		JournalName           string  `json:"journal_name"`
-		PublicationDate       string  `json:"publication_date"` // รับเป็น string แล้วแปลง
-		PublicationType       string  `json:"publication_type"`
-		Quartile              string  `json:"journal_quartile"` // จาก frontend
-		ImpactFactor          float64 `json:"impact_factor"`
-		DOI                   string  `json:"doi"`
-		URL                   string  `json:"url"`
-		PageNumbers           string  `json:"page_numbers"`
-		VolumeIssue           string  `json:"volume_issue"`
-		Indexing              string  `json:"indexing"`
+		// === ข้อมูลพื้นฐาน ===
+		PaperTitle      string  `json:"article_title"` // จาก frontend
+		JournalName     string  `json:"journal_name"`
+		PublicationDate string  `json:"publication_date"` // รับเป็น string แล้วแปลง
+		PublicationType string  `json:"publication_type"`
+		Quartile        string  `json:"journal_quartile"` // จาก frontend
+		ImpactFactor    float64 `json:"impact_factor"`
+		DOI             string  `json:"doi"`
+		URL             string  `json:"url"`
+		PageNumbers     string  `json:"page_numbers"`
+		VolumeIssue     string  `json:"volume_issue"`
+		Indexing        string  `json:"indexing"`
+
+		// === เงินรางวัลและการคำนวณ (ใหม่) ===
 		RewardAmount          float64 `json:"publication_reward"` // จาก frontend
-		AuthorCount           int     `json:"author_count"`
-		IsCorrespondingAuthor bool    `json:"is_corresponding_author"`
-		AuthorStatus          string  `json:"author_status"`
+		RewardApproveAmount   float64 `json:"reward_approve_amount"`
+		RevisionFee           float64 `json:"revision_fee"`
+		PublicationFee        float64 `json:"publication_fee"`
+		ExternalFundingAmount float64 `json:"external_funding_amount"`
+		TotalAmount           float64 `json:"total_amount"`
+		TotalApproveAmount    float64 `json:"total_approve_amount"`
+
+		// === ข้อมูลผู้แต่ง ===
+		AuthorCount int    `json:"author_count"`
+		AuthorType  string `json:"author_status"` // จาก frontend (ยังใช้ชื่อเดิม)
+
+		// === อื่นๆ ===
+		AnnounceReferenceNumber string `json:"announce_reference_number"`
 	}
 
 	var req PublicationDetailsRequest
@@ -788,24 +801,36 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
-	// สร้าง publication details ตรงกับ database schema
+	// สร้าง publication details ตรงกับ database schema ใหม่
 	publicationDetails := models.PublicationRewardDetail{
-		SubmissionID:          submission.SubmissionID,
-		PaperTitle:            req.PaperTitle,
-		JournalName:           req.JournalName,
-		PublicationDate:       pubDate,
-		PublicationType:       req.PublicationType,
-		Quartile:              req.Quartile,
-		ImpactFactor:          req.ImpactFactor,
-		DOI:                   req.DOI,
-		URL:                   req.URL,
-		PageNumbers:           req.PageNumbers,
-		VolumeIssue:           req.VolumeIssue,
-		Indexing:              req.Indexing,
+		SubmissionID:    submission.SubmissionID,
+		PaperTitle:      req.PaperTitle,
+		JournalName:     req.JournalName,
+		PublicationDate: pubDate,
+		PublicationType: req.PublicationType,
+		Quartile:        req.Quartile,
+		ImpactFactor:    req.ImpactFactor,
+		DOI:             req.DOI,
+		URL:             req.URL,
+		PageNumbers:     req.PageNumbers,
+		VolumeIssue:     req.VolumeIssue,
+		Indexing:        req.Indexing,
+
+		// === เงินรางวัลและการคำนวณ (ใหม่) ===
 		RewardAmount:          req.RewardAmount,
-		AuthorCount:           req.AuthorCount,
-		IsCorrespondingAuthor: req.IsCorrespondingAuthor,
-		AuthorStatus:          req.AuthorStatus,
+		RewardApproveAmount:   req.RewardApproveAmount,
+		RevisionFee:           req.RevisionFee,
+		PublicationFee:        req.PublicationFee,
+		ExternalFundingAmount: req.ExternalFundingAmount,
+		TotalAmount:           req.TotalAmount,
+		TotalApproveAmount:    req.TotalApproveAmount,
+
+		// === ข้อมูลผู้แต่ง ===
+		AuthorCount: req.AuthorCount,
+		AuthorType:  req.AuthorType, // เปลี่ยนจาก author_status เป็น author_type
+
+		// === อื่นๆ ===
+		AnnounceReferenceNumber: req.AnnounceReferenceNumber,
 	}
 
 	if err := config.DB.Create(&publicationDetails).Error; err != nil {

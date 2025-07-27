@@ -54,23 +54,35 @@ type FundApplicationDetail struct {
 
 // PublicationRewardDetail represents publication reward specific details
 type PublicationRewardDetail struct {
-	DetailID              int       `gorm:"primaryKey;column:detail_id" json:"detail_id"`
-	SubmissionID          int       `gorm:"column:submission_id" json:"submission_id"`
-	PaperTitle            string    `gorm:"column:paper_title" json:"paper_title"`
-	JournalName           string    `gorm:"column:journal_name" json:"journal_name"`
-	PublicationDate       time.Time `gorm:"column:publication_date" json:"publication_date"`
-	PublicationType       string    `gorm:"column:publication_type;type:enum('journal','conference','book_chapter','other')" json:"publication_type"`
-	Quartile              string    `gorm:"column:quartile;type:enum('Q1','Q2','Q3','Q4','N/A')" json:"quartile"`
-	ImpactFactor          float64   `gorm:"column:impact_factor" json:"impact_factor"`
-	DOI                   string    `gorm:"column:doi" json:"doi"`
-	URL                   string    `gorm:"column:url" json:"url"`
-	PageNumbers           string    `gorm:"column:page_numbers" json:"page_numbers"`
-	VolumeIssue           string    `gorm:"column:volume_issue" json:"volume_issue"`
-	Indexing              string    `gorm:"column:indexing" json:"indexing"`
-	RewardAmount          float64   `gorm:"column:reward_amount" json:"reward_amount"`
-	AuthorCount           int       `gorm:"column:author_count" json:"author_count"`
-	IsCorrespondingAuthor bool      `gorm:"column:is_corresponding_author" json:"is_corresponding_author"`
-	AuthorStatus          string    `gorm:"column:author_status;type:enum('first_author','corresponding_author','coauthor')" json:"author_status"`
+	DetailID        int       `gorm:"primaryKey;column:detail_id" json:"detail_id"`
+	SubmissionID    int       `gorm:"column:submission_id" json:"submission_id"`
+	PaperTitle      string    `gorm:"column:paper_title" json:"paper_title"`
+	JournalName     string    `gorm:"column:journal_name" json:"journal_name"`
+	PublicationDate time.Time `gorm:"column:publication_date" json:"publication_date"`
+	PublicationType string    `gorm:"column:publication_type;type:enum('journal','conference','book_chapter','other')" json:"publication_type"`
+	Quartile        string    `gorm:"column:quartile;type:enum('Q1','Q2','Q3','Q4','N/A')" json:"quartile"`
+	ImpactFactor    float64   `gorm:"column:impact_factor" json:"impact_factor"`
+	DOI             string    `gorm:"column:doi" json:"doi"`
+	URL             string    `gorm:"column:url" json:"url"`
+	PageNumbers     string    `gorm:"column:page_numbers" json:"page_numbers"`
+	VolumeIssue     string    `gorm:"column:volume_issue" json:"volume_issue"`
+	Indexing        string    `gorm:"column:indexing" json:"indexing"`
+
+	// === เงินรางวัลและการคำนวณ ===
+	RewardAmount          float64 `gorm:"column:reward_amount" json:"reward_amount"`                     // เงินรางวัลฐาน (อ้างอิงจาก Author และ Quartile)
+	RewardApproveAmount   float64 `gorm:"column:reward_approve_amount" json:"reward_approve_amount"`     // จำนวนเงินรางวัลที่อนุมัติ
+	RevisionFee           float64 `gorm:"column:revision_fee" json:"revision_fee"`                       // ค่าปรับปรุง
+	PublicationFee        float64 `gorm:"column:publication_fee" json:"publication_fee"`                 // ค่าตีพิมพ์
+	ExternalFundingAmount float64 `gorm:"column:external_funding_amount" json:"external_funding_amount"` // รวมจำนวนเงินจากทุนที่ user แนบเข้ามา
+	TotalAmount           float64 `gorm:"column:total_amount" json:"total_amount"`                       // เกิดจากการหักลบค่าปรับปรุง+ค่าตีพิมพ์ ลบกับ รายการที่เบิกจากหน่วยงานนอก
+	TotalApproveAmount    float64 `gorm:"column:total_approve_amount" json:"total_approve_amount"`       // จำนวนเงินจริงที่วิทยาลัยจ่ายให้ (หลังจากได้รับการอนุมัติ)
+
+	// === ข้อมูลผู้แต่ง ===
+	AuthorCount int    `gorm:"column:author_count" json:"author_count"`
+	AuthorType  string `gorm:"column:author_type;type:enum('first_author','corresponding_author','coauthor')" json:"author_type"` // เปลี่ยนจาก author_status
+
+	// === อื่นๆ ===
+	AnnounceReferenceNumber string `gorm:"column:announce_reference_number" json:"announce_reference_number"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
