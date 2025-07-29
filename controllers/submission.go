@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // ===================== SUBMISSION MANAGEMENT =====================
@@ -309,7 +310,7 @@ func SubmitSubmission(c *gin.Context) {
 
 // ===================== FILE UPLOAD SYSTEM =====================
 
-// UploadFile handles file upload
+// UploadFile handles file upload (User-Based Folders)
 func UploadFile(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
@@ -333,22 +334,10 @@ func UploadFile(c *gin.Context) {
 		return
 	}
 
-	// Generate file hash
-	fileHash, err := generateFileHash(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process file"})
-		return
-	}
-
-	// Check if file already exists
-	var existingFile models.FileUpload
-	if err := config.DB.Where("file_hash = ? AND delete_at IS NULL", fileHash).First(&existingFile).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success":  true,
-			"message":  "File already exists",
-			"file":     existingFile,
-			"existing": true,
-		})
+	// Get user info for folder creation
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
 		return
 	}
 
@@ -358,19 +347,19 @@ func UploadFile(c *gin.Context) {
 		uploadPath = "./uploads"
 	}
 
-	// Create subdirectory for year/month
-	now := time.Now()
-	subDir := filepath.Join(uploadPath, now.Format("2006/01"))
-	if err := os.MkdirAll(subDir, os.ModePerm); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+	// Create user folder if not exists
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user directory"})
 		return
 	}
 
-	// Generate unique filename
-	ext := filepath.Ext(file.Filename)
-	uniqueID := uuid.New().String()
-	storedFilename := fmt.Sprintf("%s%s", uniqueID, ext)
-	storedPath := filepath.Join(subDir, storedFilename)
+	// เก็บไฟล์ในโฟลเดอร์ temp ก่อน (รอแนบกับ submission)
+	tempFolderPath := filepath.Join(userFolderPath, "temp")
+
+	// Generate unique filename in temp directory
+	safeFilename := utils.GenerateUniqueFilename(tempFolderPath, file.Filename)
+	storedPath := filepath.Join(tempFolderPath, safeFilename)
 
 	// Save file
 	if err := c.SaveUploadedFile(file, storedPath); err != nil {
@@ -379,12 +368,13 @@ func UploadFile(c *gin.Context) {
 	}
 
 	// Save to database
+	now := time.Now()
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   storedPath,
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
-		FileHash:     fileHash,
+		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
 		IsPublic:     false,
 		UploadedBy:   userID.(int),
 		UploadedAt:   now,
@@ -403,6 +393,120 @@ func UploadFile(c *gin.Context) {
 		"success": true,
 		"message": "File uploaded successfully",
 		"file":    fileUpload,
+	})
+}
+
+// MoveFileToSubmissionFolder ย้ายไฟล์จาก temp ไปยัง submission folder
+func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType string) error {
+	var fileUpload models.FileUpload
+	if err := config.DB.First(&fileUpload, fileID).Error; err != nil {
+		return err
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, fileUpload.UploadedBy).Error; err != nil {
+		return err
+	}
+
+	var submission models.Submission
+	if err := config.DB.First(&submission, submissionID).Error; err != nil {
+		return err
+	}
+
+	// Generate new path
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
+	if err != nil {
+		return err
+	}
+
+	submissionFolderPath, err := utils.CreateSubmissionFolder(
+		userFolderPath, submissionType, submissionID, submission.CreatedAt)
+	if err != nil {
+		return err
+	}
+
+	// Generate new filename
+	newFilename := utils.GenerateUniqueFilename(submissionFolderPath, fileUpload.OriginalName)
+	newPath := filepath.Join(submissionFolderPath, newFilename)
+
+	// Move file
+	if err := utils.MoveFileToSubmissionFolder(fileUpload.StoredPath, newPath); err != nil {
+		return err
+	}
+
+	// Update database
+	fileUpload.StoredPath = newPath
+	fileUpload.UpdateAt = time.Now()
+	return config.DB.Save(&fileUpload).Error
+}
+
+// AttachDocumentToSubmission แนบไฟล์กับ submission และย้ายไฟล์
+func AttachDocumentToSubmission(c *gin.Context) {
+	submissionID, _ := strconv.Atoi(c.Param("id"))
+	userID, _ := c.Get("userID")
+
+	type AttachDocumentRequest struct {
+		FileID         int    `json:"file_id" binding:"required"`
+		DocumentTypeID int    `json:"document_type_id" binding:"required"`
+		Description    string `json:"description"`
+		DisplayOrder   int    `json:"display_order"`
+	}
+
+	var req AttachDocumentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify submission exists and user has permission
+	var submission models.Submission
+	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).
+		First(&submission).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	// Verify file exists and belongs to user
+	var fileUpload models.FileUpload
+	if err := config.DB.Where("file_id = ? AND uploaded_by = ?", req.FileID, userID).
+		First(&fileUpload).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	// Move file from temp to submission folder
+	if err := MoveFileToSubmissionFolder(req.FileID, submissionID, submission.SubmissionType); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to move file to submission folder"})
+		return
+	}
+
+	// Create submission document record
+	document := models.SubmissionDocument{
+		SubmissionID:   submissionID,
+		FileID:         req.FileID,
+		DocumentTypeID: req.DocumentTypeID,
+		Description:    req.Description,
+		DisplayOrder:   req.DisplayOrder,
+		CreatedAt:      time.Now(),
+	}
+
+	if err := config.DB.Create(&document).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to attach document"})
+		return
+	}
+
+	// Preload relations
+	config.DB.Preload("File").Preload("DocumentType").First(&document, document.DocumentID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"message":  "Document attached successfully",
+		"document": document,
 	})
 }
 

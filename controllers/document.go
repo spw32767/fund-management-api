@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,10 +13,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
-// UploadDocument handles document upload for application
+// UploadDocument handles document upload for application (User-Based Folders)
 func UploadDocument(c *gin.Context) {
 	applicationID := c.Param("id")
 	userID, _ := c.Get("userID")
@@ -73,54 +73,94 @@ func UploadDocument(c *gin.Context) {
 		return
 	}
 
-	// Generate unique filename
-	uniqueID := uuid.New().String()
-	storedFilename := fmt.Sprintf("%s_%s%s", applicationID, uniqueID, ext)
+	// Get user info
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
+		return
+	}
 
-	// Create upload directory if not exists
+	// Create user-based path
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
 		uploadPath = "./uploads"
 	}
 
-	// Create subdirectory for year/month
-	now := time.Now()
-	subDir := filepath.Join(uploadPath, now.Format("2006/01"))
-	if err := os.MkdirAll(subDir, os.ModePerm); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+	// Create user folder if not exists
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user directory"})
 		return
 	}
 
+	// Convert applicationID to int
+	appID, _ := strconv.Atoi(applicationID)
+
+	// Create submission folder for this application
+	submissionFolderPath, err := utils.CreateSubmissionFolder(
+		userFolderPath, "fund", appID, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission directory"})
+		return
+	}
+
+	// Use original filename with safety checks
+	safeFilename := utils.GenerateUniqueFilename(submissionFolderPath, file.Filename)
+	fullPath := filepath.Join(submissionFolderPath, safeFilename)
+
 	// Save file
-	fullPath := filepath.Join(subDir, storedFilename)
 	if err := c.SaveUploadedFile(file, fullPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
 		return
 	}
 
-	// Save to database
+	// Save to database - Create FileUpload record first
+	now := time.Now()
+	fileUpload := models.FileUpload{
+		OriginalName: file.Filename,
+		StoredPath:   fullPath,
+		FileSize:     file.Size,
+		MimeType:     file.Header.Get("Content-Type"),
+		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
+		IsPublic:     false,
+		UploadedBy:   userID.(int),
+		UploadedAt:   now,
+		CreateAt:     now,
+		UpdateAt:     now,
+	}
+
+	if err := config.DB.Create(&fileUpload).Error; err != nil {
+		// Delete uploaded file if database save fails
+		os.Remove(fullPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
+		return
+	}
+
+	// Create application document record ใช้ field ที่มีจริงใน models.ApplicationDocument
 	document := models.ApplicationDocument{
 		ApplicationID:    application.ApplicationID,
 		DocumentTypeID:   documentTypeID,
 		UploadedBy:       userID.(int),
-		OriginalFilename: file.Filename,
-		StoredFilename:   storedFilename,
-		FileType:         ext,
+		OriginalFilename: file.Filename,                // ใช้ field ที่มีจริง
+		StoredFilename:   safeFilename,                 // ใช้ field ที่มีจริง
+		FileType:         strings.TrimPrefix(ext, "."), // ใช้ field ที่มีจริง
 		UploadedAt:       &now,
 		CreateAt:         &now,
 		UpdateAt:         &now,
 	}
 
 	if err := config.DB.Create(&document).Error; err != nil {
-		// Delete uploaded file if database save fails
+		// Delete uploaded file and FileUpload record if document creation fails
 		os.Remove(fullPath)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document info"})
+		config.DB.Delete(&fileUpload)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "Document uploaded successfully",
+		"message":  "File uploaded successfully",
 		"document": document,
+		"file":     fileUpload,
 	})
 }
 

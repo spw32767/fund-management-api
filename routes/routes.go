@@ -169,6 +169,9 @@ func SetupRoutes(router *gin.Engine) {
 
 				// Enhanced submission details with co-authors
 				submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
+
+				// เพิ่ม route ใหม่สำหรับแนบไฟล์
+				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
 			}
 
 			// Files management
@@ -304,6 +307,19 @@ func SetupRoutes(router *gin.Engine) {
 				//     users.GET("", controllers.GetAllUsers)
 				//     users.PUT("/:id/role", controllers.UpdateUserRole)
 				// }
+
+				// User folders management
+				admin.GET("/files/users", controllers.ListUserFolders)   // ดู user folders ทั้งหมด
+				admin.GET("/files/users/:id", controllers.ListUserFiles) // ดูไฟล์ของ user
+				admin.GET("/files/stats", controllers.GetFileStats)      // สถิติการใช้งานไฟล์
+
+				// File cleanup and maintenance
+				admin.DELETE("/files/cleanup", controllers.CleanupTempFiles) // ลบไฟล์ temp เก่า
+				admin.POST("/files/backup/:id", controllers.BackupUserData)  // backup ข้อมูล user
+
+				// File system utilities (เพิ่มเติมในอนาคต)
+				// admin.GET("/files/orphaned", controllers.FindOrphanedFiles)     // หาไฟล์ที่ไม่มีใน DB
+				// admin.DELETE("/files/orphaned", controllers.DeleteOrphanedFiles) // ลบไฟล์ที่ไม่มีใน DB
 			}
 		}
 	}

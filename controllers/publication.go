@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
-	"io"
+	"fund-management-api/utils"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // GetPublicationRewards returns list of publication rewards
@@ -80,6 +79,7 @@ func GetPublicationReward(c *gin.Context) {
 }
 
 // CreatePublicationReward creates new publication reward request with file upload
+// CreatePublicationReward สร้าง publication reward (User-Based Folders)
 func CreatePublicationReward(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
@@ -97,209 +97,149 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Parse JSON data
+	// Parse JSON data - ใช้ field ที่ตรงกับ models.PublicationReward จริง
 	type CreateRewardRequest struct {
-		AuthorStatus             string  `json:"author_status"`
-		ArticleTitle             string  `json:"article_title"`
-		JournalName              string  `json:"journal_name"`
-		JournalIssue             string  `json:"journal_issue"`
-		JournalPages             string  `json:"journal_pages"`
-		JournalMonth             string  `json:"journal_month"`
-		JournalYear              string  `json:"journal_year"`
-		JournalURL               string  `json:"journal_url"`
-		DOI                      string  `json:"doi"`
-		ArticleOnlineDB          string  `json:"article_online_db"`
-		JournalTier              string  `json:"journal_tier"`
-		JournalQuartile          string  `json:"journal_quartile"`
-		InISI                    bool    `json:"in_isi"`
-		InScopus                 bool    `json:"in_scopus"`
-		ArticleType              string  `json:"article_type"`
-		JournalType              string  `json:"journal_type"`
-		EditorFee                float64 `json:"editor_fee"`
-		PublicationFeeUniversity float64 `json:"publication_fee_university"`
-		PublicationFeeCollege    float64 `json:"publication_fee_college"`
-		UniversityRanking        string  `json:"university_ranking"`
-		BankAccount              string  `json:"bank_account"`
-		BankName                 string  `json:"bank_name"`
-		PhoneNumber              string  `json:"phone_number"`
-		HasUniversityFund        string  `json:"has_university_fund"`
-		UniversityFundRef        string  `json:"university_fund_ref"`
-		Coauthors                []int   `json:"coauthors"`
-		Status                   string  `json:"status"`
+		AuthorStatus    string `json:"author_status"`
+		ArticleTitle    string `json:"article_title"`
+		JournalName     string `json:"journal_name"`
+		JournalIssue    string `json:"journal_issue"`
+		JournalPages    string `json:"journal_pages"`
+		JournalMonth    string `json:"journal_month"`
+		JournalYear     string `json:"journal_year"` // เปลี่ยนเป็น string
+		DOI             string `json:"doi"`
+		JournalQuartile string `json:"journal_quartile"` // เปลี่ยนจาก quartile
+		// ลบ fields ที่ไม่มีใน models
+		CoauthorIds []int `json:"coauthor_ids"`
 	}
 
 	var req CreateRewardRequest
 	if err := json.Unmarshal([]byte(jsonData), &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid data format"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON data"})
 		return
 	}
 
-	// Validate required fields
-	if req.AuthorStatus == "" || req.ArticleTitle == "" || req.JournalName == "" ||
-		req.JournalQuartile == "" || req.BankAccount == "" || req.BankName == "" ||
-		req.PhoneNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required fields"})
+	// Get user info
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
 		return
 	}
 
-	// Calculate publication reward based on author status and quartile
-	publicationReward := calculatePublicationReward(req.AuthorStatus, req.JournalQuartile)
-
-	// Calculate total amount
-	totalAmount := publicationReward + req.PublicationFeeUniversity + req.PublicationFeeCollege
-
-	// Generate reward number
-	rewardNumber := generateRewardNumber()
-
-	// Create reward
-	now := time.Now()
-	reward := models.PublicationReward{
-		RewardNumber:             rewardNumber,
-		UserID:                   userID.(int),
-		AuthorStatus:             req.AuthorStatus,
-		ArticleTitle:             req.ArticleTitle,
-		JournalName:              req.JournalName,
-		JournalIssue:             req.JournalIssue,
-		JournalPages:             req.JournalPages,
-		JournalMonth:             req.JournalMonth,
-		JournalYear:              req.JournalYear,
-		JournalURL:               req.JournalURL,
-		DOI:                      req.DOI,
-		ArticleOnlineDB:          req.ArticleOnlineDB,
-		JournalTier:              req.JournalTier,
-		JournalQuartile:          req.JournalQuartile,
-		InISI:                    req.InISI,
-		InScopus:                 req.InScopus,
-		ArticleType:              req.ArticleType,
-		JournalType:              req.JournalType,
-		PublicationReward:        publicationReward,
-		EditorFee:                req.EditorFee,
-		PublicationFeeUniversity: req.PublicationFeeUniversity,
-		PublicationFeeCollege:    req.PublicationFeeCollege,
-		TotalAmount:              totalAmount,
-		UniversityRanking:        req.UniversityRanking,
-		BankAccount:              req.BankAccount,
-		BankName:                 req.BankName,
-		PhoneNumber:              req.PhoneNumber,
-		HasUniversityFund:        req.HasUniversityFund == "yes",
-		UniversityFundRef:        req.UniversityFundRef,
-		Status:                   req.Status,
-		CreateAt:                 &now,
-		UpdateAt:                 &now,
-	}
-
-	// Set submitted time if not draft
-	if req.Status == "submitted" {
-		reward.SubmittedAt = &now
-	}
-
-	// Start transaction
+	// Begin transaction
 	tx := config.DB.Begin()
+	now := time.Now()
 
-	// Create reward
+	// Create publication reward record - ใช้เฉพาะ fields ที่มีจริงใน models.PublicationReward
+	reward := models.PublicationReward{
+		UserID:          userID.(int),
+		AuthorStatus:    req.AuthorStatus,
+		ArticleTitle:    req.ArticleTitle,
+		JournalName:     req.JournalName,
+		JournalIssue:    req.JournalIssue,
+		JournalPages:    req.JournalPages,
+		JournalMonth:    req.JournalMonth,
+		JournalYear:     req.JournalYear, // เป็น string แล้ว
+		DOI:             req.DOI,
+		JournalQuartile: req.JournalQuartile, // ใช้ชื่อ field ที่ถูกต้อง
+		RewardNumber:    generateRewardNumber(),
+		CreateAt:        &now,
+		UpdateAt:        &now,
+	}
+
 	if err := tx.Create(&reward).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create publication reward"})
 		return
 	}
 
-	// Add coauthors
-	for i, coauthorID := range req.Coauthors {
-		coauthor := models.PublicationCoauthor{
-			RewardID:    reward.RewardID,
-			UserID:      coauthorID,
-			AuthorOrder: i + 1,
-			CreateAt:    &now,
-		}
-		if err := tx.Create(&coauthor).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add coauthor"})
-			return
-		}
-	}
-
-	// Handle file uploads
+	// Create user folder and submission folder
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
 		uploadPath = "./uploads"
 	}
 
-	// Process all uploaded files
-	if c.Request.MultipartForm != nil && c.Request.MultipartForm.File != nil {
-		for fieldName, files := range c.Request.MultipartForm.File {
-			// Extract document type from field name (e.g., "doc_1", "doc_11_0")
-			var documentType string
-			if strings.HasPrefix(fieldName, "doc_") {
-				parts := strings.Split(fieldName, "_")
-				if len(parts) >= 2 {
-					documentType = parts[1]
-				}
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user directory"})
+		return
+	}
+
+	submissionFolderPath, err := utils.CreateSubmissionFolder(
+		userFolderPath, "publication", reward.RewardID, now)
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission directory"})
+		return
+	}
+
+	// Process file uploads (same logic as UploadPublicationDocument)
+	for fieldName, files := range c.Request.MultipartForm.File {
+		var documentType string
+		if strings.HasPrefix(fieldName, "doc_") {
+			parts := strings.Split(fieldName, "_")
+			if len(parts) >= 2 {
+				documentType = parts[1]
+			}
+		}
+
+		if documentType == "" {
+			continue
+		}
+
+		for _, fileHeader := range files {
+			// Use original filename with safety checks
+			safeOriginalName := utils.SanitizeForFilename(fileHeader.Filename)
+			finalFilename := fmt.Sprintf("pub_%s_%s", documentType, safeOriginalName)
+			uniqueFilename := utils.GenerateUniqueFilename(submissionFolderPath, finalFilename)
+			dst := filepath.Join(submissionFolderPath, uniqueFilename)
+
+			// Save file
+			if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+				return
 			}
 
-			if documentType == "" {
-				continue
+			// Create FileUpload record
+			fileUpload := models.FileUpload{
+				OriginalName: fileHeader.Filename,
+				StoredPath:   dst,
+				FileSize:     fileHeader.Size,
+				MimeType:     fileHeader.Header.Get("Content-Type"),
+				FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
+				IsPublic:     false,
+				UploadedBy:   userID.(int),
+				UploadedAt:   now,
+				CreateAt:     now,
+				UpdateAt:     now,
 			}
 
-			for _, fileHeader := range files {
-				// Generate unique filename
-				ext := filepath.Ext(fileHeader.Filename)
-				newFilename := fmt.Sprintf("pub_%d_%s_%s%s",
-					reward.RewardID,
-					documentType,
-					uuid.New().String(),
-					ext)
+			if err := tx.Create(&fileUpload).Error; err != nil {
+				tx.Rollback()
+				os.Remove(dst)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
+				return
+			}
 
-				// Save file
-				dst := filepath.Join(uploadPath, "publications", newFilename)
-				if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
-					return
-				}
+			// Create document record - ใช้ fields ที่มีจริงใน models.PublicationDocument
+			fileType := strings.TrimPrefix(filepath.Ext(fileHeader.Filename), ".")
+			doc := models.PublicationDocument{
+				RewardID:         reward.RewardID,
+				DocumentType:     documentType,
+				OriginalFilename: fileHeader.Filename,
+				StoredFilename:   uniqueFilename,
+				FileType:         fileType,
+				UploadedBy:       userID.(int),
+				UploadedAt:       &now,
+				CreateAt:         &now,
+			}
 
-				src, err := fileHeader.Open()
-				if err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open uploaded file"})
-					return
-				}
-				defer src.Close()
-
-				out, err := os.Create(dst)
-				if err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create file"})
-					return
-				}
-				defer out.Close()
-
-				_, err = io.Copy(out, src)
-				if err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-					return
-				}
-
-				// Get file type
-				fileType := strings.TrimPrefix(ext, ".")
-
-				// Create document record
-				doc := models.PublicationDocument{
-					RewardID:         reward.RewardID,
-					DocumentType:     documentType,
-					OriginalFilename: fileHeader.Filename,
-					StoredFilename:   newFilename,
-					FileType:         fileType,
-					UploadedBy:       userID.(int),
-					UploadedAt:       &now,
-					CreateAt:         &now,
-				}
-
-				if err := tx.Create(&doc).Error; err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
-					return
-				}
+			if err := tx.Create(&doc).Error; err != nil {
+				tx.Rollback()
+				os.Remove(dst)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
+				return
 			}
 		}
 	}
@@ -316,6 +256,7 @@ func CreatePublicationReward(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Publication reward created successfully",
 		"reward":  reward,
+		"folder":  submissionFolderPath,
 	})
 }
 
@@ -530,6 +471,7 @@ func generateRewardNumber() string {
 
 // Upload/Get Publication Documents Made by Co-pilot
 // UploadPublicationDocument handles document upload for publication rewards
+// UploadPublicationDocument แก้ไขให้ตรงกับ schema จริง
 func UploadPublicationDocument(c *gin.Context) {
 	id := c.Param("id")
 	userID, _ := c.Get("userID")
@@ -549,9 +491,31 @@ func UploadPublicationDocument(c *gin.Context) {
 		return
 	}
 
+	// Get user info
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
+		return
+	}
+
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
 		uploadPath = "./uploads"
+	}
+
+	// Create user folder if not exists
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user directory"})
+		return
+	}
+
+	// Create publication submission folder
+	submissionFolderPath, err := utils.CreateSubmissionFolder(
+		userFolderPath, "publication", reward.RewardID, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission directory"})
+		return
 	}
 
 	var uploadedFiles []models.PublicationDocument
@@ -564,7 +528,6 @@ func UploadPublicationDocument(c *gin.Context) {
 		if strings.HasPrefix(fieldName, "doc_") {
 			parts := strings.Split(fieldName, "_")
 			if len(parts) >= 2 {
-				// Use document type ID as string for now
 				documentType = parts[1]
 			}
 		}
@@ -574,35 +537,50 @@ func UploadPublicationDocument(c *gin.Context) {
 		}
 
 		for _, fileHeader := range files {
-			// Generate unique filename
-			ext := filepath.Ext(fileHeader.Filename)
-			newFilename := fmt.Sprintf("pub_%d_%s_%s%s",
-				reward.RewardID,
-				documentType,
-				uuid.New().String(),
-				ext)
+			// Use original filename with safety checks
+			safeOriginalName := utils.SanitizeForFilename(fileHeader.Filename)
+			finalFilename := fmt.Sprintf("pub_%s_%s", documentType, safeOriginalName)
+
+			// Generate unique filename in submission folder
+			uniqueFilename := utils.GenerateUniqueFilename(submissionFolderPath, finalFilename)
+			dst := filepath.Join(submissionFolderPath, uniqueFilename)
 
 			// Save file
-			dst := filepath.Join(uploadPath, "publications", newFilename)
-			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create directory"})
-				return
-			}
-
 			if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
 				return
 			}
 
-			// Get file extension
-			fileType := strings.TrimPrefix(ext, ".")
+			// Create FileUpload record
+			fileUpload := models.FileUpload{
+				OriginalName: fileHeader.Filename,
+				StoredPath:   dst,
+				FileSize:     fileHeader.Size,
+				MimeType:     fileHeader.Header.Get("Content-Type"),
+				FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
+				IsPublic:     false,
+				UploadedBy:   userID.(int),
+				UploadedAt:   now,
+				CreateAt:     now,
+				UpdateAt:     now,
+			}
 
-			// Create document record using correct field names
+			if err := config.DB.Create(&fileUpload).Error; err != nil {
+				// Delete uploaded file if database save fails
+				os.Remove(dst)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
+				return
+			}
+
+			// Get file extension
+			fileType := strings.TrimPrefix(filepath.Ext(fileHeader.Filename), ".")
+
+			// Create document record - ใช้ fields ที่มีจริง
 			doc := models.PublicationDocument{
 				RewardID:         reward.RewardID,
 				DocumentType:     documentType,
 				OriginalFilename: fileHeader.Filename,
-				StoredFilename:   newFilename,
+				StoredFilename:   uniqueFilename,
 				FileType:         fileType,
 				UploadedBy:       userID.(int),
 				UploadedAt:       &now,
@@ -610,6 +588,9 @@ func UploadPublicationDocument(c *gin.Context) {
 			}
 
 			if err := config.DB.Create(&doc).Error; err != nil {
+				// Delete uploaded file and FileUpload record if document creation fails
+				os.Remove(dst)
+				config.DB.Delete(&fileUpload)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
 				return
 			}
@@ -621,6 +602,7 @@ func UploadPublicationDocument(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Documents uploaded successfully",
 		"documents": uploadedFiles,
+		"folder":    submissionFolderPath,
 	})
 }
 
