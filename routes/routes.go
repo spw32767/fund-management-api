@@ -154,6 +154,15 @@ func SetupRoutes(router *gin.Engine) {
 				// Documents management
 				submissions.POST("/:id/documents", controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
+
+				// === Co-authors Management (ใหม่) ===
+				submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
+				submissions.GET("/:id/coauthors", controllers.GetCoauthors)               // ดู co-authors
+				submissions.PUT("/:id/coauthors/:user_id", controllers.UpdateCoauthor)    // แก้ไข co-author
+				submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
+
+				// Enhanced submission details with co-authors
+				submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
 			}
 
 			// Files management

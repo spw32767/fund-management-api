@@ -8,31 +8,27 @@ import (
 // Submission represents the main submission table
 type Submission struct {
 	SubmissionID     int        `gorm:"primaryKey;column:submission_id" json:"submission_id"`
-	SubmissionType   string     `gorm:"column:submission_type" json:"submission_type"` // 'fund_application', 'publication_reward', 'conference_grant', 'training_request'
 	SubmissionNumber string     `gorm:"column:submission_number" json:"submission_number"`
+	SubmissionType   string     `gorm:"column:submission_type" json:"submission_type"`
 	UserID           int        `gorm:"column:user_id" json:"user_id"`
 	YearID           int        `gorm:"column:year_id" json:"year_id"`
 	StatusID         int        `gorm:"column:status_id" json:"status_id"`
-	Priority         string     `gorm:"column:priority" json:"priority"` // 'low', 'normal', 'high', 'urgent'
-	SubmittedAt      *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
-	ReviewedAt       *time.Time `gorm:"column:reviewed_at" json:"reviewed_at"`
-	ApprovedAt       *time.Time `gorm:"column:approved_at" json:"approved_at"`
+	Priority         string     `gorm:"column:priority" json:"priority"`
 	ApprovedBy       *int       `gorm:"column:approved_by" json:"approved_by"`
-	CompletedAt      *time.Time `gorm:"column:completed_at" json:"completed_at"`
+	ApprovedAt       *time.Time `gorm:"column:approved_at" json:"approved_at"`
+	SubmittedAt      *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
 	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt        time.Time  `gorm:"column:updated_at" json:"updated_at"`
-	DeletedAt        *time.Time `gorm:"column:deleted_at" json:"deleted_at,omitempty"`
+	DeletedAt        *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 
 	// Relations
-	User     User              `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Year     Year              `gorm:"foreignKey:YearID" json:"year,omitempty"`
-	Status   ApplicationStatus `gorm:"foreignKey:StatusID" json:"status,omitempty"`
-	Approver *User             `gorm:"foreignKey:ApprovedBy" json:"approver,omitempty"`
-
-	// Related details (will be loaded separately based on submission_type)
+	User                    User                     `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`
+	Status                  ApplicationStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
+	Documents               []SubmissionDocument     `gorm:"foreignKey:SubmissionID" json:"documents,omitempty"`
+	SubmissionUsers         []SubmissionUser         `gorm:"foreignKey:SubmissionID" json:"submission_users,omitempty"` // เพิ่มใหม่
 	FundApplicationDetail   *FundApplicationDetail   `json:"fund_application_detail,omitempty"`
 	PublicationRewardDetail *PublicationRewardDetail `json:"publication_reward_detail,omitempty"`
-	Documents               []SubmissionDocument     `json:"documents,omitempty"`
 }
 
 // FundApplicationDetail represents fund application specific details
@@ -109,6 +105,20 @@ type SubmissionDocument struct {
 	Verifier     *User        `gorm:"foreignKey:VerifiedBy" json:"verifier,omitempty"`
 }
 
+// SubmissionUser represents co-authors and collaborators in submissions
+type SubmissionUser struct {
+	ID            int       `gorm:"primaryKey;column:id" json:"id"`
+	SubmissionID  int       `gorm:"column:submission_id" json:"submission_id"`
+	UserID        int       `gorm:"column:user_id" json:"user_id"`
+	Role          string    `gorm:"column:role;type:enum('coauthor','supervisor','collaborator');default:'coauthor'" json:"role"`
+	OrderSequence int       `gorm:"column:order_sequence" json:"order_sequence"`
+	CreatedAt     time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP" json:"created_at"`
+
+	// Relations
+	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
+	User       User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
+}
+
 // TableName overrides
 func (Submission) TableName() string {
 	return "submissions"
@@ -145,4 +155,22 @@ func (s *Submission) IsApproved() bool {
 
 func (s *Submission) IsRejected() bool {
 	return s.StatusID == 3 // Assuming 3 is rejected status
+}
+
+// TableName specifies the table name
+func (SubmissionUser) TableName() string {
+	return "submission_users"
+}
+
+// Helper methods สำหรับ SubmissionUser
+func (su *SubmissionUser) IsCoauthor() bool {
+	return su.Role == "coauthor"
+}
+
+func (su *SubmissionUser) IsSupervisor() bool {
+	return su.Role == "supervisor"
+}
+
+func (su *SubmissionUser) IsCollaborator() bool {
+	return su.Role == "collaborator"
 }
