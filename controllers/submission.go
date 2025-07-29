@@ -107,7 +107,7 @@ func CreateSubmission(c *gin.Context) {
 	type CreateSubmissionRequest struct {
 		SubmissionType string `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward'
 		YearID         int    `json:"year_id" binding:"required"`
-		Priority       string `json:"priority"`
+		//Priority       string `json:"priority"`
 	}
 
 	var req CreateSubmissionRequest
@@ -141,10 +141,10 @@ func CreateSubmission(c *gin.Context) {
 	submissionNumber := generateSubmissionNumber(req.SubmissionType)
 
 	// Set default priority
-	priority := req.Priority
-	if priority == "" {
-		priority = "normal"
-	}
+	// priority := req.Priority
+	// if priority == "" {
+	// 	priority = "normal"
+	// }
 
 	// Create submission
 	now := time.Now()
@@ -154,9 +154,9 @@ func CreateSubmission(c *gin.Context) {
 		UserID:           userID.(int),
 		YearID:           req.YearID,
 		StatusID:         1, // Draft status
-		Priority:         priority,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		//Priority:         priority,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := config.DB.Create(&submission).Error; err != nil {
@@ -180,15 +180,15 @@ func UpdateSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
-	type UpdateSubmissionRequest struct {
-		Priority string `json:"priority"`
-	}
+	// type UpdateSubmissionRequest struct {
+	// 	Priority string `json:"priority"`
+	// }
 
-	var req UpdateSubmissionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	// var req UpdateSubmissionRequest
+	// if err := c.ShouldBindJSON(&req); err != nil {
+	// 	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// 	return
+	// }
 
 	// Find submission
 	var submission models.Submission
@@ -216,9 +216,9 @@ func UpdateSubmission(c *gin.Context) {
 		"updated_at": now,
 	}
 
-	if req.Priority != "" {
-		updates["priority"] = req.Priority
-	}
+	// if req.Priority != "" {
+	// 	updates["priority"] = req.Priority
+	// }
 
 	if err := config.DB.Model(&submission).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
