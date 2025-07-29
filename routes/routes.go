@@ -114,6 +114,7 @@ func SetupRoutes(router *gin.Engine) {
 			{
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
+				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
 			}
 
 			// Staff-specific endpoints
@@ -121,6 +122,7 @@ func SetupRoutes(router *gin.Engine) {
 			{
 				// ใช้ function เดียวกัน
 				staff.GET("/subcategories", controllers.GetSubcategoryForRole)
+				staff.GET("/submissions", controllers.GetStaffSubmissions) // Staff ดู submissions ของตัวเอง
 			}
 
 			// Fund Applications
@@ -233,6 +235,7 @@ func SetupRoutes(router *gin.Engine) {
 			{
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
+				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
