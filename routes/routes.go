@@ -105,6 +105,10 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 
+			// General submissions listing (all users)
+			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
+			protected.GET("/submissions/search", controllers.SearchSubmissions) // ค้นหา submissions
+
 			// Teacher-specific endpoints
 			teacher := protected.Group("/teacher")
 			{

@@ -76,9 +76,9 @@ func GetAllSubmissions(c *gin.Context) {
 	if yearID != "" {
 		query = query.Where("year_id = ?", yearID)
 	}
-	if priority != "" {
-		query = query.Where("priority = ?", priority)
-	}
+	// if priority != "" {
+	// 	query = query.Where("priority = ?", priority)
+	// }
 
 	// Search functionality
 	if search != "" {

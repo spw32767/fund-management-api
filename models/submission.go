@@ -7,19 +7,19 @@ import (
 
 // Submission represents the main submission table
 type Submission struct {
-	SubmissionID     int        `gorm:"primaryKey;column:submission_id" json:"submission_id"`
-	SubmissionNumber string     `gorm:"column:submission_number" json:"submission_number"`
-	SubmissionType   string     `gorm:"column:submission_type" json:"submission_type"`
-	UserID           int        `gorm:"column:user_id" json:"user_id"`
-	YearID           int        `gorm:"column:year_id" json:"year_id"`
-	StatusID         int        `gorm:"column:status_id" json:"status_id"`
-	Priority         string     `gorm:"column:priority" json:"priority"`
-	ApprovedBy       *int       `gorm:"column:approved_by" json:"approved_by"`
-	ApprovedAt       *time.Time `gorm:"column:approved_at" json:"approved_at"`
-	SubmittedAt      *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
-	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt        time.Time  `gorm:"column:updated_at" json:"updated_at"`
-	DeletedAt        *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
+	SubmissionID     int    `gorm:"primaryKey;column:submission_id" json:"submission_id"`
+	SubmissionNumber string `gorm:"column:submission_number" json:"submission_number"`
+	SubmissionType   string `gorm:"column:submission_type" json:"submission_type"`
+	UserID           int    `gorm:"column:user_id" json:"user_id"`
+	YearID           int    `gorm:"column:year_id" json:"year_id"`
+	StatusID         int    `gorm:"column:status_id" json:"status_id"`
+	//Priority         string     `gorm:"column:priority" json:"priority"`
+	ApprovedBy  *int       `gorm:"column:approved_by" json:"approved_by"`
+	ApprovedAt  *time.Time `gorm:"column:approved_at" json:"approved_at"`
+	SubmittedAt *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
+	CreatedAt   time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at" json:"updated_at"`
+	DeletedAt   *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 
 	// Relations
 	User                    User                     `gorm:"foreignKey:UserID" json:"user,omitempty"`
