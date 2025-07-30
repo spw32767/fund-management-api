@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -380,63 +381,236 @@ func RegisterUploadRoutes(rg *gin.RouterGroup) {
 }
 
 func RegisterFileRoutes(rg *gin.RouterGroup) {
-	// List uploaded files
+	// List files and folders in a directory (supports nested paths)
 	rg.GET("/files", func(c *gin.Context) {
-		files, err := os.ReadDir("./uploads")
+		// Get path parameter (empty string means root directory)
+		requestPath := c.Query("path")
+
+		// Sanitize path to prevent directory traversal
+		if strings.Contains(requestPath, "..") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+			return
+		}
+
+		// Build full path
+		fullPath := "./uploads"
+		if requestPath != "" {
+			fullPath = filepath.Join("./uploads", requestPath)
+		}
+
+		// Check if directory exists
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Directory not found"})
+			return
+		}
+
+		// Read directory contents
+		entries, err := os.ReadDir(fullPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read uploads folder"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read directory"})
 			return
 		}
 
 		var fileList []gin.H
-		for _, f := range files {
-			if !f.IsDir() {
-				info, err := os.Stat("./uploads/" + f.Name())
-				if err != nil {
-					continue // ข้ามไฟล์ที่มีปัญหา
+		var folderList []gin.H
+
+		for _, entry := range entries {
+			entryPath := filepath.Join(fullPath, entry.Name())
+			info, err := os.Stat(entryPath)
+			if err != nil {
+				continue // Skip problematic entries
+			}
+
+			if entry.IsDir() {
+				// It's a folder
+				folderList = append(folderList, gin.H{
+					"name": entry.Name(),
+					"type": "folder",
+				})
+			} else {
+				// It's a file
+				var fileURL string
+				if requestPath != "" {
+					fileURL = "/uploads/" + requestPath + "/" + entry.Name()
+				} else {
+					fileURL = "/uploads/" + entry.Name()
 				}
 
 				fileList = append(fileList, gin.H{
-					"name": f.Name(),
-					"url":  "/uploads/" + f.Name(),
-					"size": info.Size(), // size เป็น byte
+					"name": entry.Name(),
+					"url":  fileURL,
+					"size": info.Size(),
+					"type": "file",
 				})
 			}
 		}
-		// จัดเรียงชื่อไฟล์ A-Z
+
+		// Sort folders and files alphabetically
+		sort.Slice(folderList, func(i, j int) bool {
+			return folderList[i]["name"].(string) < folderList[j]["name"].(string)
+		})
 		sort.Slice(fileList, func(i, j int) bool {
 			return fileList[i]["name"].(string) < fileList[j]["name"].(string)
 		})
 
 		c.JSON(http.StatusOK, gin.H{
-			"files": fileList,
+			"folders": folderList,
+			"files":   fileList,
 		})
 	})
 
-	// (Optional) Delete file
-	rg.DELETE("/files/:name", func(c *gin.Context) {
-		rawName := c.Param("name")
+	// Create a new folder
+	rg.POST("/folders", func(c *gin.Context) {
+		var request struct {
+			Path string `json:"path" binding:"required"`
+		}
 
-		// Decode URL เช่น %20 เป็นช่องว่าง
-		filename, err := url.QueryUnescape(rawName)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file name"})
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
 
-		// ป้องกันลบไฟล์ HTML
-		if strings.HasSuffix(filename, ".html") {
+		// Sanitize path
+		if strings.Contains(request.Path, "..") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+			return
+		}
+
+		// Build full path
+		fullPath := filepath.Join("./uploads", request.Path)
+
+		// Check if folder already exists
+		if _, err := os.Stat(fullPath); err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Folder already exists"})
+			return
+		}
+
+		// Create folder (with parent directories if needed)
+		if err := os.MkdirAll(fullPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to create folder"})
+			return
+		}
+
+		log.Printf("✅ Created folder: %s", request.Path)
+		c.JSON(http.StatusOK, gin.H{"message": "Folder created successfully"})
+	})
+
+	// Delete a folder
+	rg.DELETE("/folders/:path", func(c *gin.Context) {
+		rawPath := c.Param("path")
+
+		// Decode URL
+		folderPath, err := url.QueryUnescape(rawPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid folder path"})
+			return
+		}
+
+		// Sanitize path
+		if strings.Contains(folderPath, "..") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+			return
+		}
+
+		fullPath := filepath.Join("./uploads", folderPath)
+
+		// Check if folder exists
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Folder not found"})
+			return
+		}
+
+		// Remove folder and all its contents
+		if err := os.RemoveAll(fullPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to delete folder"})
+			return
+		}
+
+		log.Printf("✅ Deleted folder: %s", folderPath)
+		c.JSON(http.StatusOK, gin.H{"message": "Folder deleted successfully"})
+	})
+
+	// Delete a file (enhanced to support nested paths)
+	rg.DELETE("/files/:path", func(c *gin.Context) {
+		rawPath := c.Param("path")
+
+		// Decode URL
+		filePath, err := url.QueryUnescape(rawPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+			return
+		}
+
+		// Sanitize path
+		if strings.Contains(filePath, "..") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+			return
+		}
+
+		// Prevent deletion of HTML files
+		if strings.HasSuffix(filePath, ".html") {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete HTML files"})
 			return
 		}
 
-		path := "./uploads/" + filename
-		if err := os.Remove(path); err != nil {
+		fullPath := filepath.Join("./uploads", filePath)
+
+		// Check if file exists
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			return
+		}
+
+		if err := os.Remove(fullPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to delete file"})
 			return
 		}
 
-		log.Printf("✅ Deleted file: %s", filename) // << Log file deletion
+		log.Printf("✅ Deleted file: %s", filePath)
 		c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
 	})
+}
+
+// You'll also need to update your upload handler to support paths
+// Add this to your upload route handler:
+func HandleFileUpload(c *gin.Context) {
+	// Get the uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// Get the optional path parameter
+	uploadPath := c.PostForm("path")
+
+	// Sanitize path
+	if strings.Contains(uploadPath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+		return
+	}
+
+	// Build destination directory
+	destDir := "./uploads"
+	if uploadPath != "" {
+		destDir = filepath.Join("./uploads", uploadPath)
+
+		// Create directory if it doesn't exist
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to create directory"})
+			return
+		}
+	}
+
+	// Build full file path
+	filePath := filepath.Join(destDir, file.Filename)
+
+	// Save the file
+	if err := c.SaveUploadedFile(file, filePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to save file"})
+		return
+	}
+
+	log.Printf("✅ Uploaded file: %s to %s", file.Filename, uploadPath)
+	c.JSON(http.StatusOK, gin.H{"message": "File uploaded successfully"})
 }
