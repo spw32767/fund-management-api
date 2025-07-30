@@ -2,7 +2,9 @@
 package controllers
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -13,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -787,8 +791,15 @@ func DetachDocument(c *gin.Context) {
 
 // ===================== HELPER FUNCTIONS =====================
 
-// generateSubmissionNumber creates a unique submission number
+// Global mutex for submission number generation
+var submissionNumberMutex sync.Mutex
+
+// generateSubmissionNumber creates a unique submission number with hybrid approach
 func generateSubmissionNumber(submissionType string) string {
+	// Use mutex to prevent concurrent access
+	submissionNumberMutex.Lock()
+	defer submissionNumberMutex.Unlock()
+
 	now := time.Now()
 	dateStr := now.Format("20060102")
 
@@ -806,13 +817,33 @@ func generateSubmissionNumber(submissionType string) string {
 		prefix = "SUB"
 	}
 
-	// Count today's submissions of this type
+	// Try sequential number first (user-friendly)
 	var count int64
 	config.DB.Model(&models.Submission{}).
 		Where("submission_type = ? AND DATE(created_at) = DATE(NOW())", submissionType).
 		Count(&count)
 
-	return fmt.Sprintf("%s-%s-%04d", prefix, dateStr, count+1)
+	// Try up to 10 sequential numbers
+	for i := int64(1); i <= 10; i++ {
+		potentialNumber := fmt.Sprintf("%s-%s-%04d", prefix, dateStr, count+i)
+
+		var existingCount int64
+		config.DB.Model(&models.Submission{}).
+			Where("submission_number = ?", potentialNumber).
+			Count(&existingCount)
+
+		if existingCount == 0 {
+			return potentialNumber
+		}
+	}
+
+	// Fallback to random suffix if sequential fails
+	bytes := make([]byte, 3) // 6 characters hex
+	rand.Read(bytes)
+	randomSuffix := hex.EncodeToString(bytes)
+
+	// Format: PR-20250730-R-A1B2C3 (R indicates random)
+	return fmt.Sprintf("%s-%s-R-%s", prefix, dateStr, strings.ToUpper(randomSuffix))
 }
 
 // isValidFileType checks if file type is allowed
