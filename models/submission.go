@@ -2,6 +2,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -107,12 +108,13 @@ type SubmissionDocument struct {
 
 // SubmissionUser represents co-authors and collaborators in submissions
 type SubmissionUser struct {
-	ID            int       `gorm:"primaryKey;column:id" json:"id"`
-	SubmissionID  int       `gorm:"column:submission_id" json:"submission_id"`
-	UserID        int       `gorm:"column:user_id" json:"user_id"`
-	Role          string    `gorm:"column:role;type:enum('coauthor','supervisor','collaborator');default:'coauthor'" json:"role"`
-	OrderSequence int       `gorm:"column:order_sequence" json:"order_sequence"`
-	CreatedAt     time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP" json:"created_at"`
+	ID           int       `gorm:"primaryKey;column:id" json:"id"`
+	SubmissionID int       `gorm:"column:submission_id" json:"submission_id"`
+	UserID       int       `gorm:"column:user_id" json:"user_id"`
+	Role         string    `gorm:"column:role;type:enum('owner','coauthor','team_member','advisor','coordinator');default:'coauthor'" json:"role"`
+	IsPrimary    bool      `gorm:"column:is_primary;default:false" json:"is_primary"`
+	DisplayOrder int       `gorm:"column:display_order;default:0" json:"display_order"`
+	CreatedAt    time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP" json:"created_at"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
@@ -167,10 +169,30 @@ func (su *SubmissionUser) IsCoauthor() bool {
 	return su.Role == "coauthor"
 }
 
-func (su *SubmissionUser) IsSupervisor() bool {
-	return su.Role == "supervisor"
+func (su *SubmissionUser) IsTeamMember() bool {
+	return su.Role == "team_member"
 }
 
-func (su *SubmissionUser) IsCollaborator() bool {
-	return su.Role == "collaborator"
+func (su *SubmissionUser) IsAdvisor() bool {
+	return su.Role == "advisor"
+}
+
+func (su *SubmissionUser) IsCoordinator() bool {
+	return su.Role == "coordinator"
+}
+
+func (su *SubmissionUser) IsOwner() bool {
+	return su.Role == "owner"
+}
+
+// JSON serialization helper - เพิ่ม order_sequence field สำหรับ backward compatibility
+func (su *SubmissionUser) MarshalJSON() ([]byte, error) {
+	type Alias SubmissionUser
+	return json.Marshal(&struct {
+		OrderSequence int `json:"order_sequence"` // เพิ่ม field นี้สำหรับ Frontend
+		*Alias
+	}{
+		OrderSequence: su.DisplayOrder, // Map display_order to order_sequence
+		Alias:         (*Alias)(su),
+	})
 }

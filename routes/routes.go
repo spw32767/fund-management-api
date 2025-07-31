@@ -168,6 +168,16 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.PUT("/:id/coauthors/:user_id", controllers.UpdateCoauthor)    // แก้ไข co-author
 				submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
 
+				// === NEW: Submission Users Management (ให้ตรงกับ Frontend) ===
+				submissions.POST("/:id/users", controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
+				submissions.GET("/:id/users", controllers.GetSubmissionUsers)               // ดู users ใน submission
+				submissions.PUT("/:id/users/:user_id", controllers.UpdateSubmissionUser)    // แก้ไข user ใน submission
+				submissions.DELETE("/:id/users/:user_id", controllers.RemoveSubmissionUser) // ลบ user จาก submission
+
+				// === NEW: Batch Operations for Frontend ===
+				submissions.POST("/:id/users/batch", controllers.AddMultipleUsers)     // เพิ่ม users หลายคนพร้อมกัน
+				submissions.POST("/:id/users/set-coauthors", controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
+
 				// Enhanced submission details with co-authors
 				submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
 
