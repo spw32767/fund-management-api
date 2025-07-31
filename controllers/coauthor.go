@@ -21,9 +21,9 @@ func AddCoauthor(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type AddCoauthorRequest struct {
-		UserID        int    `json:"user_id" binding:"required"`
-		Role          string `json:"role"`           // "coauthor", "supervisor", "collaborator"
-		OrderSequence int    `json:"order_sequence"` // ลำดับผู้แต่ง
+		UserID       int    `json:"user_id" binding:"required"`
+		Role         string `json:"role"`          // "coauthor", "supervisor", "collaborator"
+		DisplayOrder int    `json:"display_order"` // ลำดับผู้แต่ง
 	}
 
 	var req AddCoauthorRequest
@@ -88,14 +88,14 @@ func AddCoauthor(c *gin.Context) {
 		return
 	}
 
-	// Auto-assign order sequence if not provided
-	if req.OrderSequence == 0 {
+	// Auto-assign display order if not provided
+	if req.DisplayOrder == 0 {
 		var maxOrder int
 		config.DB.Model(&models.SubmissionUser{}).
 			Where("submission_id = ?", submissionID).
-			Select("COALESCE(MAX(order_sequence), 1)").
+			Select("COALESCE(MAX(display_order), 1)").
 			Scan(&maxOrder)
-		req.OrderSequence = maxOrder + 1
+		req.DisplayOrder = maxOrder + 1
 	}
 
 	// Create submission user
@@ -104,6 +104,8 @@ func AddCoauthor(c *gin.Context) {
 		SubmissionID: submission.SubmissionID,
 		UserID:       req.UserID,
 		Role:         req.Role,
+		IsPrimary:    false,            // เพิ่ม field นี้
+		DisplayOrder: req.DisplayOrder, // ใช้ DisplayOrder แทน OrderSequence
 		CreatedAt:    now,
 	}
 
@@ -146,7 +148,7 @@ func GetCoauthors(c *gin.Context) {
 	var coauthors []models.SubmissionUser
 	if err := config.DB.Preload("User").
 		Where("submission_id = ?", submissionID).
-		Order("order_sequence ASC, created_at ASC").
+		Order("display_order ASC, created_at ASC").
 		Find(&coauthors).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch co-authors"})
 		return
@@ -167,8 +169,8 @@ func UpdateCoauthor(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type UpdateCoauthorRequest struct {
-		Role          string `json:"role"`
-		OrderSequence int    `json:"order_sequence"`
+		Role         string `json:"role"`
+		DisplayOrder int    `json:"display_order"`
 	}
 
 	var req UpdateCoauthorRequest
