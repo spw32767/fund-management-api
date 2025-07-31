@@ -476,23 +476,3 @@ func SetCoauthors(c *gin.Context) {
 		"coauthors": results,
 	})
 }
-
-// Helper function to map Frontend role names to Database enum values
-func mapFrontendRoleToDatabase(frontendRole string) string {
-	roleMapping := map[string]string{
-		"co_author":   "coauthor",
-		"coauthor":    "coauthor",
-		"team_member": "team_member",
-		"advisor":     "advisor",
-		"coordinator": "coordinator",
-		"owner":       "owner",
-		"supervisor":  "advisor", // Map supervisor to advisor if needed
-	}
-
-	if dbRole, exists := roleMapping[frontendRole]; exists {
-		return dbRole
-	}
-
-	// Default to coauthor if not found
-	return "coauthor"
-}

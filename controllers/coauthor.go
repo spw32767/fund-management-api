@@ -3,6 +3,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -21,31 +22,29 @@ func AddCoauthor(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type AddCoauthorRequest struct {
-		UserID       int    `json:"user_id" binding:"required"`
-		Role         string `json:"role"`          // "coauthor", "supervisor", "collaborator"
-		DisplayOrder int    `json:"display_order"` // ลำดับผู้แต่ง
+		UserID        int    `json:"user_id" binding:"required"`
+		Role          string `json:"role"`           // "coauthor", "supervisor", "collaborator"
+		OrderSequence int    `json:"order_sequence"` // จาก Frontend
 	}
 
 	var req AddCoauthorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// ให้ข้อมูล error ที่ละเอียดขึ้น
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":           "Invalid request data",
+			"details":         err.Error(),
+			"required_fields": []string{"user_id"},
+		})
 		return
 	}
 
-	// Set default role
-	if req.Role == "" {
-		req.Role = "coauthor"
-	}
+	// เพิ่ม logging สำหรับ debug
+	log.Printf("AddCoauthor request: %+v", req)
 
-	// Validate role
-	validRoles := map[string]bool{
-		"coauthor":     true,
-		"supervisor":   true,
-		"collaborator": true,
-	}
-	if !validRoles[req.Role] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role"})
-		return
+	// Map Frontend role to Database enum
+	dbRole := mapFrontendRoleToDatabase(req.Role)
+	if dbRole == "" {
+		dbRole = "coauthor" // default
 	}
 
 	// Find submission
@@ -71,51 +70,69 @@ func AddCoauthor(c *gin.Context) {
 	// Validate co-author user exists
 	var coauthor models.User
 	if err := config.DB.Where("user_id = ? AND delete_at IS NULL", req.UserID).First(&coauthor).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Co-author user not found"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Co-author user not found",
+			"user_id": req.UserID,
+		})
 		return
 	}
 
 	// Check if user is already a co-author
 	var existingCoauthor models.SubmissionUser
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, req.UserID).First(&existingCoauthor).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User is already a co-author"})
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "User is already a co-author",
+			"user_id": req.UserID,
+		})
 		return
 	}
 
 	// Prevent adding submission owner as co-author
 	if submission.UserID == req.UserID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot add submission owner as co-author"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Cannot add submission owner as co-author",
+			"user_id": req.UserID,
+		})
 		return
 	}
 
 	// Auto-assign display order if not provided
-	if req.DisplayOrder == 0 {
+	displayOrder := req.OrderSequence
+	if displayOrder == 0 {
 		var maxOrder int
 		config.DB.Model(&models.SubmissionUser{}).
 			Where("submission_id = ?", submissionID).
-			Select("COALESCE(MAX(display_order), 1)").
+			Select("COALESCE(MAX(display_order), 1)"). // ใช้ display_order แทน order_sequence
 			Scan(&maxOrder)
-		req.DisplayOrder = maxOrder + 1
+		displayOrder = maxOrder + 1
 	}
 
-	// Create submission user
+	// Create submission user - ใช้ field names ที่ตรงกับ database
 	now := time.Now()
 	submissionUser := models.SubmissionUser{
 		SubmissionID: submission.SubmissionID,
 		UserID:       req.UserID,
-		Role:         req.Role,
-		IsPrimary:    false,            // เพิ่ม field นี้
-		DisplayOrder: req.DisplayOrder, // ใช้ DisplayOrder แทน OrderSequence
+		Role:         dbRole,       // ใช้ role ที่แปลงแล้ว
+		IsPrimary:    false,        // ใช้ is_primary
+		DisplayOrder: displayOrder, // ใช้ display_order แทน order_sequence
 		CreatedAt:    now,
 	}
 
+	log.Printf("Creating SubmissionUser: %+v", submissionUser)
+
 	if err := config.DB.Create(&submissionUser).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add co-author"})
+		log.Printf("Error creating SubmissionUser: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to add co-author",
+			"details": err.Error(),
+		})
 		return
 	}
 
 	// Load relations for response
 	config.DB.Preload("User").First(&submissionUser, submissionUser.ID)
+
+	log.Printf("Successfully created SubmissionUser: %+v", submissionUser)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
@@ -325,4 +342,24 @@ func GetSubmissionWithCoauthors(c *gin.Context) {
 		"success":    true,
 		"submission": submission,
 	})
+}
+
+func mapFrontendRoleToDatabase(frontendRole string) string {
+	roleMapping := map[string]string{
+		"co_author":   "coauthor",    // Frontend ส่ง co_author แปลงเป็น coauthor
+		"coauthor":    "coauthor",    // รองรับทั้ง 2 แบบ
+		"team_member": "team_member", // ตรงกับ database enum
+		"advisor":     "advisor",     // ตรงกับ database enum
+		"coordinator": "coordinator", // ตรงกับ database enum
+		"owner":       "owner",       // ตรงกับ database enum
+		"supervisor":  "advisor",     // แปลง supervisor เป็น advisor
+		"":            "coauthor",    // default สำหรับ empty string
+	}
+
+	if dbRole, exists := roleMapping[frontendRole]; exists {
+		return dbRole
+	}
+
+	// Default to coauthor if not found
+	return "coauthor"
 }
