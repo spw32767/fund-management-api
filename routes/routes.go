@@ -163,10 +163,10 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
 
 				// === Co-authors Management (ใหม่) ===
-				submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
-				submissions.GET("/:id/coauthors", controllers.GetCoauthors)               // ดู co-authors
-				submissions.PUT("/:id/coauthors/:user_id", controllers.UpdateCoauthor)    // แก้ไข co-author
-				submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
+				// submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
+				// submissions.GET("/:id/coauthors", controllers.GetCoauthors)               // ดู co-authors
+				// submissions.PUT("/:id/coauthors/:user_id", controllers.UpdateCoauthor)    // แก้ไข co-author
+				// submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
 
 				// === NEW: Submission Users Management (ให้ตรงกับ Frontend) ===
 				submissions.POST("/:id/users", controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
@@ -179,7 +179,7 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.POST("/:id/users/set-coauthors", controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
 
 				// Enhanced submission details with co-authors
-				submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
+				//submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
 
 				// เพิ่ม route ใหม่สำหรับแนบไฟล์
 				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
