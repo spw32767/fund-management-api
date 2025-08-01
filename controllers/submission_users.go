@@ -519,7 +519,7 @@ func AddMultipleUsers(c *gin.Context) {
 			SubmissionID: submission.SubmissionID,
 			UserID:       userReq.UserID,
 			Role:         dbRole,
-			IsPrimary:    false,
+			IsPrimary:    userReq.IsActive || userReq.UserID == submission.UserID, // Updated line
 			DisplayOrder: orderSequence,
 			CreatedAt:    time.Now(),
 		}
