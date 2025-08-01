@@ -25,13 +25,15 @@ import (
 // Helper function to map frontend role to database role
 func mapFrontendRoleToDatabase(frontendRole string) string {
 	roleMap := map[string]string{
-		"co_author":   "coauthor", // Legacy support
-		"coauthor":    "coauthor",
-		"team_member": "team_member",
-		"advisor":     "advisor",
-		"coordinator": "coordinator",
-		"owner":       "owner",
-		"":            "coauthor", // default
+		"co_author":            "coauthor",
+		"coauthor":             "coauthor",
+		"team_member":          "team_member",
+		"advisor":              "advisor",
+		"coordinator":          "coordinator",
+		"owner":                "owner",
+		"first_author":         "owner", // Map to owner
+		"corresponding_author": "owner", // Map to owner
+		"":                     "coauthor",
 	}
 
 	if dbRole, exists := roleMap[frontendRole]; exists {
