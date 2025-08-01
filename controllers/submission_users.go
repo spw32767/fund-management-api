@@ -146,7 +146,6 @@ func AddSubmissionUser(c *gin.Context) {
 	})
 }
 
-// GetSubmissionUsers ดู users ทั้งหมดใน submission
 func GetSubmissionUsers(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
@@ -165,7 +164,7 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Get all users in submission
+	// Get all users in submission with full user data
 	var users []models.SubmissionUser
 	if err := config.DB.Preload("User").
 		Where("submission_id = ?", submissionID).
@@ -175,25 +174,49 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Separate by role for easier frontend handling
+	// Categorize users
+	var owner *models.SubmissionUser
 	var coauthors []models.SubmissionUser
 	var others []models.SubmissionUser
 
-	for _, user := range users {
-		if user.Role == "coauthor" {
+	for i, user := range users {
+		switch user.Role {
+		case "owner":
+			if owner == nil {
+				owner = &users[i]
+			}
+		case "coauthor":
 			coauthors = append(coauthors, user)
-		} else {
+		default:
 			others = append(others, user)
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"users":     users,
-		"coauthors": coauthors,
-		"others":    others,
-		"total":     len(users),
-	})
+	// Prepare detailed response
+	response := gin.H{
+		"success": true,
+		"data": gin.H{
+			"submission_id":   submissionID,
+			"submission_type": submission.SubmissionType,
+			"total_users":     len(users),
+			"owner":           owner,
+			"coauthors":       coauthors,
+			"others":          others,
+			"all_users":       users,
+		},
+		"users": users, // For backward compatibility
+		"total": len(users),
+	}
+
+	// Add summary statistics
+	response["summary"] = gin.H{
+		"total_authors":     len(coauthors) + 1, // +1 for owner
+		"coauthor_count":    len(coauthors),
+		"has_owner":         owner != nil,
+		"other_roles_count": len(others),
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // SetCoauthors - ใช้สำหรับ PublicationRewardForm (replace all co-authors)
@@ -447,26 +470,36 @@ func RemoveSubmissionUser(c *gin.Context) {
 	})
 }
 
-// AddMultipleUsers เพิ่ม users หลายคนพร้อมกัน
+// AddMultipleUsers เพิ่ม users หลายคนพร้อมกัน (รวม owner + coauthors)
 func AddMultipleUsers(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
+	type UserRequest struct {
+		UserID        int    `json:"user_id" binding:"required"`
+		Role          string `json:"role"`           // "owner", "coauthor", etc.
+		OrderSequence int    `json:"order_sequence"` // ลำดับการแสดงผล
+		IsActive      bool   `json:"is_active"`      // สถานะ active
+		IsPrimary     bool   `json:"is_primary"`     // เป็น primary author หรือไม่
+		AuthorType    string `json:"author_type"`    // "first_author", "corresponding_author", "co_author"
+	}
+
 	type AddMultipleUsersRequest struct {
-		Users []struct {
-			UserID        int    `json:"user_id" binding:"required"`
-			Role          string `json:"role"`
-			OrderSequence int    `json:"order_sequence"`
-			IsActive      bool   `json:"is_active"`
-		} `json:"users" binding:"required"`
+		Users []UserRequest `json:"users" binding:"required"`
 	}
 
 	var req AddMultipleUsersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("AddMultipleUsers: JSON binding error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid request data",
+			"details": err.Error(),
+		})
 		return
 	}
+
+	log.Printf("AddMultipleUsers: Processing %d users for submission %s", len(req.Users), submissionID)
 
 	// Find submission and check permission
 	var submission models.Submission
@@ -487,57 +520,137 @@ func AddMultipleUsers(c *gin.Context) {
 		return
 	}
 
-	// Process each user
+	// Begin transaction
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+	}()
+
 	var results []models.SubmissionUser
 	var errors []string
+	var warnings []string
 
 	for i, userReq := range req.Users {
+		log.Printf("Processing user %d: UserID=%d, Role=%s", i+1, userReq.UserID, userReq.Role)
+
 		// Validate user exists
 		var user models.User
-		if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userReq.UserID).First(&user).Error; err != nil {
-			errors = append(errors, fmt.Sprintf("User %d not found", userReq.UserID))
+		if err := config.DB.Where("user_id = ? AND delete_at IS NULL", userReq.UserID).
+			First(&user).Error; err != nil {
+			errorMsg := fmt.Sprintf("User %d not found", userReq.UserID)
+			log.Printf("AddMultipleUsers: %s", errorMsg)
+			errors = append(errors, errorMsg)
 			continue
 		}
 
-		// Check if already exists
+		// Check if user already exists in submission
 		var existing models.SubmissionUser
-		if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userReq.UserID).First(&existing).Error; err == nil {
-			errors = append(errors, fmt.Sprintf("User %d already in submission", userReq.UserID))
+		if err := tx.Where("submission_id = ? AND user_id = ?", submissionID, userReq.UserID).
+			First(&existing).Error; err == nil {
+			warningMsg := fmt.Sprintf("User %d already in submission - skipped", userReq.UserID)
+			log.Printf("AddMultipleUsers: %s", warningMsg)
+			warnings = append(warnings, warningMsg)
 			continue
 		}
 
-		// Map role and set defaults
+		// Map role
 		dbRole := mapFrontendRoleToDatabase(userReq.Role)
+
+		// Set defaults
 		orderSequence := userReq.OrderSequence
 		if orderSequence == 0 {
-			orderSequence = i + 2 // Start from 2
+			orderSequence = i + 1
 		}
 
+		// Create submission user
 		submissionUser := models.SubmissionUser{
 			SubmissionID: submission.SubmissionID,
 			UserID:       userReq.UserID,
 			Role:         dbRole,
-			IsPrimary:    false,
+			IsPrimary:    userReq.IsPrimary,
 			DisplayOrder: orderSequence,
 			CreatedAt:    time.Now(),
 		}
 
-		if err := config.DB.Create(&submissionUser).Error; err != nil {
-			errors = append(errors, fmt.Sprintf("Failed to add user %d: %v", userReq.UserID, err))
+		log.Printf("Creating submission_user: SubmissionID=%d, UserID=%d, Role=%s, IsPrimary=%t, DisplayOrder=%d",
+			submissionUser.SubmissionID, submissionUser.UserID, submissionUser.Role,
+			submissionUser.IsPrimary, submissionUser.DisplayOrder)
+
+		if err := tx.Create(&submissionUser).Error; err != nil {
+			errorMsg := fmt.Sprintf("Failed to add user %d: %v", userReq.UserID, err)
+			log.Printf("AddMultipleUsers: %s", errorMsg)
+			errors = append(errors, errorMsg)
 			continue
 		}
 
-		// Load relations
-		config.DB.Preload("User").First(&submissionUser, submissionUser.ID)
 		results = append(results, submissionUser)
+		log.Printf("Successfully created submission_user with ID: %d", submissionUser.ID)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Check results
+	log.Printf("Processing complete: %d successful, %d errors, %d warnings",
+		len(results), len(errors), len(warnings))
+
+	// Decide whether to commit or rollback
+	if len(results) == 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success":  false,
+			"error":    "No users were successfully added",
+			"errors":   errors,
+			"warnings": warnings,
+		})
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("AddMultipleUsers: Commit error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to save changes to database",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	log.Printf("Transaction committed successfully")
+
+	// Load full user data for response
+	for i := range results {
+		if err := config.DB.Preload("User").First(&results[i], results[i].ID).Error; err != nil {
+			log.Printf("Warning: Failed to load user data for result %d: %v", results[i].ID, err)
+		}
+	}
+
+	// Prepare response
+	response := gin.H{
 		"success": true,
-		"message": "Batch operation completed",
-		"added":   len(results),
-		"total":   len(req.Users),
-		"users":   results,
-		"errors":  errors,
-	})
+		"message": fmt.Sprintf("Successfully processed users. Added: %d", len(results)),
+		"data": gin.H{
+			"submission_id": submissionID,
+			"added":         len(results),
+			"total":         len(req.Users),
+			"users":         results,
+		},
+		"added": len(results),
+		"total": len(req.Users),
+	}
+
+	if len(errors) > 0 {
+		response["errors"] = errors
+	}
+	if len(warnings) > 0 {
+		response["warnings"] = warnings
+	}
+
+	log.Printf("AddMultipleUsers completed successfully. Added %d users", len(results))
+	c.JSON(http.StatusOK, response)
 }

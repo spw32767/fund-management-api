@@ -185,6 +185,15 @@ func (su *SubmissionUser) IsOwner() bool {
 	return su.Role == "owner"
 }
 
+func (su *SubmissionUser) GetAuthorType() string {
+	if su.IsOwner() && su.IsPrimary {
+		return "main_author"
+	} else if su.IsCoauthor() {
+		return "co_author"
+	}
+	return "other"
+}
+
 // JSON serialization helper - เพิ่ม order_sequence field สำหรับ backward compatibility
 func (su *SubmissionUser) MarshalJSON() ([]byte, error) {
 	type Alias SubmissionUser
