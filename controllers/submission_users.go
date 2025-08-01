@@ -24,23 +24,19 @@ import (
 
 // Helper function to map frontend role to database role
 func mapFrontendRoleToDatabase(frontendRole string) string {
-	// ไม่ต้อง map เพราะใช้ role เดียวกันแล้ว
-	validRoles := []string{
-		"first_author",
-		"corresponding_author",
-		"co_author",
-		"advisor",
-		"coordinator",
+	validRoles := map[string]bool{
+		"first_author":         true,
+		"corresponding_author": true,
+		"co_author":            true,
+		"advisor":              true,
+		"coordinator":          true,
 	}
 
-	// ตรวจสอบว่า role ที่ส่งมาถูกต้องหรือไม่
-	for _, validRole := range validRoles {
-		if frontendRole == validRole {
-			return frontendRole
-		}
+	if validRoles[frontendRole] {
+		return frontendRole
 	}
 
-	// ถ้าไม่ตรง ให้ใช้ default
+	// Default fallback
 	return "co_author"
 }
 
@@ -52,9 +48,10 @@ func AddSubmissionUser(c *gin.Context) {
 
 	type AddUserRequest struct {
 		UserID        int    `json:"user_id" binding:"required"`
-		Role          string `json:"role"`           // "coauthor", "advisor", "team_member", etc.
-		OrderSequence int    `json:"order_sequence"` // ลำดับในการแสดงผล
-		IsActive      bool   `json:"is_active"`      // สถานะ active
+		Role          string `json:"role"`
+		OrderSequence int    `json:"order_sequence"`
+		IsActive      bool   `json:"is_active"`
+		IsPrimary     bool   `json:"is_primary"` // เพิ่ม field นี้
 	}
 
 	var req AddUserRequest
@@ -66,13 +63,13 @@ func AddSubmissionUser(c *gin.Context) {
 		return
 	}
 
-	log.Printf("AddSubmissionUser: Adding user %d to submission %s with role %s",
-		req.UserID, submissionID, req.Role)
-
-	// Map role
+	// Map และ validate role
 	dbRole := mapFrontendRoleToDatabase(req.Role)
+	if dbRole == "" {
+		dbRole = "co_author"
+	}
 
-	// Find submission and check permission
+	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
@@ -98,16 +95,27 @@ func AddSubmissionUser(c *gin.Context) {
 		return
 	}
 
-	// Check if user is already in submission
+	// Check if user already exists in submission
 	var existingUser models.SubmissionUser
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, req.UserID).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User is already in this submission"})
-		return
-	}
+		// Update existing user instead of creating new
+		existingUser.Role = dbRole
+		existingUser.IsPrimary = req.IsPrimary
+		existingUser.DisplayOrder = req.OrderSequence
 
-	// Prevent adding submission owner as co-author (but allow other roles)
-	if submission.UserID == req.UserID && dbRole == "coauthor" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot add submission owner as co-author"})
+		if err := config.DB.Save(&existingUser).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update existing user"})
+			return
+		}
+
+		// Load user data
+		config.DB.Preload("User").First(&existingUser, existingUser.ID)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "User updated successfully",
+			"user":    existingUser,
+		})
 		return
 	}
 
@@ -127,21 +135,22 @@ func AddSubmissionUser(c *gin.Context) {
 		SubmissionID: submission.SubmissionID,
 		UserID:       req.UserID,
 		Role:         dbRole,
-		IsPrimary:    false,
+		IsPrimary:    req.IsPrimary,
 		DisplayOrder: orderSequence,
 		CreatedAt:    time.Now(),
 	}
 
 	if err := config.DB.Create(&submissionUser).Error; err != nil {
 		log.Printf("AddSubmissionUser: Database error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add user to submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to add user to submission",
+			"details": err.Error(),
+		})
 		return
 	}
 
 	// Load user data
 	config.DB.Preload("User").First(&submissionUser, submissionUser.ID)
-
-	log.Printf("AddSubmissionUser: Successfully added user %d to submission %s", req.UserID, submissionID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
