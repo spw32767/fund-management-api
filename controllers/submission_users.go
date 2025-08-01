@@ -24,20 +24,24 @@ import (
 
 // Helper function to map frontend role to database role
 func mapFrontendRoleToDatabase(frontendRole string) string {
-	roleMap := map[string]string{
-		"co_author":   "coauthor", // Legacy support
-		"coauthor":    "coauthor",
-		"team_member": "team_member",
-		"advisor":     "advisor",
-		"coordinator": "coordinator",
-		"owner":       "owner",
-		"":            "coauthor", // default
+	// ไม่ต้อง map เพราะใช้ role เดียวกันแล้ว
+	validRoles := []string{
+		"first_author",
+		"corresponding_author",
+		"co_author",
+		"advisor",
+		"coordinator",
 	}
 
-	if dbRole, exists := roleMap[frontendRole]; exists {
-		return dbRole
+	// ตรวจสอบว่า role ที่ส่งมาถูกต้องหรือไม่
+	for _, validRole := range validRoles {
+		if frontendRole == validRole {
+			return frontendRole
+		}
 	}
-	return "coauthor" // default fallback
+
+	// ถ้าไม่ตรง ให้ใช้ default
+	return "co_author"
 }
 
 // AddSubmissionUser เพิ่ม user ลงใน submission (co-author, advisor, etc.)
@@ -164,7 +168,7 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Get all users in submission with full user data
+	// Get all users in submission
 	var users []models.SubmissionUser
 	if err := config.DB.Preload("User").
 		Where("submission_id = ?", submissionID).
@@ -174,34 +178,39 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Categorize users
-	var owner *models.SubmissionUser
-	var coauthors []models.SubmissionUser
-	var others []models.SubmissionUser
+	// Categorize users by new roles
+	var mainAuthors []models.SubmissionUser  // first_author, corresponding_author
+	var coauthors []models.SubmissionUser    // co_author
+	var others []models.SubmissionUser       // advisor, coordinator
+	var primaryAuthor *models.SubmissionUser // คนที่ is_primary = true
 
 	for i, user := range users {
 		switch user.Role {
-		case "owner":
-			if owner == nil {
-				owner = &users[i]
-			}
-		case "coauthor":
+		case "first_author", "corresponding_author":
+			mainAuthors = append(mainAuthors, user)
+		case "co_author":
 			coauthors = append(coauthors, user)
 		default:
 			others = append(others, user)
 		}
+
+		// หา primary author
+		if user.IsPrimary {
+			primaryAuthor = &users[i]
+		}
 	}
 
-	// Prepare detailed response
+	// Prepare response
 	response := gin.H{
 		"success": true,
 		"data": gin.H{
 			"submission_id":   submissionID,
 			"submission_type": submission.SubmissionType,
 			"total_users":     len(users),
-			"owner":           owner,
-			"coauthors":       coauthors,
-			"others":          others,
+			"main_authors":    mainAuthors,   // first_author, corresponding_author
+			"coauthors":       coauthors,     // co_author
+			"others":          others,        // advisor, etc.
+			"primary_author":  primaryAuthor, // คนที่ is_primary = true
 			"all_users":       users,
 		},
 		"users": users, // For backward compatibility
@@ -210,10 +219,17 @@ func GetSubmissionUsers(c *gin.Context) {
 
 	// Add summary statistics
 	response["summary"] = gin.H{
-		"total_authors":     len(coauthors) + 1, // +1 for owner
-		"coauthor_count":    len(coauthors),
-		"has_owner":         owner != nil,
-		"other_roles_count": len(others),
+		"total_authors":      len(mainAuthors) + len(coauthors),
+		"main_authors_count": len(mainAuthors),
+		"coauthors_count":    len(coauthors),
+		"others_count":       len(others),
+		"has_primary":        primaryAuthor != nil,
+		"primary_author_role": func() string {
+			if primaryAuthor != nil {
+				return primaryAuthor.Role
+			}
+			return ""
+		}(),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -478,11 +494,10 @@ func AddMultipleUsers(c *gin.Context) {
 
 	type UserRequest struct {
 		UserID        int    `json:"user_id" binding:"required"`
-		Role          string `json:"role"`           // "owner", "coauthor", etc.
+		Role          string `json:"role"`           // "first_author", "corresponding_author", "co_author"
 		OrderSequence int    `json:"order_sequence"` // ลำดับการแสดงผล
 		IsActive      bool   `json:"is_active"`      // สถานะ active
 		IsPrimary     bool   `json:"is_primary"`     // เป็น primary author หรือไม่
-		AuthorType    string `json:"author_type"`    // "first_author", "corresponding_author", "co_author"
 	}
 
 	type AddMultipleUsersRequest struct {
@@ -539,7 +554,8 @@ func AddMultipleUsers(c *gin.Context) {
 	var warnings []string
 
 	for i, userReq := range req.Users {
-		log.Printf("Processing user %d: UserID=%d, Role=%s", i+1, userReq.UserID, userReq.Role)
+		log.Printf("Processing user %d: UserID=%d, Role=%s, IsPrimary=%t",
+			i+1, userReq.UserID, userReq.Role, userReq.IsPrimary)
 
 		// Validate user exists
 		var user models.User
@@ -555,13 +571,28 @@ func AddMultipleUsers(c *gin.Context) {
 		var existing models.SubmissionUser
 		if err := tx.Where("submission_id = ? AND user_id = ?", submissionID, userReq.UserID).
 			First(&existing).Error; err == nil {
-			warningMsg := fmt.Sprintf("User %d already in submission - skipped", userReq.UserID)
+			warningMsg := fmt.Sprintf("User %d already in submission - updating role", userReq.UserID)
 			log.Printf("AddMultipleUsers: %s", warningMsg)
+
+			// อัพเดต role และ is_primary ของ user ที่มีอยู่
+			existing.Role = mapFrontendRoleToDatabase(userReq.Role)
+			existing.IsPrimary = userReq.IsPrimary
+			existing.DisplayOrder = userReq.OrderSequence
+
+			if err := tx.Save(&existing).Error; err != nil {
+				errorMsg := fmt.Sprintf("Failed to update user %d: %v", userReq.UserID, err)
+				errors = append(errors, errorMsg)
+				continue
+			}
+
+			// Load relations
+			tx.Preload("User").First(&existing, existing.ID)
+			results = append(results, existing)
 			warnings = append(warnings, warningMsg)
 			continue
 		}
 
-		// Map role
+		// Validate and map role
 		dbRole := mapFrontendRoleToDatabase(userReq.Role)
 
 		// Set defaults
@@ -604,7 +635,7 @@ func AddMultipleUsers(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success":  false,
-			"error":    "No users were successfully added",
+			"error":    "No users were successfully processed",
 			"errors":   errors,
 			"warnings": warnings,
 		})
@@ -630,13 +661,13 @@ func AddMultipleUsers(c *gin.Context) {
 		}
 	}
 
-	// Prepare response
+	// Prepare detailed response
 	response := gin.H{
 		"success": true,
-		"message": fmt.Sprintf("Successfully processed users. Added: %d", len(results)),
+		"message": fmt.Sprintf("Successfully processed users. Added/Updated: %d", len(results)),
 		"data": gin.H{
 			"submission_id": submissionID,
-			"added":         len(results),
+			"processed":     len(results),
 			"total":         len(req.Users),
 			"users":         results,
 		},
@@ -651,6 +682,6 @@ func AddMultipleUsers(c *gin.Context) {
 		response["warnings"] = warnings
 	}
 
-	log.Printf("AddMultipleUsers completed successfully. Added %d users", len(results))
+	log.Printf("AddMultipleUsers completed successfully. Processed %d users", len(results))
 	c.JSON(http.StatusOK, response)
 }

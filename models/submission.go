@@ -165,6 +165,10 @@ func (SubmissionUser) TableName() string {
 }
 
 // Helper methods สำหรับ SubmissionUser
+func (su *SubmissionUser) IsMainAuthor() bool {
+	return su.Role == "first_author" || su.Role == "corresponding_author"
+}
+
 func (su *SubmissionUser) IsCoauthor() bool {
 	return su.Role == "coauthor"
 }
@@ -192,6 +196,21 @@ func (su *SubmissionUser) GetAuthorType() string {
 		return "co_author"
 	}
 	return "other"
+}
+
+func (su *SubmissionUser) GetAuthorTypeDisplay() string {
+	switch su.Role {
+	case "first_author":
+		return "ผู้แต่งหลัก"
+	case "corresponding_author":
+		return "Corresponding Author"
+	case "co_author":
+		return "ผู้แต่งร่วม"
+	case "advisor":
+		return "ที่ปรึกษา"
+	default:
+		return "อื่นๆ"
+	}
 }
 
 // JSON serialization helper - เพิ่ม order_sequence field สำหรับ backward compatibility
