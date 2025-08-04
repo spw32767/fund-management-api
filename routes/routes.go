@@ -237,6 +237,14 @@ func SetupRoutes(router *gin.Engine) {
 				publications.PUT("/rates", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)
 			}
 
+			rewardConfig := v1.Group("/reward-config")
+			rewardConfig.Use(middleware.AuthMiddleware())
+			{
+				// Public endpoints (สำหรับ teacher และ staff)
+				rewardConfig.GET("", controllers.GetRewardConfig)              // GET /api/v1/reward-config
+				rewardConfig.GET("/lookup", controllers.GetRewardConfigLookup) // GET /api/v1/reward-config/lookup
+			}
+
 			// Users endpoint for form dropdown
 			protected.GET("/users", controllers.GetUsers)
 
@@ -310,6 +318,14 @@ func SetupRoutes(router *gin.Engine) {
 					applications.GET("/:id", controllers.GetApplication)              // GET /api/v1/admin/applications/:id
 					applications.POST("/:id/approve", controllers.ApproveApplication) // POST /api/v1/admin/applications/:id/approve
 					applications.POST("/:id/reject", controllers.RejectApplication)   // POST /api/v1/admin/applications/:id/reject
+				}
+
+				rewardConfigAdmin := admin.Group("/reward-config")
+				{
+					rewardConfigAdmin.POST("", controllers.CreateRewardConfig)                   // POST /api/v1/admin/reward-config
+					rewardConfigAdmin.PUT("/:id", controllers.UpdateRewardConfig)                // PUT /api/v1/admin/reward-config/:id
+					rewardConfigAdmin.DELETE("/:id", controllers.DeleteRewardConfig)             // DELETE /api/v1/admin/reward-config/:id
+					rewardConfigAdmin.PATCH("/:id/toggle", controllers.ToggleRewardConfigStatus) // PATCH /api/v1/admin/reward-config/:id/toggle
 				}
 
 				// ========== USER MANAGEMENT (if needed in future) ==========
