@@ -703,3 +703,184 @@ func UpdatePublicationRewardRates(c *gin.Context) {
 		"rates":   rates,
 	})
 }
+
+// GetPublicationRewardRateLookup returns specific reward amount for calculation
+func GetPublicationRewardRateLookup(c *gin.Context) {
+	year := c.Query("year")
+	authorStatus := c.Query("author_status")
+	quartile := c.Query("quartile")
+
+	// Validate required parameters
+	if year == "" || authorStatus == "" || quartile == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing required parameters: year, author_status, quartile",
+		})
+		return
+	}
+
+	var rate models.PublicationRewardRate
+	if err := config.DB.Where("year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?",
+		year, authorStatus, quartile, true).First(&rate).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Reward rate not found for the specified parameters",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"reward_amount": rate.RewardAmount,
+		"year":          rate.Year,
+		"author_status": rate.AuthorStatus,
+		"quartile":      rate.JournalQuartile,
+	})
+}
+
+// GetAllPublicationRewardRates returns all active rates (no year filter)
+func GetAllPublicationRewardRates(c *gin.Context) {
+	var rates []models.PublicationRewardRate
+	if err := config.DB.Where("is_active = ?", true).
+		Order("year DESC, author_status, journal_quartile").
+		Find(&rates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reward rates"})
+		return
+	}
+
+	// Group by year for easy frontend consumption
+	ratesByYear := make(map[string][]models.PublicationRewardRate)
+	for _, rate := range rates {
+		ratesByYear[rate.Year] = append(ratesByYear[rate.Year], rate)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"rates":         rates,
+		"rates_by_year": ratesByYear,
+		"total":         len(rates),
+	})
+}
+
+// CreatePublicationRewardRate creates new reward rate (admin only)
+func CreatePublicationRewardRate(c *gin.Context) {
+	var newRate models.PublicationRewardRate
+	if err := c.ShouldBindJSON(&newRate); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set defaults
+	newRate.IsActive = true
+	now := time.Now()
+	newRate.CreateAt = &now
+	newRate.UpdateAt = &now
+
+	if err := config.DB.Create(&newRate).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reward rate"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"message": "Reward rate created successfully",
+		"rate":    newRate,
+	})
+}
+
+// UpdatePublicationRewardRate updates single reward rate (admin only)
+func UpdatePublicationRewardRate(c *gin.Context) {
+	id := c.Param("id")
+
+	var existingRate models.PublicationRewardRate
+	if err := config.DB.Where("rate_id = ?", id).First(&existingRate).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reward rate not found"})
+		return
+	}
+
+	var updateData models.PublicationRewardRate
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update timestamp
+	now := time.Now()
+	updateData.UpdateAt = &now
+
+	if err := config.DB.Model(&existingRate).Updates(&updateData).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update reward rate"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Reward rate updated successfully",
+		"rate":    existingRate,
+	})
+}
+
+// DeletePublicationRewardRate deletes reward rate (admin only)
+func DeletePublicationRewardRate(c *gin.Context) {
+	id := c.Param("id")
+
+	var rate models.PublicationRewardRate
+	if err := config.DB.Where("rate_id = ?", id).First(&rate).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reward rate not found"})
+		return
+	}
+
+	if err := config.DB.Delete(&rate).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete reward rate"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Reward rate deleted successfully",
+	})
+}
+
+// TogglePublicationRewardRateStatus toggles active status (admin only)
+func TogglePublicationRewardRateStatus(c *gin.Context) {
+	id := c.Param("id")
+
+	var rate models.PublicationRewardRate
+	if err := config.DB.Where("rate_id = ?", id).First(&rate).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Reward rate not found"})
+		return
+	}
+
+	// Toggle active status
+	rate.IsActive = !rate.IsActive
+	now := time.Now()
+	rate.UpdateAt = &now
+
+	if err := config.DB.Save(&rate).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle reward rate status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"message":   "Reward rate status updated successfully",
+		"is_active": rate.IsActive,
+	})
+}
+
+// GetAvailableYears returns list of years that have reward rates
+func GetAvailableYears(c *gin.Context) {
+	var years []string
+	if err := config.DB.Model(&models.PublicationRewardRate{}).
+		Distinct("year").
+		Where("is_active = ?", true).
+		Order("year DESC").
+		Pluck("year", &years).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch available years"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"years":   years,
+		"total":   len(years),
+	})
+}

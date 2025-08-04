@@ -232,9 +232,22 @@ func SetupRoutes(router *gin.Engine) {
 				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
 				publications.GET("/:id/documents", controllers.GetPublicationDocuments)
 
-				// Reward rates configuration (admin only)
-				publications.GET("/rates", controllers.GetPublicationRewardRates)
-				publications.PUT("/rates", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)
+				// === REWARD RATES API ===
+				rates := publications.Group("/rates")
+				{
+					// Public endpoints (สำหรับ calculation)
+					rates.GET("", controllers.GetPublicationRewardRates)             // GET /api/v1/publication-rewards/rates
+					rates.GET("/all", controllers.GetAllPublicationRewardRates)      // GET /api/v1/publication-rewards/rates/all
+					rates.GET("/lookup", controllers.GetPublicationRewardRateLookup) // GET /api/v1/publication-rewards/rates/lookup
+					rates.GET("/years", controllers.GetAvailableYears)               // GET /api/v1/publication-rewards/rates/years
+
+					// Admin only endpoints
+					rates.POST("", middleware.RequireRole(3), controllers.CreatePublicationRewardRate)                   // POST /api/v1/publication-rewards/rates
+					rates.PUT("/bulk", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)              // PUT /api/v1/publication-rewards/rates/bulk (existing)
+					rates.PUT("/:id", middleware.RequireRole(3), controllers.UpdatePublicationRewardRate)                // PUT /api/v1/publication-rewards/rates/:id
+					rates.DELETE("/:id", middleware.RequireRole(3), controllers.DeletePublicationRewardRate)             // DELETE /api/v1/publication-rewards/rates/:id
+					rates.PATCH("/:id/toggle", middleware.RequireRole(3), controllers.TogglePublicationRewardRateStatus) // PATCH /api/v1/publication-rewards/rates/:id/toggle
+				}
 			}
 
 			rewardConfig := v1.Group("/reward-config")
