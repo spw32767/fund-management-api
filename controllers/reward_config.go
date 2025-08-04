@@ -27,18 +27,13 @@ func GetRewardConfig(c *gin.Context) {
 		query = query.Where("year = ?", currentYear)
 	}
 
-	// Filter by config_type
-	if configType := c.Query("config_type"); configType != "" {
-		query = query.Where("config_type = ?", configType)
-	}
-
 	// Filter by quartile
 	if quartile := c.Query("quartile"); quartile != "" {
 		query = query.Where("journal_quartile = ?", quartile)
 	}
 
 	// Execute query with ordering
-	if err := query.Order("config_type, journal_quartile").Find(&configs).Error; err != nil {
+	if err := query.Order("journal_quartile").Find(&configs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reward config"})
 		return
 	}
@@ -53,11 +48,10 @@ func GetRewardConfig(c *gin.Context) {
 // GetRewardConfigLookup returns specific max amount for calculation
 func GetRewardConfigLookup(c *gin.Context) {
 	year := c.Query("year")
-	configType := c.Query("type")
 	quartile := c.Query("quartile")
 
 	// Validate required parameters
-	if year == "" || configType == "" || quartile == "" {
+	if year == "" || quartile == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Missing required parameters: year, type, quartile",
 		})
@@ -65,8 +59,8 @@ func GetRewardConfigLookup(c *gin.Context) {
 	}
 
 	var rewardConfig models.RewardConfig
-	if err := config.DB.Where("year = ? AND config_type = ? AND journal_quartile = ? AND is_active = ? AND delete_at IS NULL",
-		year, configType, quartile, true).First(&rewardConfig).Error; err != nil {
+	if err := config.DB.Where("year = ? AND journal_quartile = ? AND is_active = ? AND delete_at IS NULL",
+		year, quartile, true).First(&rewardConfig).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": "Configuration not found for the specified parameters",
 		})

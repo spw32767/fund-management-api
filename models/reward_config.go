@@ -7,9 +7,9 @@ import (
 
 // RewardConfig represents reward configuration for manuscript and page charge fees
 type RewardConfig struct {
-	ConfigID             int        `gorm:"primaryKey;column:config_id" json:"config_id"`
-	Year                 string     `gorm:"column:year" json:"year"`
-	ConfigType           string     `gorm:"column:config_type" json:"config_type"`
+	ConfigID int    `gorm:"primaryKey;column:config_id" json:"config_id"`
+	Year     string `gorm:"column:year" json:"year"`
+	//ConfigType           string     `gorm:"column:config_type" json:"config_type"`
 	JournalQuartile      string     `gorm:"column:journal_quartile" json:"journal_quartile"`
 	MaxAmount            float64    `gorm:"column:max_amount" json:"max_amount"`
 	ConditionDescription string     `gorm:"column:condition_description" json:"condition_description,omitempty"`
