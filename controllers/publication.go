@@ -260,14 +260,6 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Validate ฟิลด์ใหม่
-	if req.HasUniversityFunding != "" &&
-		req.HasUniversityFunding != "yes" &&
-		req.HasUniversityFunding != "no" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "has_university_funding must be 'yes' or 'no'"})
-		return
-	}
-
 	// Validate funding references
 	if valid, msg := validateFundingReferences(req.FundingReferences); !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Funding references: " + msg})
