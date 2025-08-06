@@ -238,12 +238,6 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Validate university rankings
-	if valid, msg := validateUniversityRankings(req.UniversityRankings); !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "University rankings: " + msg})
-		return
-	}
-
 	// Validate required fields
 	if req.AuthorStatus == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Author status is required"})
