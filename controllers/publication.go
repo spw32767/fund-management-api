@@ -260,12 +260,6 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Validate funding references
-	if valid, msg := validateFundingReferences(req.FundingReferences); !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Funding references: " + msg})
-		return
-	}
-
 	// Validate university rankings
 	if valid, msg := validateUniversityRankings(req.UniversityRankings); !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "University rankings: " + msg})
