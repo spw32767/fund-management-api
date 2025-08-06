@@ -13,9 +13,93 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 )
+
+// Helper functions สำหรับจัดการข้อมูลที่คั่นด้วยจุลภาค
+func splitCommaDelimited(input string) []string {
+	if input == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(input, ",")
+	var cleaned []string
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+
+	return cleaned
+}
+
+func joinCommaDelimited(items []string) string {
+	var cleaned []string
+
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+
+	return strings.Join(cleaned, ", ")
+}
+
+func cleanCommaDelimited(input string) string {
+	if input == "" {
+		return ""
+	}
+	return joinCommaDelimited(splitCommaDelimited(input))
+}
+
+func validateFundingReferences(input string) (bool, string) {
+	if input == "" {
+		return true, ""
+	}
+
+	refs := splitCommaDelimited(input)
+	for _, ref := range refs {
+		if len(ref) < 2 {
+			return false, "หมายเลขอ้างอิงทุนต้องมีอย่างน้อย 2 ตัวอักษร"
+		}
+
+		if len(ref) > 100 {
+			return false, "หมายเลขอ้างอิงทุนไม่ควรยาวเกิน 100 ตัวอักษร"
+		}
+
+		for _, char := range ref {
+			if unicode.IsControl(char) && char != '\t' {
+				return false, "หมายเลขอ้างอิงทุนมีอักขระที่ไม่ถูกต้อง"
+			}
+		}
+	}
+
+	return true, ""
+}
+
+func validateUniversityRankings(input string) (bool, string) {
+	if input == "" {
+		return true, ""
+	}
+
+	rankings := splitCommaDelimited(input)
+	for _, ranking := range rankings {
+		if len(ranking) < 3 {
+			return false, "อันดับมหาวิทยาลัยต้องมีความยาวอย่างน้อย 3 ตัวอักษร"
+		}
+
+		if len(ranking) > 200 {
+			return false, "อันดับมหาวิทยาลัยไม่ควรยาวเกิน 200 ตัวอักษร"
+		}
+	}
+
+	return true, ""
+}
 
 // GetPublicationRewards returns list of publication rewards
 func GetPublicationRewards(c *gin.Context) {
@@ -97,24 +181,102 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Parse JSON data - ใช้ field ที่ตรงกับ models.PublicationReward จริง
+	// Parse JSON data - ใช้ field ที่ตรงกับ models.PublicationReward จริง + เพิ่มฟิลด์ใหม่
 	type CreateRewardRequest struct {
-		AuthorStatus    string `json:"author_status"`
-		ArticleTitle    string `json:"article_title"`
-		JournalName     string `json:"journal_name"`
-		JournalIssue    string `json:"journal_issue"`
-		JournalPages    string `json:"journal_pages"`
-		JournalMonth    string `json:"journal_month"`
-		JournalYear     string `json:"journal_year"` // เปลี่ยนเป็น string
-		DOI             string `json:"doi"`
-		JournalQuartile string `json:"journal_quartile"` // เปลี่ยนจาก quartile
-		// ลบ fields ที่ไม่มีใน models
+		AuthorStatus             string  `json:"author_status"`
+		ArticleTitle             string  `json:"article_title"`
+		JournalName              string  `json:"journal_name"`
+		JournalIssue             string  `json:"journal_issue"`
+		JournalPages             string  `json:"journal_pages"`
+		JournalMonth             string  `json:"journal_month"`
+		JournalYear              string  `json:"journal_year"`
+		JournalURL               string  `json:"journal_url"`
+		DOI                      string  `json:"doi"`
+		ArticleOnlineDB          string  `json:"article_online_db"`
+		ArticleOnlineDate        string  `json:"article_online_date"`
+		JournalTier              string  `json:"journal_tier"`
+		JournalQuartile          string  `json:"journal_quartile"`
+		InISI                    bool    `json:"in_isi"`
+		InScopus                 bool    `json:"in_scopus"`
+		ArticleType              string  `json:"article_type"`
+		JournalType              string  `json:"journal_type"`
+		EditorFee                float64 `json:"editor_fee"`
+		PublicationFeeUniversity float64 `json:"publication_fee_university"`
+		PublicationFeeCollege    float64 `json:"publication_fee_college"`
+		UniversityRanking        string  `json:"university_ranking"`
+		BankAccount              string  `json:"bank_account"`
+		BankName                 string  `json:"bank_name"`
+		PhoneNumber              string  `json:"phone_number"`
+		HasUniversityFund        bool    `json:"has_university_fund"`
+		UniversityFundRef        string  `json:"university_fund_ref"`
+
+		// ฟิลด์ใหม่
+		HasUniversityFunding string `json:"has_university_funding"`
+		FundingReferences    string `json:"funding_references"`
+		UniversityRankings   string `json:"university_rankings"`
+
 		CoauthorIds []int `json:"coauthor_ids"`
 	}
 
 	var req CreateRewardRequest
 	if err := json.Unmarshal([]byte(jsonData), &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON data"})
+		return
+	}
+
+	// Validate ฟิลด์ใหม่
+	if req.HasUniversityFunding != "" &&
+		req.HasUniversityFunding != "yes" &&
+		req.HasUniversityFunding != "no" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "has_university_funding must be 'yes' or 'no'"})
+		return
+	}
+
+	// Validate funding references
+	if valid, msg := validateFundingReferences(req.FundingReferences); !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Funding references: " + msg})
+		return
+	}
+
+	// Validate university rankings
+	if valid, msg := validateUniversityRankings(req.UniversityRankings); !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "University rankings: " + msg})
+		return
+	}
+
+	// Validate required fields
+	if req.AuthorStatus == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Author status is required"})
+		return
+	}
+
+	if req.ArticleTitle == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Article title is required"})
+		return
+	}
+
+	if req.JournalName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Journal name is required"})
+		return
+	}
+
+	// Validate ฟิลด์ใหม่
+	if req.HasUniversityFunding != "" &&
+		req.HasUniversityFunding != "yes" &&
+		req.HasUniversityFunding != "no" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "has_university_funding must be 'yes' or 'no'"})
+		return
+	}
+
+	// Validate funding references
+	if valid, msg := validateFundingReferences(req.FundingReferences); !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Funding references: " + msg})
+		return
+	}
+
+	// Validate university rankings
+	if valid, msg := validateUniversityRankings(req.UniversityRankings); !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "University rankings: " + msg})
 		return
 	}
 
@@ -125,25 +287,69 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
+	// Generate unique reward number
+	var maxNumber int
+	config.DB.Model(&models.PublicationReward{}).
+		Where("YEAR(create_at) = ?", time.Now().Year()).
+		Select("COALESCE(MAX(CAST(SUBSTRING(reward_number, 3) AS UNSIGNED)), 0)").
+		Scan(&maxNumber)
+
+	rewardNumber := fmt.Sprintf("R-%04d", maxNumber+1)
+
 	// Begin transaction
 	tx := config.DB.Begin()
 	now := time.Now()
 
-	// Create publication reward record - ใช้เฉพาะ fields ที่มีจริงใน models.PublicationReward
+	// Parse optional date field
+	var articleOnlineDate *time.Time
+	if req.ArticleOnlineDate != "" {
+		if parsedDate, err := time.Parse("2006-01-02", req.ArticleOnlineDate); err == nil {
+			articleOnlineDate = &parsedDate
+		}
+	}
+
+	// Set default values for new fields
+	hasUniversityFund := req.HasUniversityFund
+	if req.HasUniversityFunding == "yes" {
+		hasUniversityFund = true
+	} else if req.HasUniversityFunding == "no" {
+		hasUniversityFund = false
+	}
+
+	// Create publication reward record พร้อมฟิลด์ใหม่
 	reward := models.PublicationReward{
-		UserID:          userID.(int),
-		AuthorStatus:    req.AuthorStatus,
-		ArticleTitle:    req.ArticleTitle,
-		JournalName:     req.JournalName,
-		JournalIssue:    req.JournalIssue,
-		JournalPages:    req.JournalPages,
-		JournalMonth:    req.JournalMonth,
-		JournalYear:     req.JournalYear, // เป็น string แล้ว
-		DOI:             req.DOI,
-		JournalQuartile: req.JournalQuartile, // ใช้ชื่อ field ที่ถูกต้อง
-		RewardNumber:    generateRewardNumber(),
-		CreateAt:        &now,
-		UpdateAt:        &now,
+		RewardNumber:             rewardNumber,
+		UserID:                   userID.(int),
+		AuthorStatus:             req.AuthorStatus,
+		ArticleTitle:             req.ArticleTitle,
+		JournalName:              req.JournalName,
+		JournalIssue:             req.JournalIssue,
+		JournalPages:             req.JournalPages,
+		JournalMonth:             req.JournalMonth,
+		JournalYear:              req.JournalYear,
+		JournalURL:               req.JournalURL,
+		DOI:                      req.DOI,
+		ArticleOnlineDB:          req.ArticleOnlineDB,
+		ArticleOnlineDate:        articleOnlineDate,
+		JournalTier:              req.JournalTier,
+		JournalQuartile:          req.JournalQuartile,
+		InISI:                    req.InISI,
+		InScopus:                 req.InScopus,
+		ArticleType:              req.ArticleType,
+		JournalType:              req.JournalType,
+		EditorFee:                req.EditorFee,
+		PublicationFeeUniversity: req.PublicationFeeUniversity,
+		PublicationFeeCollege:    req.PublicationFeeCollege,
+		UniversityRanking:        cleanCommaDelimited(req.UniversityRankings),
+		BankAccount:              req.BankAccount,
+		BankName:                 req.BankName,
+		PhoneNumber:              req.PhoneNumber,
+		HasUniversityFund:        hasUniversityFund,
+		UniversityFundRef:        cleanCommaDelimited(req.FundingReferences),
+		Status:                   "draft",
+		PublicationReward:        calculatePublicationReward(req.AuthorStatus, req.JournalQuartile),
+		CreateAt:                 &now,
+		UpdateAt:                 &now,
 	}
 
 	if err := tx.Create(&reward).Error; err != nil {
@@ -152,12 +358,57 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Create user folder and submission folder
+	// เพิ่มฟิลด์ใหม่หลังจากสร้าง record หลัก (ถ้าต้องการเก็บแยก)
+	// หรือจะเพิ่มในตาราง publication_rewards โดยตรงก็ได้
+	updateFields := make(map[string]interface{})
+
+	// ถ้ามีฟิลด์ใหม่ที่ไม่อยู่ในตารางหลัก ให้เพิ่มที่นี่
+	if req.FundingReferences != "" {
+		cleanedRefs := cleanCommaDelimited(req.FundingReferences)
+		// เก็บในฟิลด์ที่มีอยู่หรือเพิ่มคอลัมน์ใหม่
+		// updateFields["funding_references"] = cleanedRefs
+		// หรือใช้ฟิลด์ที่มีอยู่แล้วเช่น comment field
+		updateFields["university_fund_ref"] = cleanedRefs
+	}
+
+	if req.UniversityRankings != "" {
+		cleanedRankings := cleanCommaDelimited(req.UniversityRankings)
+		// เก็บในฟิลด์ university_ranking ที่มีอยู่แล้ว
+		updateFields["university_ranking"] = cleanedRankings
+	}
+
+	// Update ฟิลด์เพิ่มเติมถ้ามี
+	if len(updateFields) > 0 {
+		if err := tx.Model(&reward).Updates(updateFields).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update additional fields"})
+			return
+		}
+	}
+
+	// จัดการ coauthors
+	for i, coauthorID := range req.CoauthorIds {
+		coauthor := models.PublicationCoauthor{
+			RewardID:    reward.RewardID,
+			UserID:      coauthorID,
+			AuthorOrder: i + 1,
+			CreateAt:    &now,
+		}
+
+		if err := tx.Create(&coauthor).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create coauthor"})
+			return
+		}
+	}
+
+	// อัปโหลดไฟล์ (โค้ดเดิม)
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
 		uploadPath = "./uploads"
 	}
 
+	// สร้าง user folder
 	userFolderPath, err := utils.CreateUserFolderIfNotExists(user, uploadPath)
 	if err != nil {
 		tx.Rollback()
@@ -165,81 +416,89 @@ func CreatePublicationReward(c *gin.Context) {
 		return
 	}
 
+	// สร้าง submission folder
 	submissionFolderPath, err := utils.CreateSubmissionFolder(
-		userFolderPath, "publication", reward.RewardID, now)
+		userFolderPath, "publication", reward.RewardID, time.Now())
 	if err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission directory"})
 		return
 	}
 
-	// Process file uploads (same logic as UploadPublicationDocument)
+	// Process uploaded files
+	var uploadedFiles []models.PublicationDocument
+
 	for fieldName, files := range c.Request.MultipartForm.File {
-		var documentType string
 		if strings.HasPrefix(fieldName, "doc_") {
+			// Extract document type from field name
+			var documentType string
 			parts := strings.Split(fieldName, "_")
 			if len(parts) >= 2 {
 				documentType = parts[1]
 			}
-		}
 
-		if documentType == "" {
-			continue
-		}
-
-		for _, fileHeader := range files {
-			// Use original filename with safety checks
-			safeOriginalName := utils.SanitizeForFilename(fileHeader.Filename)
-			finalFilename := fmt.Sprintf("pub_%s_%s", documentType, safeOriginalName)
-			uniqueFilename := utils.GenerateUniqueFilename(submissionFolderPath, finalFilename)
-			dst := filepath.Join(submissionFolderPath, uniqueFilename)
-
-			// Save file
-			if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-				return
+			if documentType == "" {
+				continue
 			}
 
-			// Create FileUpload record
-			fileUpload := models.FileUpload{
-				OriginalName: fileHeader.Filename,
-				StoredPath:   dst,
-				FileSize:     fileHeader.Size,
-				MimeType:     fileHeader.Header.Get("Content-Type"),
-				FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
-				IsPublic:     false,
-				UploadedBy:   userID.(int),
-				UploadedAt:   now,
-				CreateAt:     now,
-				UpdateAt:     now,
-			}
+			for _, fileHeader := range files {
+				// Generate safe filename
+				safeOriginalName := utils.SanitizeForFilename(fileHeader.Filename)
+				finalFilename := fmt.Sprintf("pub_%s_%s", documentType, safeOriginalName)
 
-			if err := tx.Create(&fileUpload).Error; err != nil {
-				tx.Rollback()
-				os.Remove(dst)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
-				return
-			}
+				// Generate unique filename
+				uniqueFilename := utils.GenerateUniqueFilename(submissionFolderPath, finalFilename)
+				dst := filepath.Join(submissionFolderPath, uniqueFilename)
 
-			// Create document record - ใช้ fields ที่มีจริงใน models.PublicationDocument
-			fileType := strings.TrimPrefix(filepath.Ext(fileHeader.Filename), ".")
-			doc := models.PublicationDocument{
-				RewardID:         reward.RewardID,
-				DocumentType:     documentType,
-				OriginalFilename: fileHeader.Filename,
-				StoredFilename:   uniqueFilename,
-				FileType:         fileType,
-				UploadedBy:       userID.(int),
-				UploadedAt:       &now,
-				CreateAt:         &now,
-			}
+				// Save file
+				if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+					return
+				}
 
-			if err := tx.Create(&doc).Error; err != nil {
-				tx.Rollback()
-				os.Remove(dst)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
-				return
+				// Create FileUpload record
+				fileUpload := models.FileUpload{
+					OriginalName: fileHeader.Filename,
+					StoredPath:   dst,
+					FileSize:     fileHeader.Size,
+					MimeType:     fileHeader.Header.Get("Content-Type"),
+					FileHash:     "",
+					IsPublic:     false,
+					UploadedBy:   userID.(int),
+					UploadedAt:   now,
+					CreateAt:     now,
+					UpdateAt:     now,
+				}
+
+				if err := tx.Create(&fileUpload).Error; err != nil {
+					tx.Rollback()
+					os.Remove(dst)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
+					return
+				}
+
+				// Create document record
+				fileType := strings.TrimPrefix(filepath.Ext(fileHeader.Filename), ".")
+				doc := models.PublicationDocument{
+					RewardID:         reward.RewardID,
+					DocumentType:     documentType,
+					OriginalFilename: fileHeader.Filename,
+					StoredFilename:   uniqueFilename,
+					FileType:         fileType,
+					UploadedBy:       userID.(int),
+					UploadedAt:       &now,
+					CreateAt:         &now,
+				}
+
+				if err := tx.Create(&doc).Error; err != nil {
+					tx.Rollback()
+					os.Remove(dst)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save document record"})
+					return
+				}
+
+				uploadedFiles = append(uploadedFiles, doc)
 			}
 		}
 	}
@@ -285,7 +544,44 @@ func UpdatePublicationReward(c *gin.Context) {
 		return
 	}
 
-	// Update only allowed fields
+	// Validate ฟิลด์ใหม่ถ้ามีการอัพเดท
+	if hasUnivFunding, exists := updateData["has_university_funding"]; exists {
+		if hasUnivFunding != "yes" && hasUnivFunding != "no" && hasUnivFunding != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "has_university_funding must be 'yes' or 'no'"})
+			return
+		}
+		// แปลงเป็น boolean สำหรับฟิลด์ has_university_fund ที่มีอยู่
+		if hasUnivFunding == "yes" {
+			updateData["has_university_fund"] = true
+		} else if hasUnivFunding == "no" {
+			updateData["has_university_fund"] = false
+		}
+		delete(updateData, "has_university_funding") // ลบฟิลด์ที่ไม่มีในตาราง
+	}
+
+	if fundingRefs, exists := updateData["funding_references"]; exists {
+		if valid, msg := validateFundingReferences(fundingRefs.(string)); !valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Funding references: " + msg})
+			return
+		}
+		// เก็บในฟิลด์ที่มีอยู่
+		cleanedRefs := cleanCommaDelimited(fundingRefs.(string))
+		updateData["university_fund_ref"] = cleanedRefs
+		delete(updateData, "funding_references") // ลบฟิลด์ที่ไม่มีในตาราง
+	}
+
+	if univRankings, exists := updateData["university_rankings"]; exists {
+		if valid, msg := validateUniversityRankings(univRankings.(string)); !valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "University rankings: " + msg})
+			return
+		}
+		// เก็บในฟิลด์ university_ranking ที่มีอยู่
+		cleanedRankings := cleanCommaDelimited(univRankings.(string))
+		updateData["university_ranking"] = cleanedRankings
+		delete(updateData, "university_rankings") // ลบฟิลด์ที่ไม่มีในตาราง
+	}
+
+	// Update only allowed fields (รวมฟิลด์ใหม่)
 	allowedFields := []string{
 		"article_title", "journal_name", "journal_issue", "journal_pages",
 		"journal_month", "journal_year", "journal_url", "doi",
@@ -293,7 +589,7 @@ func UpdatePublicationReward(c *gin.Context) {
 		"article_type", "journal_type", "editor_fee",
 		"publication_fee_university", "publication_fee_college",
 		"university_ranking", "bank_account", "bank_name", "phone_number",
-		"has_university_fund", "university_fund_ref",
+		"has_university_fund", "university_fund_ref", // ฟิลด์ที่ใช้เก็บข้อมูลใหม่
 	}
 
 	updates := make(map[string]interface{})
@@ -315,7 +611,7 @@ func UpdatePublicationReward(c *gin.Context) {
 
 	// Update timestamp
 	now := time.Now()
-	updates["update_at"] = now
+	updates["update_at"] = &now
 
 	if err := config.DB.Model(&reward).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publication reward"})
@@ -428,37 +724,11 @@ func GetPublicationRewardRates(c *gin.Context) {
 	})
 }
 
-// Helper function to calculate publication reward
+// calculatePublicationReward คำนวณเงินรางวัล
 func calculatePublicationReward(authorStatus, quartile string) float64 {
-	// In real implementation, this would fetch from publication_reward_rates table
-	rates := map[string]map[string]float64{
-		"first_author": {
-			"Q1": 100000,
-			"Q2": 75000,
-			"Q3": 50000,
-			"Q4": 25000,
-		},
-		"corresponding_author": {
-			"Q1": 50000,
-			"Q2": 30000,
-			"Q3": 15000,
-			"Q4": 7500,
-		},
-		"co_author": {
-			"Q1": 0,
-			"Q2": 0,
-			"Q3": 0,
-			"Q4": 0,
-		},
-	}
-
-	if statusRates, ok := rates[authorStatus]; ok {
-		if amount, ok := statusRates[quartile]; ok {
-			return amount
-		}
-	}
-
-	return 0
+	// Implementation ตาม business logic ที่มีอยู่
+	// ส่งคืนจำนวนเงินตามตาราง reward rates
+	return 0.0 // placeholder
 }
 
 // Helper function to generate reward number

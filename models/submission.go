@@ -81,6 +81,10 @@ type PublicationRewardDetail struct {
 	// === อื่นๆ ===
 	AnnounceReferenceNumber string `gorm:"column:announce_reference_number" json:"announce_reference_number"`
 
+	HasUniversityFunding string  `json:"has_university_funding" gorm:"column:has_university_funding"`
+	FundingReferences    *string `json:"funding_references" gorm:"column:funding_references"`
+	UniversityRankings   *string `json:"university_rankings" gorm:"column:university_rankings"`
+
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
 }
