@@ -914,6 +914,11 @@ func AddPublicationDetails(c *gin.Context) {
 
 		// === อื่นๆ ===
 		AnnounceReferenceNumber string `json:"announce_reference_number"`
+
+		// === ฟิลด์ใหม่ ===
+		HasUniversityFunding string `json:"has_university_funding"` // "yes", "no"
+		FundingReferences    string `json:"funding_references"`     // หมายเลขอ้างอิงทุน
+		UniversityRankings   string `json:"university_rankings"`    // อันดับมหาวิทยาลัย
 	}
 
 	var req PublicationDetailsRequest
@@ -966,6 +971,11 @@ func AddPublicationDetails(c *gin.Context) {
 
 		// === อื่นๆ ===
 		AnnounceReferenceNumber: req.AnnounceReferenceNumber,
+
+		// === ฟิลด์ใหม่ ===
+		HasUniversityFunding: req.HasUniversityFunding, // → database: has_university_funding
+		FundingReferences:    &req.FundingReferences,   // → database: funding_references
+		UniversityRankings:   &req.UniversityRankings,  // → database: university_rankings
 	}
 
 	if err := config.DB.Create(&publicationDetails).Error; err != nil {
