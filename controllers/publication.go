@@ -570,6 +570,7 @@ func UpdatePublicationReward(c *gin.Context) {
 		"publication_fee_university", "publication_fee_college",
 		"university_ranking", "bank_account", "bank_name", "phone_number",
 		"has_university_fund", "university_fund_ref", // ฟิลด์ที่ใช้เก็บข้อมูลใหม่
+		"publication_type", "announce_reference_number", // ฟิลด์ที่ใช้เก็บข้อมูลใหม่
 	}
 
 	updates := make(map[string]interface{})
