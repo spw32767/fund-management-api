@@ -335,6 +335,8 @@ func SetupRoutes(router *gin.Engine) {
 
 				rewardConfigAdmin := admin.Group("/reward-config")
 				{
+					rewardConfigAdmin.GET("", controllers.GetRewardConfigAdmin) // GET /api/v1/admin/reward-config (ดูทั้งหมด ไม่ filter is_active)
+
 					rewardConfigAdmin.POST("", controllers.CreateRewardConfig)                   // POST /api/v1/admin/reward-config
 					rewardConfigAdmin.PUT("/:id", controllers.UpdateRewardConfig)                // PUT /api/v1/admin/reward-config/:id
 					rewardConfigAdmin.DELETE("/:id", controllers.DeleteRewardConfig)             // DELETE /api/v1/admin/reward-config/:id

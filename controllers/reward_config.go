@@ -45,6 +45,37 @@ func GetRewardConfig(c *gin.Context) {
 	})
 }
 
+// GetRewardConfigAdmin returns all reward configuration data for admin (no is_active filter)
+func GetRewardConfigAdmin(c *gin.Context) {
+	var configs []models.RewardConfig
+
+	// Build query - ไม่ filter is_active เพื่อให้ admin เห็นทั้ง active และ inactive
+	query := config.DB.Where("delete_at IS NULL")
+
+	// Filter by year
+	if year := c.Query("year"); year != "" {
+		query = query.Where("year = ?", year)
+	}
+	// ไม่ default ไปปีปัจจุบัน เพื่อให้ admin เห็นทุกปี
+
+	// Filter by quartile if needed
+	if quartile := c.Query("quartile"); quartile != "" {
+		query = query.Where("journal_quartile = ?", quartile)
+	}
+
+	// Execute query with ordering
+	if err := query.Order("year DESC, journal_quartile").Find(&configs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reward config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    configs,
+		"total":   len(configs),
+	})
+}
+
 // GetRewardConfigLookup returns specific max amount for calculation
 func GetRewardConfigLookup(c *gin.Context) {
 	year := c.Query("year")
