@@ -341,6 +341,7 @@ func SetupRoutes(router *gin.Engine) {
 					rewardConfigAdmin.PUT("/:id", controllers.UpdateRewardConfig)                // PUT /api/v1/admin/reward-config/:id
 					rewardConfigAdmin.DELETE("/:id", controllers.DeleteRewardConfig)             // DELETE /api/v1/admin/reward-config/:id
 					rewardConfigAdmin.PATCH("/:id/toggle", controllers.ToggleRewardConfigStatus) // PATCH /api/v1/admin/reward-config/:id/toggle
+					rewardConfigAdmin.POST("/:id/toggle", controllers.ToggleRewardConfigStatus)  // alias
 				}
 
 				// ========== USER MANAGEMENT (if needed in future) ==========
