@@ -247,6 +247,7 @@ func SetupRoutes(router *gin.Engine) {
 					rates.PUT("/:id", middleware.RequireRole(3), controllers.UpdatePublicationRewardRate)                // PUT /api/v1/publication-rewards/rates/:id
 					rates.DELETE("/:id", middleware.RequireRole(3), controllers.DeletePublicationRewardRate)             // DELETE /api/v1/publication-rewards/rates/:id
 					rates.PATCH("/:id/toggle", middleware.RequireRole(3), controllers.TogglePublicationRewardRateStatus) // PATCH /api/v1/publication-rewards/rates/:id/toggle
+					rates.POST("/:id/toggle", middleware.RequireRole(3), controllers.TogglePublicationRewardRateStatus)  // PATCH /api/v1/publication-rewards/rates/:id/toggle
 				}
 			}
 
