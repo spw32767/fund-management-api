@@ -705,6 +705,50 @@ func GetPublicationRewardRates(c *gin.Context) {
 	})
 }
 
+// GetPublicationRewardRatesAdmin returns all reward rates for admin (no is_active filter)
+func GetPublicationRewardRatesAdmin(c *gin.Context) {
+	var rates []models.PublicationRewardRate
+
+	// Build query - ไม่ filter is_active เพื่อให้ admin เห็นทั้ง active และ inactive
+	query := config.DB
+
+	// Filter by year if specified
+	if year := c.Query("year"); year != "" {
+		query = query.Where("year = ?", year)
+	}
+	// ไม่ default ไปปีไหน เพื่อให้ admin เห็นทุกปี
+
+	// Filter by author status if specified
+	if authorStatus := c.Query("author_status"); authorStatus != "" {
+		query = query.Where("author_status = ?", authorStatus)
+	}
+
+	// Filter by quartile if specified
+	if quartile := c.Query("quartile"); quartile != "" {
+		query = query.Where("journal_quartile = ?", quartile)
+	}
+
+	// Execute query with ordering
+	if err := query.Order("year DESC, author_status, journal_quartile").
+		Find(&rates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reward rates"})
+		return
+	}
+
+	// Group by year for easy frontend consumption
+	ratesByYear := make(map[string][]models.PublicationRewardRate)
+	for _, rate := range rates {
+		ratesByYear[rate.Year] = append(ratesByYear[rate.Year], rate)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"rates":         rates,
+		"rates_by_year": ratesByYear,
+		"total":         len(rates),
+	})
+}
+
 // calculatePublicationReward คำนวณเงินรางวัล
 func calculatePublicationReward(authorStatus, quartile string) float64 {
 	// Implementation ตาม business logic ที่มีอยู่

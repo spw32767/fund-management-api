@@ -242,6 +242,7 @@ func SetupRoutes(router *gin.Engine) {
 					rates.GET("/years", controllers.GetAvailableYears)               // GET /api/v1/publication-rewards/rates/years
 
 					// Admin only endpoints
+					rates.GET("/admin", middleware.RequireRole(3), controllers.GetPublicationRewardRatesAdmin)           // GET /api/v1/publication-rewards/rates/admin (ดูทั้งหมด ไม่ filter is_active)
 					rates.POST("", middleware.RequireRole(3), controllers.CreatePublicationRewardRate)                   // POST /api/v1/publication-rewards/rates
 					rates.PUT("/bulk", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)              // PUT /api/v1/publication-rewards/rates/bulk (existing)
 					rates.PUT("/:id", middleware.RequireRole(3), controllers.UpdatePublicationRewardRate)                // PUT /api/v1/publication-rewards/rates/:id
