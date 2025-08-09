@@ -1372,7 +1372,7 @@ func CreateSubcategoryBudget(c *gin.Context) {
 		SubcategoryID     int         `json:"subcategory_id" binding:"required"`
 		AllocatedAmount   float64     `json:"allocated_amount"`
 		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
-		MaxAmountPerGrant float64     `json:"max_amount_per_grant"`
+		MaxAmountPerGrant float64     `json:"max_amount_per_grant" binding:"required"`
 		Level             string      `json:"level"`
 		FundDescription   string      `json:"fund_description"`
 		Comment           string      `json:"comment"`
