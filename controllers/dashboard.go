@@ -106,6 +106,15 @@ func getUserDashboard(userID int) map[string]interface{} {
 		Select("COALESCE(SUM(fa.approved_amount), 0)").
 		Scan(&budgetUsage.UsedBudget)
 
+	// Query total budget for the current year
+	config.DB.Table("years").
+		Where("year = ?", currentYear).
+		Select("COALESCE(budget, 0)").
+		Scan(&budgetUsage.YearBudget)
+
+	// Calculate remaining budget
+	budgetUsage.RemainingBudget = budgetUsage.YearBudget - budgetUsage.UsedBudget
+
 	stats["budget_usage"] = budgetUsage
 
 	return stats
