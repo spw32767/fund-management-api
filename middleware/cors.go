@@ -41,7 +41,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		// Get allowed methods from environment
 		allowedMethods := os.Getenv("ALLOWED_METHODS")
 		if allowedMethods == "" {
-			allowedMethods = "GET,POST,PUT,DELETE,OPTIONS"
+			allowedMethods = "GET,POST,PUT,DELETE,PATCH,OPTIONS"
 		}
 
 		// Get allowed headers from environment
