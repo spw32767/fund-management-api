@@ -44,6 +44,16 @@ type FundApplicationDetail struct {
 	ClosedAt           *time.Time `gorm:"column:closed_at" json:"closed_at"`
 	Comment            string     `gorm:"column:comment" json:"comment"`
 
+	// ========== เพิ่ม fields ใหม่สำหรับ tracking ==========
+	ApprovedBy *int       `json:"approved_by" gorm:"column:approved_by"`
+	ApprovedAt *time.Time `json:"approved_at" gorm:"column:approved_at"`
+	RejectedBy *int       `json:"rejected_by" gorm:"column:rejected_by"`
+	RejectedAt *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
+
+	CreateAt time.Time  `json:"create_at" gorm:"column:create_at;autoCreateTime"`
+	UpdateAt time.Time  `json:"update_at" gorm:"column:update_at;autoUpdateTime"`
+	DeleteAt *time.Time `json:"delete_at" gorm:"column:delete_at"`
+
 	// Relations
 	Submission  Submission      `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
 	Subcategory FundSubcategory `gorm:"foreignKey:SubcategoryID" json:"subcategory,omitempty"`
@@ -84,6 +94,24 @@ type PublicationRewardDetail struct {
 	HasUniversityFunding string  `json:"has_university_funding" gorm:"column:has_university_funding"`
 	FundingReferences    *string `json:"funding_references" gorm:"column:funding_references"`
 	UniversityRankings   *string `json:"university_rankings" gorm:"column:university_rankings"`
+
+	// ========== เพิ่ม fields ใหม่สำหรับ Admin Management ==========
+	ApprovedAmount  *float64   `json:"approved_amount" gorm:"column:approved_amount"`
+	ApprovalComment *string    `json:"approval_comment" gorm:"column:approval_comment"`
+	ApprovedBy      *int       `json:"approved_by" gorm:"column:approved_by"`
+	ApprovedAt      *time.Time `json:"approved_at" gorm:"column:approved_at"`
+
+	RejectionReason *string    `json:"rejection_reason" gorm:"column:rejection_reason"`
+	RejectedBy      *int       `json:"rejected_by" gorm:"column:rejected_by"`
+	RejectedAt      *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
+
+	RevisionRequest     *string    `json:"revision_request" gorm:"column:revision_request"`
+	RevisionRequestedBy *int       `json:"revision_requested_by" gorm:"column:revision_requested_by"`
+	RevisionRequestedAt *time.Time `json:"revision_requested_at" gorm:"column:revision_requested_at"`
+
+	CreateAt time.Time  `json:"create_at" gorm:"column:create_at;autoCreateTime"`
+	UpdateAt time.Time  `json:"update_at" gorm:"column:update_at;autoUpdateTime"`
+	DeleteAt *time.Time `json:"delete_at" gorm:"column:delete_at"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`

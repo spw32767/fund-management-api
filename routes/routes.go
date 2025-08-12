@@ -365,6 +365,24 @@ func SetupRoutes(router *gin.Engine) {
 				// File system utilities (เพิ่มเติมในอนาคต)
 				// admin.GET("/files/orphaned", controllers.FindOrphanedFiles)     // หาไฟล์ที่ไม่มีใน DB
 				// admin.DELETE("/files/orphaned", controllers.DeleteOrphanedFiles) // ลบไฟล์ที่ไม่มีใน DB
+
+				//submissionManagement := admin.Group("/submissions")
+				//{
+				// Get submission with full details
+				//submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
+
+				// Approval/Rejection/Revision actions
+				//submissionManagement.PUT("/:id/approve", controllers.ApproveSubmission)
+				//submissionManagement.PUT("/:id/reject", controllers.RejectSubmission)
+				//submissionManagement.PUT("/:id/request-revision", controllers.RequestRevision)
+
+				// Export submissions
+				//submissionManagement.GET("/export", controllers.ExportSubmissions)
+
+				// Bulk operations (future enhancement)
+				// submissionManagement.POST("/bulk-approve", controllers.BulkApproveSubmissions)
+				// submissionManagement.POST("/bulk-reject", controllers.BulkRejectSubmissions)
+				//}
 			}
 		}
 	}
