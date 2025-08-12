@@ -34,8 +34,8 @@ func GetDashboardStats(c *gin.Context) {
 func getUserDashboard(userID int) map[string]interface{} {
 	stats := make(map[string]interface{})
 
-	// My applications summary
-	var applicationStats struct {
+	// My submissions summary (fund applications + publication rewards)
+	var submissionStats struct {
 		Total          int64   `json:"total"`
 		Pending        int64   `json:"pending"`
 		Approved       int64   `json:"approved"`
@@ -44,49 +44,70 @@ func getUserDashboard(userID int) map[string]interface{} {
 		ApprovedAmount float64 `json:"total_approved"`
 	}
 
-	// Total applications
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND delete_at IS NULL", userID).
-		Count(&applicationStats.Total)
+	// Total submissions
+	config.DB.Table("submissions").
+		Where("user_id = ? AND submission_type IN ? AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}).
+		Count(&submissionStats.Total)
 
 	// By status
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND application_status_id = 1 AND delete_at IS NULL", userID).
-		Count(&applicationStats.Pending)
+	config.DB.Table("submissions").
+		Where("user_id = ? AND submission_type IN ? AND status_id = 1 AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}).
+		Count(&submissionStats.Pending)
 
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND application_status_id = 2 AND delete_at IS NULL", userID).
-		Count(&applicationStats.Approved)
+	config.DB.Table("submissions").
+		Where("user_id = ? AND submission_type IN ? AND status_id = 2 AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}).
+		Count(&submissionStats.Approved)
 
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND application_status_id = 3 AND delete_at IS NULL", userID).
-		Count(&applicationStats.Rejected)
+	config.DB.Table("submissions").
+		Where("user_id = ? AND submission_type IN ? AND status_id = 3 AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}).
+		Count(&submissionStats.Rejected)
 
-	// Total amounts
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND delete_at IS NULL", userID).
-		Select("COALESCE(SUM(requested_amount), 0)").
-		Scan(&applicationStats.TotalAmount)
+	// Total requested and approved amounts
+	var fundAmounts struct {
+		Requested float64
+		Approved  float64
+	}
+	config.DB.Table("fund_application_details fad").
+		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
+		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
+		Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = 2 THEN fad.approved_amount ELSE 0 END),0) AS approved").
+		Scan(&fundAmounts)
 
-	config.DB.Table("fund_applications").
-		Where("user_id = ? AND application_status_id = 2 AND delete_at IS NULL", userID).
-		Select("COALESCE(SUM(approved_amount), 0)").
-		Scan(&applicationStats.ApprovedAmount)
+	var rewardAmounts struct {
+		Requested float64
+		Approved  float64
+	}
+	config.DB.Table("publication_reward_details prd").
+		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
+		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
+		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = 2 THEN prd.reward_approve_amount ELSE 0 END),0) AS approved").
+		Scan(&rewardAmounts)
 
-	stats["my_applications"] = applicationStats
+	submissionStats.TotalAmount = fundAmounts.Requested + rewardAmounts.Requested
+	submissionStats.ApprovedAmount = fundAmounts.Approved + rewardAmounts.Approved
 
-	// Recent applications
-	var recentApplications []map[string]interface{}
-	config.DB.Table("fund_applications").
-		Select(`application_id, application_number, project_title, 
-			requested_amount, application_status_id, submitted_at,
-			(SELECT status_name FROM application_status WHERE application_status_id = fund_applications.application_status_id) as status_name`).
-		Where("user_id = ? AND delete_at IS NULL", userID).
-		Order("submitted_at DESC").
+	stats["my_submissions"] = submissionStats
+
+	// Recent submissions
+	var recentSubmissions []map[string]interface{}
+	config.DB.Table("submissions s").
+		Select(`s.submission_id, s.submission_number, s.submission_type,
+                        COALESCE(fad.project_title, prd.paper_title) as title,
+                        COALESCE(fad.requested_amount, prd.reward_amount) as amount,
+                        s.status_id, s.submitted_at,
+                        (SELECT status_name FROM application_status WHERE application_status_id = s.status_id) as status_name`).
+		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
+		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
+		Order("s.submitted_at DESC").
 		Limit(5).
-		Scan(&recentApplications)
+		Scan(&recentSubmissions)
 
-	stats["recent_applications"] = recentApplications
+	stats["recent_submissions"] = recentSubmissions
 
 	// Monthly statistics (last 6 months)
 	monthlyStats := getMonthlyStats(userID, 6)
@@ -100,11 +121,23 @@ func getUserDashboard(userID int) map[string]interface{} {
 	}
 
 	currentYear := time.Now().Format("2006")
-	config.DB.Table("fund_applications fa").
-		Joins("JOIN years y ON fa.year_id = y.year_id").
-		Where("fa.user_id = ? AND y.year = ? AND fa.application_status_id = 2", userID, currentYear).
-		Select("COALESCE(SUM(fa.approved_amount), 0)").
+	// Approved fund application amounts
+	config.DB.Table("fund_application_details fad").
+		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
+		Joins("JOIN years y ON s.year_id = y.year_id").
+		Where("s.user_id = ? AND y.year = ? AND s.status_id = 2", userID, currentYear).
+		Select("COALESCE(SUM(fad.approved_amount), 0)").
 		Scan(&budgetUsage.UsedBudget)
+
+	// Approved publication reward amounts
+	var rewardUsed float64
+	config.DB.Table("publication_reward_details prd").
+		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
+		Joins("JOIN years y ON s.year_id = y.year_id").
+		Where("s.user_id = ? AND y.year = ? AND s.status_id = 2", userID, currentYear).
+		Select("COALESCE(SUM(prd.reward_approve_amount), 0)").
+		Scan(&rewardUsed)
+	budgetUsage.UsedBudget += rewardUsed
 
 	// Query total budget for the current year
 	config.DB.Table("years").
