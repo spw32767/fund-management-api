@@ -11,19 +11,37 @@ import (
 
 // GetDashboardStats returns dashboard statistics
 func GetDashboardStats(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
+	userIDVal, userExists := c.Get("userID")
+	roleIDVal, roleExists := c.Get("roleID")
+	if !userExists || !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "authentication context missing",
+		})
+		return
+	}
 
-	stats := make(map[string]interface{})
+	userID, okUser := userIDVal.(int)
+	roleID, okRole := roleIDVal.(int)
+	if !okUser || !okRole {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "invalid user or role id",
+		})
+		return
+	}
 
-	// Common stats for all users
-	stats["current_date"] = time.Now().Format("2006-01-02")
-
-	if roleID.(int) == 3 { // Admin dashboard
+	var stats map[string]interface{}
+	if roleID == 3 { // Admin dashboard
 		stats = getAdminDashboard()
 	} else { // Teacher/Staff dashboard
-		stats = getUserDashboard(userID.(int))
+		stats = getUserDashboard(userID)
 	}
+
+	if stats == nil {
+		stats = make(map[string]interface{})
+	}
+	stats["current_date"] = time.Now().Format("2006-01-02")
 
 	c.JSON(http.StatusOK, gin.H{
 		"stats": stats,
@@ -235,12 +253,12 @@ func getMonthlyStats(userID int, months int) []map[string]interface{} {
 		monthStart := time.Now().AddDate(0, -i, 0).Format("2006-01")
 		monthEnd := time.Now().AddDate(0, -i+1, 0).Format("2006-01")
 
-		var stats map[string]interface{}
+		stats := make(map[string]interface{})
 		config.DB.Table("fund_applications").
 			Select(`COUNT(*) as applications,
-				COUNT(CASE WHEN application_status_id = 2 THEN 1 END) as approved,
-				COUNT(CASE WHEN application_status_id = 3 THEN 1 END) as rejected,
-				COALESCE(SUM(CASE WHEN application_status_id = 2 THEN approved_amount ELSE 0 END), 0) as approved_amount`).
+				                COUNT(CASE WHEN application_status_id = 2 THEN 1 END) as approved,
+                                COUNT(CASE WHEN application_status_id = 3 THEN 1 END) as rejected,
+                                COALESCE(SUM(CASE WHEN application_status_id = 2 THEN approved_amount ELSE 0 END), 0) as approved_amount`).
 			Where("user_id = ? AND submitted_at >= ? AND submitted_at < ? AND delete_at IS NULL",
 				userID, monthStart+"-01", monthEnd+"-01").
 			Scan(&stats)
@@ -260,13 +278,13 @@ func getSystemMonthlyTrends(months int) []map[string]interface{} {
 		monthStart := time.Now().AddDate(0, -i, 0).Format("2006-01")
 		monthEnd := time.Now().AddDate(0, -i+1, 0).Format("2006-01")
 
-		var trend map[string]interface{}
+		trend := make(map[string]interface{})
 		config.DB.Table("fund_applications").
 			Select(`COUNT(*) as total_applications,
-				COUNT(CASE WHEN application_status_id = 2 THEN 1 END) as approved,
-				COUNT(CASE WHEN application_status_id = 3 THEN 1 END) as rejected,
-				COALESCE(SUM(requested_amount), 0) as total_requested,
-				COALESCE(SUM(CASE WHEN application_status_id = 2 THEN approved_amount ELSE 0 END), 0) as total_approved`).
+				                COUNT(CASE WHEN application_status_id = 2 THEN 1 END) as approved,
+                                COUNT(CASE WHEN application_status_id = 3 THEN 1 END) as rejected,
+                                COALESCE(SUM(requested_amount), 0) as total_requested,
+                                COALESCE(SUM(CASE WHEN application_status_id = 2 THEN approved_amount ELSE 0 END), 0) as total_approved`).
 			Where("submitted_at >= ? AND submitted_at < ? AND delete_at IS NULL",
 				monthStart+"-01", monthEnd+"-01").
 			Scan(&trend)
