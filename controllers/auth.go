@@ -253,20 +253,18 @@ func GetProfile(c *gin.Context) {
 	// Update session activity
 	updateSessionActivity(c)
 
-	userProfile := UserProfile{
-		UserID:       user.UserID,
-		UserFname:    user.UserFname,
-		UserLname:    user.UserLname,
-		Email:        user.Email,
-		RoleID:       user.RoleID,
-		PositionID:   user.PositionID,
-		Role:         user.Role.Role,
-		PositionName: user.Position.PositionName,
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"user":    userProfile,
+		"user": gin.H{
+			"user_id":       user.UserID,
+			"user_fname":    user.UserFname,
+			"user_lname":    user.UserLname,
+			"email":         user.Email,
+			"role_id":       user.RoleID,
+			"position_id":   user.PositionID,
+			"role":          user.Role.Role,
+			"position_name": user.Position.PositionName,
+		},
 	})
 }
 

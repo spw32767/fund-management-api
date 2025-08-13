@@ -90,7 +90,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 	submissionStats.TotalAmount = fundAmounts.Requested + rewardAmounts.Requested
 	submissionStats.ApprovedAmount = fundAmounts.Approved + rewardAmounts.Approved
 
-	stats["my_submissions"] = submissionStats
+	stats["my_applications"] = submissionStats
 
 	// Recent submissions
 	var recentSubmissions []map[string]interface{}
@@ -107,7 +107,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 		Limit(5).
 		Scan(&recentSubmissions)
 
-	stats["recent_submissions"] = recentSubmissions
+	stats["recent_applications"] = recentSubmissions
 
 	// Monthly statistics (last 6 months)
 	monthlyStats := getMonthlyStats(userID, 6)
