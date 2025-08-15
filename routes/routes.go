@@ -105,6 +105,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/years", controllers.GetYears)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
+			protected.GET("/application-status", controllers.GetApplicationStatuses)
 
 			// General submissions listing (all users)
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
