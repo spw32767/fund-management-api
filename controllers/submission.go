@@ -72,8 +72,12 @@ func GetSubmission(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	var submission models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
-		Preload("Documents.File").Preload("Documents.DocumentType")
+	query := config.DB.
+		Preload("User").
+		Preload("Year").
+		Preload("Status").
+		Preload("Documents.File").
+		Preload("Documents.DocumentType")
 
 	// Check permission
 	if roleID.(int) != 3 { // Not admin
@@ -83,6 +87,16 @@ func GetSubmission(c *gin.Context) {
 	if err := query.Where("submission_id = ? AND deleted_at IS NULL", submissionID).First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
+	}
+
+	// เพิ่มการโหลด submission_users พร้อม User data
+	var submissionUsers []models.SubmissionUser
+	if err := config.DB.
+		Where("submission_id = ?", submissionID).
+		Preload("User").
+		Order("display_order ASC").
+		Find(&submissionUsers).Error; err == nil {
+		submission.SubmissionUsers = submissionUsers
 	}
 
 	// Load type-specific details
@@ -100,8 +114,9 @@ func GetSubmission(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"submission": submission,
+		"success":          true,
+		"submission":       submission,
+		"submission_users": submissionUsers, // ส่ง submission_users แยก
 	})
 }
 
