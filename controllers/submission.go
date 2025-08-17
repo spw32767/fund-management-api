@@ -34,7 +34,12 @@ func GetSubmissions(c *gin.Context) {
 	yearID := c.Query("year_id")
 
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+	query := config.DB.Preload("User").
+		Preload("Year").
+		Preload("Status").
+		Preload("Documents.File").
+		Preload("Documents.DocumentType").
+		Preload("SubmissionUsers.User").
 		Where("deleted_at IS NULL")
 
 	// Filter by user if not admin
@@ -77,7 +82,8 @@ func GetSubmission(c *gin.Context) {
 		Preload("Year").
 		Preload("Status").
 		Preload("Documents.File").
-		Preload("Documents.DocumentType")
+		Preload("Documents.DocumentType").
+		Preload("SubmissionUsers.User")
 
 	// Check permission
 	if roleID.(int) != 3 { // Not admin
