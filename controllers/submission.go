@@ -63,6 +63,22 @@ func GetSubmissions(c *gin.Context) {
 		return
 	}
 
+	// เพิ่มการโหลด type-specific details สำหรับแต่ละ submission
+	for i := range submissions {
+		switch submissions[i].SubmissionType {
+		case "fund_application":
+			var fundDetail models.FundApplicationDetail
+			if err := config.DB.Preload("Subcategory").Where("submission_id = ?", submissions[i].SubmissionID).First(&fundDetail).Error; err == nil {
+				submissions[i].FundApplicationDetail = &fundDetail
+			}
+		case "publication_reward":
+			var pubDetail models.PublicationRewardDetail
+			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(&pubDetail).Error; err == nil {
+				submissions[i].PublicationRewardDetail = &pubDetail
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
 		"submissions": submissions,
