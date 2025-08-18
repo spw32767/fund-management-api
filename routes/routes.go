@@ -202,7 +202,7 @@ func SetupRoutes(router *gin.Engine) {
 				documents.GET("/application/:id", controllers.GetDocuments)
 				documents.GET("/download/:document_id", controllers.DownloadDocument)
 				documents.DELETE("/:document_id", controllers.DeleteDocument)
-				documents.GET("/types", controllers.GetDocumentTypes)
+				documents.GET("/types", controllers.GetDocumentTypes) // Legacy endpoint
 			}
 
 			// Dashboard
@@ -383,6 +383,14 @@ func SetupRoutes(router *gin.Engine) {
 					// Bulk operations (future enhancement)
 					// submissionManagement.POST("/bulk-approve", controllers.BulkApproveSubmissions)
 					// submissionManagement.POST("/bulk-reject", controllers.BulkRejectSubmissions)
+				}
+
+				documentTypes := admin.Group("/document-types")
+				{
+					documentTypes.GET("", controllers.GetDocumentTypesAdmin)     // GET /api/v1/admin/document-types
+					documentTypes.POST("", controllers.CreateDocumentType)       // POST /api/v1/admin/document-types
+					documentTypes.PUT("/:id", controllers.UpdateDocumentType)    // PUT /api/v1/admin/document-types/:id
+					documentTypes.DELETE("/:id", controllers.DeleteDocumentType) // DELETE /api/v1/admin/document-types/:id
 				}
 			}
 		}

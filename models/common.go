@@ -38,9 +38,14 @@ type DocumentType struct {
 	Required         bool       `gorm:"column:required" json:"required"`
 	Multiple         bool       `gorm:"column:multiple" json:"multiple"`
 	DocumentOrder    int        `gorm:"column:document_order" json:"document_order"`
+	IsRequired       *string    `gorm:"column:is_required" json:"is_required"` // enum('yes','no')
 	CreateAt         time.Time  `gorm:"column:create_at" json:"create_at"`
 	UpdateAt         time.Time  `gorm:"column:update_at" json:"update_at"`
 	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+
+	// เพิ่มฟิลด์ใหม่
+	FundTypes      *string `gorm:"column:fund_types" json:"fund_types"`           // JSON field
+	SubcategoryIds *string `gorm:"column:subcategory_ids" json:"subcategory_ids"` // JSON field
 }
 
 // TableName overrides
