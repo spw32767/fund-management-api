@@ -80,6 +80,8 @@ type FundSubcategory struct {
 	// Relations
 	Category          FundCategory      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
 	SubcategoryBudget SubcategoryBudget `gorm:"foreignKey:SubcategoryID" json:"subcategory_budget,omitempty"`
+	// เพิ่ม Relations ใหม่
+	DocumentRequirements []FundDocumentRequirement `gorm:"foreignKey:SubcategoryID" json:"document_requirements,omitempty"`
 }
 
 type SubcategoryBudget struct {
@@ -179,4 +181,95 @@ func (fs *FundSubcategory) IsVisibleToRole(roleID int) bool {
 	}
 
 	return false
+}
+
+// IsRequiredForFund ตรวจสอบว่าเอกสารนี้บังคับสำหรับ fund type และ subcategory หรือไม่
+func (dt *DocumentType) IsRequiredForFund(fundType string, subcategoryID *int) bool {
+	for _, req := range dt.FundRequirements {
+		if req.FundType == fundType && req.IsActive {
+			// ถ้า subcategoryID เป็น nil แสดงว่าใช้ได้กับทุก subcategory
+			if req.SubcategoryID == nil {
+				return req.IsRequired
+			}
+			// ถ้าตรงกับ subcategory ที่ระบุ
+			if subcategoryID != nil && req.SubcategoryID != nil && *req.SubcategoryID == *subcategoryID {
+				return req.IsRequired
+			}
+		}
+	}
+	return false
+}
+
+// Helper Methods สำหรับ FundSubcategory
+
+// GetRequiredDocuments ดึงเอกสารบังคับสำหรับ subcategory นี้
+func (fs *FundSubcategory) GetRequiredDocuments(fundType string) []FundDocumentRequirement {
+	var requirements []FundDocumentRequirement
+	for _, req := range fs.DocumentRequirements {
+		if req.FundType == fundType && req.IsRequired && req.IsActive {
+			requirements = append(requirements, req)
+		}
+	}
+	return requirements
+}
+
+// GetAllDocuments ดึงเอกสารทั้งหมดสำหรับ subcategory นี้
+func (fs *FundSubcategory) GetAllDocuments(fundType string) []FundDocumentRequirement {
+	var requirements []FundDocumentRequirement
+	for _, req := range fs.DocumentRequirements {
+		if req.FundType == fundType && req.IsActive {
+			requirements = append(requirements, req)
+		}
+	}
+	return requirements
+}
+
+// Validation Helper Functions
+
+// ValidateDocumentForSubmission ตรวจสอบว่าเอกสารนี้จำเป็นสำหรับ submission หรือไม่
+func ValidateDocumentForSubmission(fundType string, subcategoryID *int, documentTypeID int, params map[string]interface{}) (bool, error) {
+	// TODO: ใช้ database query เพื่อตรวจสอบจริง
+	// นี่เป็นแค่ตัวอย่าง structure
+	return true, nil
+}
+
+// GetDocumentRequirementsForForm ดึงเอกสารที่ต้องแสดงในฟอร์ม
+func GetDocumentRequirementsForForm(fundType string, subcategoryID *int) ([]FundDocumentRequirementView, error) {
+	// TODO: ใช้ database query เพื่อดึงข้อมูลจริง
+	// นี่เป็นแค่ตัวอย่าง structure
+	return []FundDocumentRequirementView{}, nil
+}
+
+// Legacy Support Functions (เพื่อให้ compatible กับโค้ดเดิม)
+
+// GetDocumentTypesByCategory ดึง document types ตาม category (legacy)
+// ใช้สำหรับ backward compatibility
+func GetDocumentTypesByCategory(category string) []DocumentType {
+	// TODO: ใช้ database query เพื่อดึงข้อมูลจริง
+	// อาจจะ map category เดิมไปยัง fund_type ใหม่
+	return []DocumentType{}
+}
+
+// ConvertCategoryToFundType แปลง category เดิมเป็น fund_type ใหม่
+func ConvertCategoryToFundType(category string) string {
+	switch category {
+	case "publication":
+		return FundTypePublicationReward
+	case "general", "":
+		return FundTypeFundApplication
+	default:
+		return FundTypeFundApplication
+	}
+}
+
+// ConvertFundTypeToCategory แปลง fund_type ใหม่เป็น category เดิม (สำหรับ backward compatibility)
+func ConvertFundTypeToCategory(fundType string) string {
+	switch fundType {
+	case FundTypePublicationReward:
+		return "publication"
+	case FundTypeFundApplication:
+		return "general"
+	default:
+		return "general"
+	}
 }
