@@ -1,4 +1,3 @@
-// controllers/document.go
 package controllers
 
 import (
@@ -287,26 +286,17 @@ func DeleteDocument(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Document deleted successfully"})
 }
 
+// GetDocumentTypes returns available document types
 func GetDocumentTypes(c *gin.Context) {
-	// เรียกใช้ legacy function เพื่อ backward compatibility
-	GetDocumentTypesLegacy(c)
-}
-
-// GetDocumentTypesAdmin ดึงข้อมูล document types ทั้งหมดสำหรับ Admin
-// GET /api/admin/document-types
-func GetDocumentTypesAdmin(c *gin.Context) {
 	var documentTypes []models.DocumentType
+	query := config.DB.Where("delete_at IS NULL")
 
-	query := config.DB.Order("document_order ASC")
-
-	// Include soft deleted records for admin
-	if c.Query("include_deleted") == "true" {
-		query = query.Unscoped()
-	} else {
-		query = query.Where("delete_at IS NULL OR delete_at = ''")
+	// Filter by category if specified
+	if category := c.Query("category"); category != "" {
+		query = query.Where("category = ?", category)
 	}
 
-	if err := query.Find(&documentTypes).Error; err != nil {
+	if err := query.Order("document_order").Find(&documentTypes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch document types"})
 		return
 	}
@@ -315,245 +305,16 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 	var result []map[string]interface{}
 	for _, dt := range documentTypes {
 		result = append(result, map[string]interface{}{
-			"document_type_id":   dt.DocumentTypeID,
-			"document_type_name": dt.DocumentTypeName,
-			"code":               dt.Code,
-			"category":           dt.Category,
-			"required":           dt.Required,
-			"multiple":           dt.Multiple,
-			"document_order":     dt.DocumentOrder,
-			"is_required":        dt.Required,
-			"create_at":          dt.CreateAt,
-			"update_at":          dt.UpdateAt,
-			"delete_at":          dt.DeleteAt,
+			"id":       dt.DocumentTypeID,
+			"code":     dt.Code,
+			"name":     dt.DocumentTypeName,
+			"required": dt.Required,
+			"multiple": dt.Multiple,
+			"category": dt.Category,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":        true,
 		"document_types": result,
-		"total":          len(result),
-	})
-}
-
-// CreateDocumentType สร้าง document type ใหม่ (Admin only)
-// POST /api/admin/document-types
-func CreateDocumentType(c *gin.Context) {
-	var request struct {
-		DocumentTypeName string `json:"document_type_name" binding:"required"`
-		Code             string `json:"code" binding:"required"`
-		Category         string `json:"category"`
-		Required         bool   `json:"required"`
-		Multiple         bool   `json:"multiple"`
-		DocumentOrder    int    `json:"document_order"`
-		IsRequired       string `json:"is_required"`
-	}
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Check if code already exists
-	var existingCount int64
-	config.DB.Model(&models.DocumentType{}).Where("code = ?", request.Code).Count(&existingCount)
-	if existingCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "Document type code already exists"})
-		return
-	}
-
-	documentType := models.DocumentType{
-		DocumentTypeName: request.DocumentTypeName,
-		Code:             request.Code,
-		Category:         request.Category,
-		Required:         request.Required,
-		Multiple:         request.Multiple,
-		DocumentOrder:    request.DocumentOrder,
-		// IsRequired:       request.IsRequired, // Removed because models.DocumentType does not have this field
-	}
-
-	if err := config.DB.Create(&documentType).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create document type"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"success":       true,
-		"message":       "Document type created successfully",
-		"document_type": documentType,
-	})
-}
-
-// UpdateDocumentType อัพเดท document type (Admin only)
-// PUT /api/admin/document-types/:id
-func UpdateDocumentType(c *gin.Context) {
-	id := c.Param("id")
-
-	var request struct {
-		DocumentTypeName *string `json:"document_type_name"`
-		Code             *string `json:"code"`
-		Category         *string `json:"category"`
-		Required         *bool   `json:"required"`
-		Multiple         *bool   `json:"multiple"`
-		DocumentOrder    *int    `json:"document_order"`
-		IsRequired       *string `json:"is_required"`
-	}
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var documentType models.DocumentType
-	if err := config.DB.First(&documentType, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Document type not found"})
-		return
-	}
-
-	// Check if new code conflicts with existing
-	if request.Code != nil && *request.Code != documentType.Code {
-		var existingCount int64
-		config.DB.Model(&models.DocumentType{}).Where("code = ? AND document_type_id != ?", *request.Code, id).Count(&existingCount)
-		if existingCount > 0 {
-			c.JSON(http.StatusConflict, gin.H{"error": "Document type code already exists"})
-			return
-		}
-		documentType.Code = *request.Code
-	}
-
-	// Update fields
-	if request.DocumentTypeName != nil {
-		documentType.DocumentTypeName = *request.DocumentTypeName
-	}
-	if request.Category != nil {
-		documentType.Category = *request.Category
-	}
-	if request.Required != nil {
-		documentType.Required = *request.Required
-	}
-	if request.Multiple != nil {
-		documentType.Multiple = *request.Multiple
-	}
-	if request.DocumentOrder != nil {
-		documentType.DocumentOrder = *request.DocumentOrder
-	}
-	// Removed assignment to IsRequired because models.DocumentType does not have this field
-
-	if err := config.DB.Save(&documentType).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document type"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":       true,
-		"message":       "Document type updated successfully",
-		"document_type": documentType,
-	})
-}
-
-// DeleteDocumentType ลบ document type (Admin only)
-// DELETE /api/admin/document-types/:id
-func DeleteDocumentType(c *gin.Context) {
-	id := c.Param("id")
-
-	var documentType models.DocumentType
-	if err := config.DB.First(&documentType, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Document type not found"})
-		return
-	}
-
-	// Check if document type is being used
-	var usageCount int64
-	config.DB.Model(&models.FundDocumentRequirement{}).Where("document_type_id = ?", id).Count(&usageCount)
-	if usageCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":       "Cannot delete document type as it is being used in fund requirements",
-			"usage_count": usageCount,
-		})
-		return
-	}
-
-	// Check if used in submissions
-	var submissionUsageCount int64
-	config.DB.Model(&models.SubmissionDocument{}).Where("document_type_id = ?", id).Count(&submissionUsageCount)
-	if submissionUsageCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":       "Cannot delete document type as it is being used in submissions",
-			"usage_count": submissionUsageCount,
-		})
-		return
-	}
-
-	// Soft delete
-	if err := config.DB.Delete(&documentType).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete document type"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Document type deleted successfully",
-	})
-}
-
-// RestoreDocumentType กู้คืน document type (Admin only)
-// POST /api/admin/document-types/:id/restore
-func RestoreDocumentType(c *gin.Context) {
-	id := c.Param("id")
-
-	var documentType models.DocumentType
-	if err := config.DB.Unscoped().First(&documentType, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Document type not found"})
-		return
-	}
-
-	if documentType.DeleteAt == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Document type is not deleted"})
-		return
-	}
-
-	// Restore by setting DeleteAt to nil
-	documentType.DeleteAt = nil
-	if err := config.DB.Unscoped().Save(&documentType).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore document type"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":       true,
-		"message":       "Document type restored successfully",
-		"document_type": documentType,
-	})
-}
-
-// GetDocumentTypeUsage ดูการใช้งานของ document type
-// GET /api/admin/document-types/:id/usage
-func GetDocumentTypeUsage(c *gin.Context) {
-	id := c.Param("id")
-
-	var documentType models.DocumentType
-	if err := config.DB.First(&documentType, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Document type not found"})
-		return
-	}
-
-	// Get fund requirements using this document type
-	var fundRequirements []models.FundDocumentRequirementView
-	config.DB.Table("v_fund_document_requirements").
-		Where("document_type_id = ?", id).
-		Find(&fundRequirements)
-
-	// Get submission documents using this document type
-	var submissionCount int64
-	config.DB.Model(&models.SubmissionDocument{}).
-		Where("document_type_id = ?", id).
-		Count(&submissionCount)
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":           true,
-		"document_type":     documentType,
-		"fund_requirements": fundRequirements,
-		"submission_usage":  submissionCount,
-		"total_usage":       len(fundRequirements) + int(submissionCount),
 	})
 }
