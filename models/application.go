@@ -183,23 +183,6 @@ func (fs *FundSubcategory) IsVisibleToRole(roleID int) bool {
 	return false
 }
 
-// IsRequiredForFund ตรวจสอบว่าเอกสารนี้บังคับสำหรับ fund type และ subcategory หรือไม่
-func (dt *DocumentType) IsRequiredForFund(fundType string, subcategoryID *int) bool {
-	for _, req := range dt.FundRequirements {
-		if req.FundType == fundType && req.IsActive {
-			// ถ้า subcategoryID เป็น nil แสดงว่าใช้ได้กับทุก subcategory
-			if req.SubcategoryID == nil {
-				return req.IsRequired
-			}
-			// ถ้าตรงกับ subcategory ที่ระบุ
-			if subcategoryID != nil && req.SubcategoryID != nil && *req.SubcategoryID == *subcategoryID {
-				return req.IsRequired
-			}
-		}
-	}
-	return false
-}
-
 // Helper Methods สำหรับ FundSubcategory
 
 // GetRequiredDocuments ดึงเอกสารบังคับสำหรับ subcategory นี้
