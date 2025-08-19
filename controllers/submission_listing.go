@@ -141,15 +141,16 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	submissionType := c.Query("type")
 	status := c.Query("status")
+	yearID := c.Query("year_id")
 
 	if page < 1 {
 		page = 1
 	}
-	if limit < 1 || limit > 50 {
-		limit = 10
+	if limit < 1 || limit > 1000 {
+		limit = 100
 	}
 	offset := (page - 1) * limit
 
@@ -164,6 +165,9 @@ func GetTeacherSubmissions(c *gin.Context) {
 	}
 	if status != "" {
 		query = query.Where("status_id = ?", status)
+	}
+	if yearID != "" {
+		query = query.Where("year_id = ?", yearID)
 	}
 
 	// Get total count
