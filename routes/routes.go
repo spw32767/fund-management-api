@@ -267,6 +267,35 @@ func SetupRoutes(router *gin.Engine) {
 			// Document types with category filter
 			protected.GET("/document-types", controllers.GetDocumentTypes)
 
+			// ===== ANNOUNCEMENTS AND FUND FORMS =====
+			announcements := protected.Group("/announcements")
+			{
+				// Public routes (all authenticated users can access)
+				announcements.GET("", controllers.GetAnnouncements)
+				announcements.GET("/:id", controllers.GetAnnouncement)
+				announcements.GET("/:id/view", controllers.ViewAnnouncementFile)
+				announcements.GET("/:id/download", controllers.DownloadAnnouncementFile)
+
+				// Admin only routes
+				announcements.POST("", middleware.RequireRole(3), controllers.CreateAnnouncement)
+				announcements.PUT("/:id", middleware.RequireRole(3), controllers.UpdateAnnouncement)
+				announcements.DELETE("/:id", middleware.RequireRole(3), controllers.DeleteAnnouncement)
+			}
+
+			fundForms := protected.Group("/fund-forms")
+			{
+				// Public routes (all authenticated users can access)
+				fundForms.GET("", controllers.GetFundForms)
+				fundForms.GET("/:id", controllers.GetFundForm)
+				fundForms.GET("/:id/view", controllers.ViewFundForm)
+				fundForms.GET("/:id/download", controllers.DownloadFundForm)
+
+				// Admin only routes
+				fundForms.POST("", middleware.RequireRole(3), controllers.CreateFundForm)
+				fundForms.PUT("/:id", middleware.RequireRole(3), controllers.UpdateFundForm)
+				fundForms.DELETE("/:id", middleware.RequireRole(3), controllers.DeleteFundForm)
+			}
+
 			// เพิ่มส่วนนี้ใน admin group หลังจาก middleware.RequireRole(3)
 			admin := protected.Group("/admin")
 			admin.Use(middleware.RequireRole(3)) // Require admin role
@@ -358,6 +387,9 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/files/users", controllers.ListUserFolders)   // ดู user folders ทั้งหมด
 				admin.GET("/files/users/:id", controllers.ListUserFiles) // ดูไฟล์ของ user
 				admin.GET("/files/stats", controllers.GetFileStats)      // สถิติการใช้งานไฟล์
+
+				// ===== ANNOUNCEMENT ADMIN ROUTES =====
+				admin.GET("/announcements/stats", controllers.GetAnnouncementStats) // สถิติประกาศ
 
 				// File cleanup and maintenance
 				admin.DELETE("/files/cleanup", controllers.CleanupTempFiles) // ลบไฟล์ temp เก่า
