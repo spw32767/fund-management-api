@@ -40,7 +40,7 @@ func GetAnnouncements(c *gin.Context) {
 		query = query.Where("priority = ?", priority)
 	}
 	if activeOnly {
-		query = query.Where("status = ? AND (expired_at IS NULL OR expired_at > NOW())", "active")
+		query = query.Where("status = ?", "active")
 	}
 
 	// Order by priority and published_at
@@ -481,14 +481,14 @@ func GetFundForms(c *gin.Context) {
 		query = query.Where("status = ?", status)
 	}
 	if activeOnly {
-		query = query.Where("status = ? AND (expiry_date IS NULL OR expiry_date > NOW()) AND (effective_date IS NULL OR effective_date <= NOW())", "active")
+		query = query.Where("status = ?", "active")
 	}
 	if requiredOnly {
 		query = query.Where("is_required = ?", true)
 	}
 
-	// Order by form_type and version
-	query = query.Order("CASE form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, version DESC")
+	// Order by form_type and create_at
+	query = query.Order("CASE form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, create_at DESC")
 
 	var forms []models.FundForm
 	if err := query.Find(&forms).Error; err != nil {
