@@ -978,6 +978,7 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
 	// สร้าง publication details ตรงกับ database schema ใหม่
 	publicationDetails := models.PublicationRewardDetail{
 		SubmissionID:    submission.SubmissionID,
@@ -1013,6 +1014,11 @@ func AddPublicationDetails(c *gin.Context) {
 		HasUniversityFunding: req.HasUniversityFunding, // → database: has_university_funding
 		FundingReferences:    &req.FundingReferences,   // → database: funding_references
 		UniversityRankings:   &req.UniversityRankings,  // → database: university_rankings
+
+		// เพิ่ม timestamp fields
+		CreateAt: now,
+		UpdateAt: now,
+		// ไม่ต้องใส่ DeleteAt เลย ปล่อยให้เป็น zero value
 	}
 
 	if err := config.DB.Create(&publicationDetails).Error; err != nil {
