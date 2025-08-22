@@ -425,6 +425,16 @@ func SetupRoutes(router *gin.Engine) {
 					documentTypes.DELETE("/:id", controllers.DeleteDocumentType) // DELETE /api/v1/admin/document-types/:id
 				}
 			}
+
+			// Fund API - Structured data endpoint
+			protected.GET("/funds/structure", controllers.GetFundStructure)
+
+			// Teacher specific fund structure
+			teacher.GET("/funds/structure", controllers.GetFundStructure)
+
+			// Staff specific fund structure
+			staff.GET("/funds/structure", controllers.GetFundStructure)
+
 		}
 	}
 
