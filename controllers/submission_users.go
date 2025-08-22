@@ -177,6 +177,16 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
+	// Fallback: ensure each submission user has associated User data
+	for i := range users {
+		if users[i].User == nil {
+			var u models.User
+			if err := config.DB.Where("user_id = ?", users[i].UserID).First(&u).Error; err == nil {
+				users[i].User = &u
+			}
+		}
+	}
+
 	// Separate by role for easier frontend handling
 	var coauthors []models.SubmissionUser
 	var others []models.SubmissionUser
