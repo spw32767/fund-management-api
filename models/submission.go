@@ -23,7 +23,7 @@ type Submission struct {
 	DeletedAt   *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 
 	// Relations
-	User                    User                     `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`
 	Status                  ApplicationStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
 	Documents               []SubmissionDocument     `gorm:"foreignKey:SubmissionID" json:"documents,omitempty"`
@@ -150,7 +150,7 @@ type SubmissionUser struct {
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
-	User       User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	User       *User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
 // TableName overrides
