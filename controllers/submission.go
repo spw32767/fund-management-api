@@ -143,9 +143,9 @@ func GetSubmission(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":          true,
-		"submission":       submission,
-		"submission_users": submissionUsers, // ส่ง submission_users แยก
+		"success":        true,
+		"submission":     submission,
+		"applicant_user": submission.User,
 	})
 }
 
