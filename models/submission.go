@@ -158,6 +158,7 @@ type SubmissionUser struct {
 	AuthorRole            string `gorm:"-" json:"author_role,omitempty"`
 	IsFirstAuthor         bool   `gorm:"-" json:"is_first_author,omitempty"`
 	IsCorrespondingAuthor bool   `gorm:"-" json:"is_corresponding_author,omitempty"`
+	IsApplicant           bool   `gorm:"-" json:"is_applicant,omitempty"`
 }
 
 // TableName overrides

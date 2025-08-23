@@ -177,21 +177,28 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Fallback: ensure each submission user has associated User data
+	// Mark applicant and filter out from list
+	applicantID := submission.UserID
+	filtered := make([]models.SubmissionUser, 0, len(users))
 	for i := range users {
+		users[i].IsApplicant = users[i].UserID == applicantID
+		if users[i].IsApplicant {
+			continue
+		}
 		if users[i].User == nil {
 			var u models.User
 			if err := config.DB.Where("user_id = ?", users[i].UserID).First(&u).Error; err == nil {
 				users[i].User = &u
 			}
 		}
+		filtered = append(filtered, users[i])
 	}
 
 	// Separate by role for easier frontend handling
 	var coauthors []models.SubmissionUser
 	var others []models.SubmissionUser
 
-	for _, user := range users {
+	for _, user := range filtered {
 		if user.Role == "coauthor" {
 			coauthors = append(coauthors, user)
 		} else {
@@ -200,11 +207,13 @@ func GetSubmissionUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"users":     users,
-		"coauthors": coauthors,
-		"others":    others,
-		"total":     len(users),
+		"success":           true,
+		"users":             filtered,
+		"coauthors":         coauthors,
+		"others":            others,
+		"total":             len(filtered),
+		"applicant_user":    submission.User,
+		"applicant_user_id": applicantID,
 	})
 }
 
@@ -237,7 +246,7 @@ func SetCoauthors(c *gin.Context) {
 
 	// Find submission and check permission
 	var submission models.Submission
-	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
+	query := config.DB.Preload("User").Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	if roleID.(int) != 3 { // Not admin
 		query = query.Where("user_id = ?", userID)
@@ -365,7 +374,7 @@ func UpdateSubmissionUser(c *gin.Context) {
 
 	// Find submission and check permission
 	var submission models.Submission
-	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
+	query := config.DB.Preload("User").Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	if roleID.(int) != 3 { // Not admin
 		query = query.Where("user_id = ?", userID)
