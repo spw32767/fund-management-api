@@ -937,13 +937,15 @@ func AddPublicationDetails(c *gin.Context) {
 		Indexing        string  `json:"indexing"`
 
 		// === เงินรางวัลและการคำนวณ (ใหม่) ===
-		RewardAmount          float64 `json:"publication_reward"` // จาก frontend
-		RewardApproveAmount   float64 `json:"reward_approve_amount"`
-		RevisionFee           float64 `json:"revision_fee"`
-		PublicationFee        float64 `json:"publication_fee"`
-		ExternalFundingAmount float64 `json:"external_funding_amount"`
-		TotalAmount           float64 `json:"total_amount"`
-		TotalApproveAmount    float64 `json:"total_approve_amount"`
+		RewardAmount                float64 `json:"publication_reward"` // จาก frontend
+		RewardApproveAmount         float64 `json:"reward_approve_amount"`
+		RevisionFee                 float64 `json:"revision_fee"`
+		RevisionFeeApproveAmount    float64 `json:"revision_fee_approve_amount"`
+		PublicationFee              float64 `json:"publication_fee"`
+		PublicationFeeApproveAmount float64 `json:"publication_fee_approve_amount"`
+		ExternalFundingAmount       float64 `json:"external_funding_amount"`
+		TotalAmount                 float64 `json:"total_amount"`
+		TotalApproveAmount          float64 `json:"total_approve_amount"`
 
 		// === ข้อมูลผู้แต่ง ===
 		AuthorCount int    `json:"author_count"`
@@ -995,13 +997,15 @@ func AddPublicationDetails(c *gin.Context) {
 		Indexing:        req.Indexing,
 
 		// === เงินรางวัลและการคำนวณ (ใหม่) ===
-		RewardAmount:          req.RewardAmount,
-		RewardApproveAmount:   req.RewardApproveAmount,
-		RevisionFee:           req.RevisionFee,
-		PublicationFee:        req.PublicationFee,
-		ExternalFundingAmount: req.ExternalFundingAmount,
-		TotalAmount:           req.TotalAmount,
-		TotalApproveAmount:    req.TotalApproveAmount,
+		RewardAmount:                req.RewardAmount,
+		RewardApproveAmount:         req.RewardApproveAmount,
+		RevisionFee:                 req.RevisionFee,
+		RevisionFeeApproveAmount:    req.RevisionFeeApproveAmount,
+		PublicationFee:              req.PublicationFee,
+		PublicationFeeApproveAmount: req.PublicationFeeApproveAmount,
+		ExternalFundingAmount:       req.ExternalFundingAmount,
+		TotalAmount:                 req.TotalAmount,
+		TotalApproveAmount:          req.TotalApproveAmount,
 
 		// === ข้อมูลผู้แต่ง ===
 		AuthorCount: req.AuthorCount,
