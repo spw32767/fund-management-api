@@ -271,102 +271,102 @@ func GetStaffSubmissions(c *gin.Context) {
 	})
 }
 
-// GetAdminSubmissions returns all submissions for admin
-func GetAdminSubmissions(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
+// // GetAdminSubmissions returns all submissions for admin
+// func GetAdminSubmissions(c *gin.Context) {
+// 	roleID, _ := c.Get("roleID")
 
-	// Ensure user is admin
-	if roleID.(int) != 3 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-		return
-	}
+// 	// Ensure user is admin
+// 	if roleID.(int) != 3 {
+// 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+// 		return
+// 	}
 
-	// Parse query parameters
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
-	submissionType := c.Query("type")
-	status := c.Query("status")
-	yearID := c.Query("year_id")
-	userID := c.Query("user_id")
-	dateFrom := c.Query("date_from")
-	dateTo := c.Query("date_to")
+// 	// Parse query parameters
+// 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+// 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
+// 	submissionType := c.Query("type")
+// 	status := c.Query("status")
+// 	yearID := c.Query("year_id")
+// 	userID := c.Query("user_id")
+// 	dateFrom := c.Query("date_from")
+// 	dateTo := c.Query("date_to")
 
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 || limit > 100 {
-		limit = 25
-	}
-	offset := (page - 1) * limit
+// 	if page < 1 {
+// 		page = 1
+// 	}
+// 	if limit < 1 || limit > 100 {
+// 		limit = 25
+// 	}
+// 	offset := (page - 1) * limit
 
-	// Build comprehensive query for admin
-	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
-		Where("deleted_at IS NULL")
+// 	// Build comprehensive query for admin
+// 	var submissions []models.Submission
+// 	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+// 		Where("deleted_at IS NULL")
 
-	// Apply filters
-	if submissionType != "" {
-		query = query.Where("submission_type = ?", submissionType)
-	}
-	if status != "" {
-		query = query.Where("status_id = ?", status)
-	}
-	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
-	}
-	if userID != "" {
-		query = query.Where("user_id = ?", userID)
-	}
-	if dateFrom != "" {
-		query = query.Where("created_at >= ?", dateFrom)
-	}
-	if dateTo != "" {
-		query = query.Where("created_at <= ?", dateTo)
-	}
+// 	// Apply filters
+// 	if submissionType != "" {
+// 		query = query.Where("submission_type = ?", submissionType)
+// 	}
+// 	if status != "" {
+// 		query = query.Where("status_id = ?", status)
+// 	}
+// 	if yearID != "" {
+// 		query = query.Where("year_id = ?", yearID)
+// 	}
+// 	if userID != "" {
+// 		query = query.Where("user_id = ?", userID)
+// 	}
+// 	if dateFrom != "" {
+// 		query = query.Where("created_at >= ?", dateFrom)
+// 	}
+// 	if dateTo != "" {
+// 		query = query.Where("created_at <= ?", dateTo)
+// 	}
 
-	// Get total count
-	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+// 	// Get total count
+// 	var totalCount int64
+// 	query.Model(&models.Submission{}).Count(&totalCount)
 
-	// Get submissions with pagination
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
-		return
-	}
+// 	// Get submissions with pagination
+// 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
+// 		return
+// 	}
 
-	// Get summary statistics
-	var stats struct {
-		TotalSubmissions int64 `json:"total_submissions"`
-		PendingCount     int64 `json:"pending_count"`
-		ApprovedCount    int64 `json:"approved_count"`
-		RejectedCount    int64 `json:"rejected_count"`
-	}
+// 	// Get summary statistics
+// 	var stats struct {
+// 		TotalSubmissions int64 `json:"total_submissions"`
+// 		PendingCount     int64 `json:"pending_count"`
+// 		ApprovedCount    int64 `json:"approved_count"`
+// 		RejectedCount    int64 `json:"rejected_count"`
+// 	}
 
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL").Count(&stats.TotalSubmissions)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 1").Count(&stats.PendingCount)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 2").Count(&stats.ApprovedCount)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 3").Count(&stats.RejectedCount)
+// 	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL").Count(&stats.TotalSubmissions)
+// 	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 1").Count(&stats.PendingCount)
+// 	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 2").Count(&stats.ApprovedCount)
+// 	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 3").Count(&stats.RejectedCount)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"submissions": submissions,
-		"pagination": gin.H{
-			"current_page": page,
-			"per_page":     limit,
-			"total_count":  totalCount,
-			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
-		},
-		"statistics": stats,
-		"filters": gin.H{
-			"type":      submissionType,
-			"status":    status,
-			"year_id":   yearID,
-			"user_id":   userID,
-			"date_from": dateFrom,
-			"date_to":   dateTo,
-		},
-	})
-}
+// 	c.JSON(http.StatusOK, gin.H{
+// 		"success":     true,
+// 		"submissions": submissions,
+// 		"pagination": gin.H{
+// 			"current_page": page,
+// 			"per_page":     limit,
+// 			"total_count":  totalCount,
+// 			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
+// 		},
+// 		"statistics": stats,
+// 		"filters": gin.H{
+// 			"type":      submissionType,
+// 			"status":    status,
+// 			"year_id":   yearID,
+// 			"user_id":   userID,
+// 			"date_from": dateFrom,
+// 			"date_to":   dateTo,
+// 		},
+// 	})
+// }
 
 // SearchSubmissions provides advanced search functionality
 func SearchSubmissions(c *gin.Context) {

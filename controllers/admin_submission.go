@@ -4,7 +4,10 @@ package controllers
 import (
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -416,6 +419,183 @@ func RequestRevision(c *gin.Context) {
 			"submission_number": submission.SubmissionNumber,
 			"status_id":         submission.StatusID,
 			"revision_request":  request.RevisionRequest,
+		},
+	})
+}
+
+// GetAdminSubmissions - รายการคำร้องสำหรับหน้าแอดมิน (มี filter/pagination/sort + debug)
+func GetAdminSubmissions(c *gin.Context) {
+	// ===== Params =====
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+
+	submissionType := c.DefaultQuery("type", "") // 'fund_application' | 'publication_reward' | ...
+	statusID := c.DefaultQuery("status", "")     // 1,2,3,4
+	yearID := c.DefaultQuery("year_id", "")
+	search := strings.TrimSpace(c.DefaultQuery("search", ""))
+
+	dateFrom := c.Query("date_from")
+	dateTo := c.Query("date_to")
+
+	sortBy := c.DefaultQuery("sort_by", "created_at") // created_at | submitted_at | submission_number
+	sortOrder := strings.ToUpper(c.DefaultQuery("sort_order", "DESC"))
+	if sortOrder != "ASC" && sortOrder != "DESC" {
+		sortOrder = "DESC"
+	}
+
+	// ===== Base query =====
+	base := config.DB.Model(&models.Submission{}).
+		Preload("User").
+		Preload("Year").
+		Preload("Status").
+		Where("deleted_at IS NULL")
+
+	// ===== Filters =====
+	if submissionType != "" {
+		base = base.Where("submission_type = ?", submissionType)
+	}
+	if statusID != "" {
+		base = base.Where("status_id = ?", statusID)
+	}
+	if yearID != "" {
+		base = base.Where("year_id = ?", yearID)
+	}
+	if dateFrom != "" && dateTo != "" {
+		base = base.Where("DATE(created_at) BETWEEN ? AND ?", dateFrom, dateTo)
+	}
+	if search != "" {
+		// ค้นหาเบื้องต้นจากเลขที่คำร้อง + ชื่อผู้ใช้
+		like := "%" + search + "%"
+		base = base.
+			Joins("LEFT JOIN users ON users.user_id = submissions.user_id").
+			Where("submission_number LIKE ? OR users.user_fname LIKE ? OR users.user_lname LIKE ?", like, like, like)
+	}
+
+	// ===== Count ก่อนแบ่งหน้า =====
+	var totalCount int64
+	if err := base.Count(&totalCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count submissions"})
+		return
+	}
+
+	// ===== Sorting =====
+	// whitelist column ป้องกัน SQL injection
+	switch sortBy {
+	case "created_at", "submitted_at", "submission_number":
+		// ok
+	default:
+		sortBy = "created_at"
+	}
+
+	// ===== Query data (pagination) =====
+	var submissions []models.Submission
+	if err := base.
+		Order(sortBy + " " + sortOrder).
+		Offset((page - 1) * limit).
+		Limit(limit).
+		Find(&submissions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
+		return
+	}
+
+	// ===== เติมรายละเอียด type-specific (เหมือน GetSubmissions ใน submission.go) =====
+	for i := range submissions {
+		switch submissions[i].SubmissionType {
+		case "fund_application":
+			var detail models.FundApplicationDetail
+			if err := config.DB.Preload("Subcategory").Where("submission_id = ?", submissions[i].SubmissionID).First(&detail).Error; err == nil {
+				submissions[i].FundApplicationDetail = &detail
+			}
+		case "publication_reward":
+			var detail models.PublicationRewardDetail
+			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(&detail).Error; err == nil {
+				submissions[i].PublicationRewardDetail = &detail
+			}
+		}
+	}
+
+	// ===== สถิติ =====
+	typeCounts := map[int]int64{} // status_id -> count
+	// นับ 1..4 โดยยังคง filter อื่น ๆ ไว้เหมือนเดิม (ยกเว้นสถานะที่จะสลับ)
+	for _, s := range []int{1, 2, 3, 4} {
+		q := config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL")
+		if submissionType != "" {
+			q = q.Where("submission_type = ?", submissionType)
+		}
+		if yearID != "" {
+			q = q.Where("year_id = ?", yearID)
+		}
+		if dateFrom != "" && dateTo != "" {
+			q = q.Where("DATE(created_at) BETWEEN ? AND ?", dateFrom, dateTo)
+		}
+		if search != "" {
+			like := "%" + search + "%"
+			q = q.Joins("LEFT JOIN users ON users.user_id = submissions.user_id").
+				Where("submission_number LIKE ? OR users.user_fname LIKE ? OR users.user_lname LIKE ?", like, like, like)
+		}
+		q = q.Where("status_id = ?", s)
+		var cnt int64
+		_ = q.Count(&cnt).Error
+		typeCounts[s] = cnt
+	}
+
+	// ===== Debug log ฝั่งเซิร์ฟเวอร์ =====
+	log.Printf("[ADMIN LIST] page=%d limit=%d type=%s status=%s year_id=%s search=%q date_from=%s date_to=%s sort=%s %s total=%d",
+		page, limit, submissionType, statusID, yearID, search, dateFrom, dateTo, sortBy, sortOrder, totalCount)
+
+	// ===== Response =====
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"filters": gin.H{
+			"type":       submissionType,
+			"status":     statusID,
+			"year_id":    yearID,
+			"search":     search,
+			"date_from":  dateFrom,
+			"date_to":    dateTo,
+			"sort_by":    sortBy,
+			"sort_order": strings.ToLower(sortOrder),
+		},
+		"pagination": gin.H{
+			"current_page": page,
+			"per_page":     limit,
+			"total_count":  totalCount,
+			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
+		},
+		"statistics": gin.H{
+			"total_submissions": totalCount,
+			"pending_count":     typeCounts[1],
+			"approved_count":    typeCounts[2],
+			"rejected_count":    typeCounts[3],
+			"revision_count":    typeCounts[4],
+		},
+		// ส่งทั้งอ็อบเจ็กต์ submission ที่มี User/Year/Status ติดมาด้วยแล้ว
+		"submissions": submissions,
+
+		// บล็อก debug (เพื่อดูใน Network tab ได้)
+		"debug": gin.H{
+			"received_params": gin.H{
+				"page": page, "limit": limit,
+				"type": submissionType, "status": statusID, "year_id": yearID,
+				"search": search, "date_from": dateFrom, "date_to": dateTo,
+				"sort_by": sortBy, "sort_order": sortOrder,
+			},
+			"result": gin.H{
+				"count":       len(submissions),
+				"total_count": totalCount,
+				"has_first_user": func() bool {
+					if len(submissions) == 0 {
+						return false
+					}
+					return submissions[0].User.UserID != 0
+				}(),
+			},
 		},
 	})
 }
