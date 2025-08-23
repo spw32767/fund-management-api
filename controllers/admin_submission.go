@@ -14,6 +14,12 @@ import (
 func GetSubmissionDetails(c *gin.Context) {
 	submissionID := c.Param("id")
 
+	// Validate submissionID
+	if submissionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission ID is required"})
+		return
+	}
+
 	var submission models.Submission
 
 	// Query หลักพร้อม preload associations
@@ -32,12 +38,16 @@ func GetSubmissionDetails(c *gin.Context) {
 		return
 	}
 
-	// ดึง submission users (co-authors)
+	// ดึง submission users (co-authors) พร้อม error handling ที่ดีขึ้น
 	var submissionUsers []models.SubmissionUser
-	config.DB.Where("submission_id = ?", submissionID).
+	if err := config.DB.Where("submission_id = ?", submissionID).
 		Preload("User").
 		Order("display_order ASC").
-		Find(&submissionUsers)
+		Find(&submissionUsers).Error; err != nil {
+		// Log error but don't fail the whole request
+		// submissionUsers will be empty slice
+		submissionUsers = []models.SubmissionUser{}
+	}
 
 	// ดึง documents
 	var documents []models.SubmissionDocument
@@ -80,8 +90,20 @@ func GetSubmissionDetails(c *gin.Context) {
 		}
 	}
 
-	// Format submission users
+	// Format submission users - เพิ่ม NIL CHECK
 	for _, su := range submissionUsers {
+		// ✅ เพิ่ม nil check เพื่อป้องกัน panic
+		if su.User == nil {
+			// ถ้า User เป็น nil ให้พยายามโหลดข้อมูล User แยก
+			var user models.User
+			if err := config.DB.Where("user_id = ?", su.UserID).First(&user).Error; err == nil {
+				su.User = &user
+			} else {
+				// ถ้าโหลด User ไม่ได้ให้ skip หรือใส่ข้อมูลเปล่า
+				continue // หรือใส่ข้อมูลเปล่าแทน
+			}
+		}
+
 		userInfo := gin.H{
 			"user_id":       su.UserID,
 			"role":          su.Role,
@@ -102,19 +124,32 @@ func GetSubmissionDetails(c *gin.Context) {
 	for _, doc := range documents {
 		docInfo := gin.H{
 			"document_id":      doc.DocumentID,
-			"document_type_id": doc.DocumentTypeID,
+			"submission_id":    doc.SubmissionID,
 			"file_id":          doc.FileID,
-			"uploaded_at":      doc.CreatedAt,
-			"document_type":    doc.DocumentType,
+			"document_type_id": doc.DocumentTypeID,
+			"description":      doc.Description,
+			"display_order":    doc.DisplayOrder,
+			"is_required":      doc.IsRequired,
+			"created_at":       doc.CreatedAt,
 		}
 
-		// เพิ่มข้อมูลไฟล์ถ้ามี
+		// Add document type info if available
+		if doc.DocumentType.DocumentTypeID != 0 {
+			docInfo["document_type"] = gin.H{
+				"document_type_id":   doc.DocumentType.DocumentTypeID,
+				"document_type_name": doc.DocumentType.DocumentTypeName,
+				"required":           doc.DocumentType.Required,
+			}
+		}
+
+		// Add file info if available
 		if doc.File.FileID != 0 {
 			docInfo["file"] = gin.H{
 				"file_id":       doc.File.FileID,
 				"original_name": doc.File.OriginalName,
 				"file_size":     doc.File.FileSize,
 				"mime_type":     doc.File.MimeType,
+				"uploaded_at":   doc.File.UploadedAt,
 			}
 		}
 
