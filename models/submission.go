@@ -98,7 +98,7 @@ type PublicationRewardDetail struct {
 	UniversityRankings   *string `json:"university_rankings" gorm:"column:university_rankings"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ Admin Management ==========
-	ApprovedAmount  *float64   `json:"approved_amount" gorm:"column:approved_amount"`
+	ApprovedAmount  *float64   `json:"approved_amount,omitempty" gorm:"column:approved_amount"`
 	ApprovalComment *string    `json:"approval_comment" gorm:"column:approval_comment"`
 	ApprovedBy      *int       `json:"approved_by" gorm:"column:approved_by"`
 	ApprovedAt      *time.Time `json:"approved_at" gorm:"column:approved_at"`

@@ -131,6 +131,9 @@ func GetSubmission(c *gin.Context) {
 	case "publication_reward":
 		var pubDetail models.PublicationRewardDetail
 		if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(&pubDetail).Error; err == nil {
+			if submission.StatusID != 2 {
+				pubDetail.ApprovedAmount = nil
+			}
 			submission.PublicationRewardDetail = &pubDetail
 		}
 	}
