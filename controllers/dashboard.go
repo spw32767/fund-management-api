@@ -41,7 +41,9 @@ func GetDashboardStats(c *gin.Context) {
 	if stats == nil {
 		stats = make(map[string]interface{})
 	}
-	stats["current_date"] = time.Now().Format("2006-01-02")
+
+	t := time.Now().AddDate(543, 0, 0) // convert to Buddhist year to match database
+	stats["current_date"] = t.Format("2006-01-02")
 
 	c.JSON(http.StatusOK, gin.H{
 		"stats": stats,
