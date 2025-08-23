@@ -77,9 +77,6 @@ func GetSubmissions(c *gin.Context) {
 				if submissions[i].StatusID != 2 {
 					pubDetail.AnnounceReferenceNumber = ""
 				}
-				if submissions[i].StatusID != 2 {
-					pubDetail.AnnounceReferenceNumber = ""
-				}
 				submissions[i].PublicationRewardDetail = &pubDetail
 			}
 		}
