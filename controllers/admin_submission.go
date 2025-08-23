@@ -79,6 +79,9 @@ func GetSubmissionDetails(c *gin.Context) {
 
 	// เพิ่มรายละเอียดตาม submission type
 	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
+		if submission.StatusID != 2 {
+			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
+		}
 		response["details"] = gin.H{
 			"type": "publication_reward",
 			"data": submission.PublicationRewardDetail,

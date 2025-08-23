@@ -74,6 +74,12 @@ func GetSubmissions(c *gin.Context) {
 		case "publication_reward":
 			var pubDetail models.PublicationRewardDetail
 			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(&pubDetail).Error; err == nil {
+				if submissions[i].StatusID != 2 {
+					pubDetail.AnnounceReferenceNumber = ""
+				}
+				if submissions[i].StatusID != 2 {
+					pubDetail.AnnounceReferenceNumber = ""
+				}
 				submissions[i].PublicationRewardDetail = &pubDetail
 			}
 		}
@@ -133,6 +139,7 @@ func GetSubmission(c *gin.Context) {
 		if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(&pubDetail).Error; err == nil {
 			if submission.StatusID != 2 {
 				pubDetail.ApprovedAmount = nil
+				pubDetail.AnnounceReferenceNumber = ""
 			}
 			submission.PublicationRewardDetail = &pubDetail
 		}

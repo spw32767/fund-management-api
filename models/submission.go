@@ -91,7 +91,7 @@ type PublicationRewardDetail struct {
 	AuthorType  string `gorm:"column:author_type;type:enum('first_author','corresponding_author','coauthor')" json:"author_type"` // เปลี่ยนจาก author_status
 
 	// === อื่นๆ ===
-	AnnounceReferenceNumber string `gorm:"column:announce_reference_number" json:"announce_reference_number"`
+	AnnounceReferenceNumber string `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
 
 	HasUniversityFunding string  `json:"has_university_funding" gorm:"column:has_university_funding"`
 	FundingReferences    *string `json:"funding_references" gorm:"column:funding_references"`
