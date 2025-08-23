@@ -121,11 +121,24 @@ func GetSubmission(c *gin.Context) {
 		Preload("User").
 		Order("display_order ASC").
 		Find(&submissionUsers).Error; err == nil {
-		filtered := make([]models.SubmissionUser, 0, len(submissionUsers))
+		filtered := make([]models.SubmissionUser, 0, len(submissionUsers)+1)
+		applicantIncluded := false
 		for _, su := range submissionUsers {
 			if su.UserID == submission.UserID {
 				su.IsApplicant = true
-				continue
+				applicantIncluded = true
+			}
+			if !applicantIncluded && submission.User != nil {
+				applicant := models.SubmissionUser{
+					SubmissionID: submission.SubmissionID,
+					UserID:       submission.UserID,
+					User:         submission.User,
+					Role:         "owner",
+					IsPrimary:    true,
+					DisplayOrder: 1,
+					IsApplicant:  true,
+				}
+				filtered = append([]models.SubmissionUser{applicant}, filtered...)
 			}
 			filtered = append(filtered, su)
 		}

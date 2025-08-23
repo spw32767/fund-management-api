@@ -177,23 +177,35 @@ func GetSubmissionUsers(c *gin.Context) {
 		return
 	}
 
-	// Mark applicant and filter out from list
+	// Mark applicant and ensure they're included in the list
 	applicantID := submission.UserID
-	filtered := make([]models.SubmissionUser, 0, len(users))
+	filtered := make([]models.SubmissionUser, 0, len(users)+1)
+	applicantIncluded := false
 	for i := range users {
 		users[i].IsApplicant = users[i].UserID == applicantID
-		if users[i].IsApplicant {
-			continue
-		}
 		if users[i].User == nil {
 			var u models.User
 			if err := config.DB.Where("user_id = ?", users[i].UserID).First(&u).Error; err == nil {
 				users[i].User = &u
 			}
 		}
+		if users[i].IsApplicant {
+			applicantIncluded = true
+		}
 		filtered = append(filtered, users[i])
 	}
-
+	if !applicantIncluded && submission.User != nil {
+		applicant := models.SubmissionUser{
+			SubmissionID: submission.SubmissionID,
+			UserID:       applicantID,
+			User:         submission.User,
+			Role:         "owner",
+			IsPrimary:    true,
+			DisplayOrder: 1,
+			IsApplicant:  true,
+		}
+		filtered = append([]models.SubmissionUser{applicant}, filtered...)
+	}
 	// Separate by role for easier frontend handling
 	var coauthors []models.SubmissionUser
 	var others []models.SubmissionUser
