@@ -301,26 +301,16 @@ func SetupRoutes(router *gin.Engine) {
 			admin.Use(middleware.RequireRole(3)) // Require admin role
 			{
 				// Dashboard
-				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions)                // Admin ดู submissions ทั้งหมด
-				admin.GET("/submissions/:id/details", controllers.GetSubmissionDetails)   // Get submission details
 				admin.GET("/submissions/statistics", controllers.GetSubmissionStatistics) // Get statistics
-
-				// Submission actions
-				admin.PUT("/submissions/:id/approve", controllers.ApproveSubmission)        // Approve submission
-				admin.PUT("/submissions/:id/reject", controllers.RejectSubmission)          // Reject submission
-				admin.PUT("/submissions/:id/request-revision", controllers.RequestRevision) // Request revision
-
-				// Export
-				admin.GET("/submissions/export", controllers.ExportSubmissions)
 
 				// ==================== DYNAMIC DATA ENDPOINTS ====================
 
 				// Categories (admin version - no role filtering)
-				admin.GET("/categories", controllers.GetCategoriesForAdmin)
+				admin.GET("/categories/lookup", controllers.GetCategoriesForAdmin)
 
 				// Subcategories (admin version - no role filtering)
-				admin.GET("/subcategories", controllers.GetSubcategoriesForAdmin)
+				admin.GET("/subcategories/lookup", controllers.GetSubcategoriesForAdmin)
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
