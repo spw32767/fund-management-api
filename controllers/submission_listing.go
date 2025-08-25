@@ -58,7 +58,7 @@ func GetAllSubmissions(c *gin.Context) {
 
 	// Build base query
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").
 		Where("deleted_at IS NULL")
 
 	// Permission-based filtering
@@ -156,7 +156,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Build query for teacher's submissions
 	var submissions []models.Submission
-	query := config.DB.Preload("Year").Preload("Status").
+	query := config.DB.Preload("Year").Preload("Status").Preload("Category").
 		Where("user_id = ? AND deleted_at IS NULL", userID)
 
 	// Apply filters
