@@ -172,77 +172,93 @@ func GetSubmission(c *gin.Context) {
 	})
 }
 
-// CreateSubmission creates a new submission
+// CreateSubmission - แก้ไขเพื่อรองรับ budget validation
 func CreateSubmission(c *gin.Context) {
+	var requestData map[string]interface{}
+	if err := c.ShouldBindJSON(&requestData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON data"})
+		return
+	}
+
 	userID, _ := c.Get("userID")
 
-	type CreateSubmissionRequest struct {
-		SubmissionType string `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward'
-		YearID         int    `json:"year_id" binding:"required"`
-		//Priority       string `json:"priority"`
-	}
+	// ดึงข้อมูลที่จำเป็น
+	categoryID := int(requestData["category_id"].(float64))
+	subcategoryID := int(requestData["subcategory_id"].(float64))
+	submissionType := requestData["submission_type"].(string)
 
-	var req CreateSubmissionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	// สำหรับ publication_reward ต้องคำนวณ subcategory_budget_id
+	var subcategoryBudgetID *int
+	if submissionType == "publication_reward" {
+		// ตรวจสอบว่ามีการส่ง subcategory_budget_id มาหรือไม่
+		if budgetIDFloat, exists := requestData["subcategory_budget_id"]; exists && budgetIDFloat != nil {
+			budgetID := int(budgetIDFloat.(float64))
+			subcategoryBudgetID = &budgetID
+		} else {
+			// คำนวณ subcategory_budget_id จากข้อมูลฟอร์ม
+			calculatedBudgetID, err := CalculateSubcategoryBudgetID(categoryID, subcategoryID, requestData)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":   "Failed to determine budget allocation",
+					"details": err.Error(),
+				})
+				return
+			}
+			subcategoryBudgetID = &calculatedBudgetID
+		}
 
-	// Validate submission type
-	validTypes := []string{"fund_application", "publication_reward", "conference_grant", "training_request"}
-	isValidType := false
-	for _, validType := range validTypes {
-		if req.SubmissionType == validType {
-			isValidType = true
-			break
+		// Double-check budget availability
+		if subcategoryBudgetID != nil {
+			mapping, err := ValidateBudgetSelectionByID(*subcategoryBudgetID)
+			if err != nil || !mapping.IsAvailable {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":   "Selected budget is not available",
+					"details": "งบประมาณที่เลือกไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
+				})
+				return
+			}
 		}
 	}
-	if !isValidType {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission type"})
-		return
-	}
 
-	// Validate year exists
-	var year models.Year
-	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", req.YearID).First(&year).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
-		return
-	}
-
-	// Generate submission number
-	submissionNumber := generateSubmissionNumber(req.SubmissionType)
-
-	// Set default priority
-	// priority := req.Priority
-	// if priority == "" {
-	// 	priority = "normal"
-	// }
-
-	// Create submission
-	now := time.Now()
+	// สร้าง submission object
 	submission := models.Submission{
-		SubmissionType:   req.SubmissionType,
-		SubmissionNumber: submissionNumber,
-		UserID:           userID.(int),
-		YearID:           req.YearID,
-		StatusID:         1, // Draft status
-		//Priority:         priority,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:              userID.(int),
+		YearID:              int(requestData["year_id"].(float64)),
+		CategoryID:          &categoryID,
+		SubcategoryID:       &subcategoryID,
+		SubcategoryBudgetID: subcategoryBudgetID, // ใหม่!
+		SubmissionType:      submissionType,
+		StatusID:            int(requestData["status_id"].(float64)),
+		//Priority:            requestData["priority"].(string),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
+	// บันทึกลง database
 	if err := config.DB.Create(&submission).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission"})
 		return
 	}
 
-	// Load relations for response
-	config.DB.Preload("User").Preload("Year").Preload("Status").First(&submission, submission.SubmissionID)
+	// Log สำหรับ tracking
+	fmt.Printf("=== SUBMISSION CREATED ===\n")
+	fmt.Printf("Submission ID: %d\n", submission.SubmissionID)
+	fmt.Printf("Category ID: %d\n", categoryID)
+	fmt.Printf("Subcategory ID: %d\n", subcategoryID)
+	if subcategoryBudgetID != nil {
+		fmt.Printf("Subcategory Budget ID: %d\n", *subcategoryBudgetID)
+	}
+	fmt.Printf("==========================\n")
 
 	c.JSON(http.StatusCreated, gin.H{
-		"success":    true,
-		"message":    "Submission created successfully",
-		"submission": submission,
+		"success":       true,
+		"submission_id": submission.SubmissionID,
+		"message":       "Submission created successfully",
+		"budget_info": gin.H{
+			"category_id":           categoryID,
+			"subcategory_id":        subcategoryID,
+			"subcategory_budget_id": subcategoryBudgetID,
+		},
 	})
 }
 
@@ -1111,4 +1127,38 @@ func AddFundDetails(c *gin.Context) {
 		"message": "Fund details saved successfully",
 		"details": fundDetails,
 	})
+}
+
+// ValidateBudgetSelectionByID - ตรวจสอบ budget โดยใช้ budget_id
+func ValidateBudgetSelectionByID(budgetID int) (*BudgetQuartileMapping, error) {
+	var mapping BudgetQuartileMapping
+
+	query := `
+		SELECT 
+			sb.level as quartile_code,
+			sb.subcategory_budget_id as budget_id,
+			sb.fund_description as description,
+			COALESCE(rc.max_amount, 0) as reward_amount,
+			sb.remaining_budget,
+			CASE 
+				WHEN sb.status = 'active' AND sb.remaining_budget > 0 
+				THEN 1 
+				ELSE 0 
+			END as is_available
+		FROM subcategory_budgets sb
+		LEFT JOIN reward_config rc ON sb.level = rc.journal_quartile 
+			AND rc.is_active = 1
+		WHERE sb.subcategory_budget_id = ?
+			AND sb.delete_at IS NULL`
+
+	err := config.DB.Raw(query, budgetID).Scan(&mapping).Error
+	if err != nil {
+		return nil, err
+	}
+
+	if mapping.BudgetID == 0 {
+		return nil, fmt.Errorf("budget with ID %d not found", budgetID)
+	}
+
+	return &mapping, nil
 }

@@ -22,6 +22,11 @@ type Submission struct {
 	UpdatedAt   time.Time  `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt   *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 
+	// (nullable, because passed &categoryID, &subcategoryID, &subcategoryBudgetID)
+	CategoryID          *int `gorm:"column:category_id" json:"category_id,omitempty"`
+	SubcategoryID       *int `gorm:"column:subcategory_id" json:"subcategory_id,omitempty"`
+	SubcategoryBudgetID *int `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id,omitempty"`
+
 	// Relations
 	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`
