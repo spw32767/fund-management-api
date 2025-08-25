@@ -100,6 +100,12 @@ func GetAllSubmissions(c *gin.Context) {
 		return
 	}
 
+	for i := range submissions {
+		if submissions[i].Category != nil {
+			submissions[i].CategoryName = submissions[i].Category.CategoryName
+		}
+	}
+
 	// Calculate pagination info
 	totalPages := (totalCount + int64(limit) - 1) / int64(limit)
 
@@ -182,6 +188,9 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Load type-specific details for each submission
 	for i := range submissions {
+		if submissions[i].Category != nil {
+			submissions[i].CategoryName = submissions[i].Category.CategoryName
+		}
 		switch submissions[i].SubmissionType {
 		case "fund_application":
 			var fundDetail models.FundApplicationDetail
