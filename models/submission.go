@@ -14,7 +14,7 @@ type Submission struct {
 	UserID           int    `gorm:"column:user_id" json:"user_id"`
 	YearID           int    `gorm:"column:year_id" json:"year_id"`
 	CategoryID       *int   `gorm:"column:category_id" json:"category_id"`
-	CategoryName     string `gorm:"-" json:"category_name,omitempty"`
+	CategoryName     string `gorm:"column:category_name;->" json:"category_name,omitempty"`
 	StatusID         int    `gorm:"column:status_id" json:"status_id"`
 	//Priority         string     `gorm:"column:priority" json:"priority"`
 	ApprovedBy  *int       `gorm:"column:approved_by" json:"approved_by"`

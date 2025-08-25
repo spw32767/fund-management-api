@@ -58,8 +58,11 @@ func GetAllSubmissions(c *gin.Context) {
 
 	// Build base query
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").
-		Where("deleted_at IS NULL")
+	query := config.DB.Model(&models.Submission{}).
+		Select("submissions.*, fund_categories.category_name").
+		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
+		Preload("User").Preload("Year").Preload("Status").
+		Where("submissions.deleted_at IS NULL")
 
 	// Permission-based filtering
 	if roleID.(int) != 3 { // Not admin
@@ -91,19 +94,13 @@ func GetAllSubmissions(c *gin.Context) {
 
 	// Get total count for pagination
 	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+	query.Count(&totalCount)
 
 	// Apply sorting and pagination
 	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
 	if err := query.Order(orderClause).Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
-	}
-
-	for i := range submissions {
-		if submissions[i].Category != nil {
-			submissions[i].CategoryName = submissions[i].Category.CategoryName
-		}
 	}
 
 	// Calculate pagination info
@@ -162,8 +159,11 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Build query for teacher's submissions
 	var submissions []models.Submission
-	query := config.DB.Preload("Year").Preload("Status").Preload("Category").
-		Where("user_id = ? AND deleted_at IS NULL", userID)
+	query := config.DB.Model(&models.Submission{}).
+		Select("submissions.*, fund_categories.category_name").
+		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
+		Preload("Year").Preload("Status").
+		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID)
 
 	// Apply filters
 	if submissionType != "" {
@@ -178,7 +178,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Get total count
 	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+	query.Count(&totalCount)
 
 	// Get submissions with pagination
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
@@ -188,9 +188,6 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Load type-specific details for each submission
 	for i := range submissions {
-		if submissions[i].Category != nil {
-			submissions[i].CategoryName = submissions[i].Category.CategoryName
-		}
 		switch submissions[i].SubmissionType {
 		case "fund_application":
 			var fundDetail models.FundApplicationDetail
@@ -247,8 +244,11 @@ func GetStaffSubmissions(c *gin.Context) {
 
 	// Build query for submissions that need staff review
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
-		Where("deleted_at IS NULL AND submitted_at IS NOT NULL") // Only submitted submissions
+	query := config.DB.Model(&models.Submission{}).
+		Select("submissions.*, fund_categories.category_name").
+		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
+		Preload("User").Preload("Year").Preload("Status").
+		Where("submissions.deleted_at IS NULL AND submissions.submitted_at IS NOT NULL") // Only submitted submissions
 
 	// Apply filters
 	if submissionType != "" {
@@ -263,7 +263,7 @@ func GetStaffSubmissions(c *gin.Context) {
 
 	// Get total count
 	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+	query.Count(&totalCount)
 
 	// Get submissions with pagination
 	if err := query.Order("priority DESC, submitted_at ASC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
@@ -313,8 +313,11 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// Build comprehensive query for admin
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
-		Where("deleted_at IS NULL")
+	query := config.DB.Model(&models.Submission{}).
+		Select("submissions.*, fund_categories.category_name").
+		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
+		Preload("User").Preload("Year").Preload("Status").
+		Where("submissions.deleted_at IS NULL")
 
 	// Apply filters
 	if submissionType != "" {
@@ -338,7 +341,7 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// Get total count
 	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+	query.Count(&totalCount)
 
 	// Get submissions with pagination
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
