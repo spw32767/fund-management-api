@@ -91,6 +91,7 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
+			SetupBudgetValidationRoutes(protected)
 			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)

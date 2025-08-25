@@ -3,18 +3,18 @@ package routes
 
 import (
 	"fund-management-api/controllers"
-	"fund-management-api/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SetupBudgetValidationRoutes mounts subcategory budget validation endpoints
-func SetupBudgetValidationRoutes(router *gin.Engine) {
-	v1 := router.Group("/api/v1")
-	budgetRoutes := v1.Group("/subcategory-budgets")
-	budgetRoutes.Use(middleware.AuthMiddleware())
+// under an already-authenticated router group (e.g., /api/v1 with AuthMiddleware).
+func SetupBudgetValidationRoutes(rg *gin.RouterGroup) {
+	r := rg.Group("/subcategory-budgets")
 	{
-		budgetRoutes.GET("/validate", controllers.ValidateSubcategoryBudgets)
-		budgetRoutes.GET("/available-quartiles", controllers.GetAvailableQuartiles)
+		// ตรวจสอบ budget availability สำหรับ subcategory
+		r.GET("/validate", controllers.ValidateSubcategoryBudgets)
+		// ดึงรายการ quartiles ที่มี budget พร้อมใช้งาน
+		r.GET("/available-quartiles", controllers.GetAvailableQuartiles)
 	}
 }
