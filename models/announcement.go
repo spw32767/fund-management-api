@@ -20,6 +20,7 @@ type Announcement struct {
 	Status           string     `gorm:"column:status;type:enum('active','inactive');default:'active'" json:"status"`
 	PublishedAt      *time.Time `gorm:"column:published_at" json:"published_at"`
 	ExpiredAt        *time.Time `gorm:"column:expired_at" json:"expired_at"`
+	YearID           *int       `gorm:"column:year_id" json:"year_id"`
 	CreatedBy        int        `gorm:"column:created_by" json:"created_by"`
 	CreateAt         time.Time  `gorm:"column:create_at" json:"create_at"`
 	UpdateAt         time.Time  `gorm:"column:update_at" json:"update_at"`
@@ -27,6 +28,7 @@ type Announcement struct {
 
 	// Relations
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	Year    Year `gorm:"foreignKey:YearID" json:"year,omitempty"`
 }
 
 // FundForm represents the fund_forms table
@@ -42,6 +44,7 @@ type FundForm struct {
 	FundCategory string     `gorm:"column:fund_category;type:enum('research_fund','promotion_fund','both');default:'both'" json:"fund_category"`
 	IsRequired   bool       `gorm:"column:is_required;default:0" json:"is_required"`
 	Status       string     `gorm:"column:status;type:enum('active','inactive','archived');default:'active'" json:"status"`
+	YearID       *int       `gorm:"column:year_id" json:"year_id"`
 	CreatedBy    int        `gorm:"column:created_by" json:"created_by"`
 	CreateAt     time.Time  `gorm:"column:create_at" json:"create_at"`
 	UpdateAt     time.Time  `gorm:"column:update_at" json:"update_at"`
@@ -49,6 +52,7 @@ type FundForm struct {
 
 	// Relations
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
+	Year    Year `gorm:"foreignKey:YearID" json:"year,omitempty"`
 }
 
 // AnnouncementView represents the announcement_views table (Optional tracking)
@@ -257,6 +261,7 @@ type AnnouncementCreateRequest struct {
 	Status           string     `json:"status" binding:"oneof=active inactive"`
 	PublishedAt      *time.Time `json:"published_at"`
 	ExpiredAt        *time.Time `json:"expired_at"`
+	YearID           *int       `json:"year_id"`
 }
 
 // AnnouncementUpdateRequest for updating announcements
@@ -268,6 +273,7 @@ type AnnouncementUpdateRequest struct {
 	Status           *string    `json:"status" binding:"omitempty,oneof=active inactive"`
 	PublishedAt      *time.Time `json:"published_at"`
 	ExpiredAt        *time.Time `json:"expired_at"`
+	YearID           *int       `json:"year_id"`
 }
 
 // FundFormCreateRequest for creating fund forms
@@ -281,6 +287,7 @@ type FundFormCreateRequest struct {
 	Status        string     `json:"status" binding:"oneof=active inactive archived"`
 	EffectiveDate *time.Time `json:"effective_date"`
 	ExpiryDate    *time.Time `json:"expiry_date"`
+	YearID        *int       `json:"year_id"`
 }
 
 // FundFormUpdateRequest for updating fund forms
@@ -294,6 +301,7 @@ type FundFormUpdateRequest struct {
 	Status        *string    `json:"status" binding:"omitempty,oneof=active inactive archived"`
 	EffectiveDate *time.Time `json:"effective_date"`
 	ExpiryDate    *time.Time `json:"expiry_date"`
+	YearID        *int       `json:"year_id"`
 }
 
 // AnnouncementResponse for API responses
@@ -316,6 +324,7 @@ type AnnouncementResponse struct {
 	ExpiredAt            *time.Time `json:"expired_at"`
 	IsExpired            bool       `json:"is_expired"`
 	IsActive             bool       `json:"is_active"`
+	YearName             *string    `json:"year_name"`
 	CreatedBy            int        `json:"created_by"`
 	CreatorName          string     `json:"creator_name,omitempty"`
 	CreateAt             time.Time  `json:"create_at"`
@@ -344,6 +353,7 @@ type FundFormResponse struct {
 	ExpiryDate       *time.Time `json:"expiry_date"`
 	IsExpired        bool       `json:"is_expired"`
 	IsActive         bool       `json:"is_active"`
+	YearName         *string    `json:"year_name"`
 	DownloadCount    int        `json:"download_count"`
 	CreatedBy        int        `json:"created_by"`
 	CreatorName      string     `json:"creator_name,omitempty"`
@@ -384,6 +394,11 @@ func (a *Announcement) ToResponse() AnnouncementResponse {
 		resp.CreatorName = a.Creator.UserFname + " " + a.Creator.UserLname
 	}
 
+	if a.Year.Year != "" {
+		year := a.Year.Year
+		resp.YearName = &year
+	}
+
 	return resp
 }
 
@@ -414,6 +429,11 @@ func (f *FundForm) ToResponse() FundFormResponse {
 	// Add creator name if loaded
 	if f.Creator.UserID != 0 {
 		resp.CreatorName = f.Creator.UserFname + " " + f.Creator.UserLname
+	}
+
+	if f.Year.Year != "" {
+		year := f.Year.Year
+		resp.YearName = &year
 	}
 
 	return resp

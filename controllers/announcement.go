@@ -27,6 +27,7 @@ func GetAnnouncements(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.Announcement{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -71,6 +72,7 @@ func GetAnnouncement(c *gin.Context) {
 
 	var announcement models.Announcement
 	if err := config.DB.Preload("Creator").
+		Preload("Year").
 		Where("announcement_id = ? AND delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
@@ -166,6 +168,7 @@ func CreateAnnouncement(c *gin.Context) {
 		Status:           utils.DefaultString(req.Status, "active"),
 		PublishedAt:      req.PublishedAt,
 		ExpiredAt:        req.ExpiredAt,
+		YearID:           req.YearID,
 		CreatedBy:        userID.(int),
 		CreateAt:         now,
 		UpdateAt:         now,
@@ -179,7 +182,7 @@ func CreateAnnouncement(c *gin.Context) {
 	}
 
 	// Load creator info for response
-	config.DB.Preload("Creator").First(&announcement, announcement.AnnouncementID)
+	config.DB.Preload("Creator").Preload("Year").First(&announcement, announcement.AnnouncementID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -302,6 +305,9 @@ func UpdateAnnouncement(c *gin.Context) {
 	if req.ExpiredAt != nil {
 		announcement.ExpiredAt = req.ExpiredAt
 	}
+	if req.YearID != nil {
+		announcement.YearID = req.YearID
+	}
 	announcement.UpdateAt = now
 
 	// Save to database
@@ -320,7 +326,7 @@ func UpdateAnnouncement(c *gin.Context) {
 	}
 
 	// Load creator info for response
-	config.DB.Preload("Creator").First(&announcement, announcement.AnnouncementID)
+	config.DB.Preload("Creator").Preload("Year").First(&announcement, announcement.AnnouncementID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -468,6 +474,7 @@ func GetFundForms(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.FundForm{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -515,6 +522,7 @@ func GetFundForm(c *gin.Context) {
 
 	var form models.FundForm
 	if err := config.DB.Preload("Creator").
+		Preload("Year").
 		Where("form_id = ? AND delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
@@ -585,7 +593,7 @@ func CreateFundForm(c *gin.Context) {
 	ext := filepath.Ext(header.Filename)
 	timestamp := time.Now().Format("20060102_150405")
 	safeTitle := utils.SanitizeFilename(req.Title)
-	filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+	filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 	filePath := filepath.Join(uploadDir, filename)
 
 	// Save file
@@ -607,6 +615,7 @@ func CreateFundForm(c *gin.Context) {
 		FundCategory: req.FundCategory,
 		IsRequired:   req.IsRequired,
 		Status:       utils.DefaultString(req.Status, "active"),
+		YearID:       req.YearID,
 		CreatedBy:    userID.(int),
 		CreateAt:     now,
 		UpdateAt:     now,
@@ -620,7 +629,7 @@ func CreateFundForm(c *gin.Context) {
 	}
 
 	// Load creator info for response
-	config.DB.Preload("Creator").First(&form, form.FormID)
+	config.DB.Preload("Creator").Preload("Year").First(&form, form.FormID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -704,7 +713,7 @@ func UpdateFundForm(c *gin.Context) {
 		}
 		safeTitle := utils.SanitizeFilename(title)
 
-		filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+		filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 		newFilePath = filepath.Join(uploadDir, filename)
 
 		// Save new file
@@ -743,6 +752,9 @@ func UpdateFundForm(c *gin.Context) {
 	if req.Status != nil {
 		form.Status = *req.Status
 	}
+	if req.YearID != nil {
+		form.YearID = req.YearID
+	}
 	form.UpdateAt = now
 
 	// Save to database
@@ -761,7 +773,7 @@ func UpdateFundForm(c *gin.Context) {
 	}
 
 	// Load creator info for response
-	config.DB.Preload("Creator").First(&form, form.FormID)
+	config.DB.Preload("Creator").Preload("Year").First(&form, form.FormID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
