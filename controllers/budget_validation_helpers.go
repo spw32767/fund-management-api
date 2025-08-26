@@ -3,13 +3,23 @@ package controllers
 
 import (
 	"fmt"
-	"strings"
-	"controllers"
 	"fund-management-api/config"
+	"strings"
 )
 
-// ===== Fixed canonical quartiles (order: T5, T10, Q1- Q4, TCI) =====
+// ===== Fixed canonical quartiles (order: T5, T10, Q1-Q4, TCI) =====
 var FixedQuartiles = []string{"T5", "T10", "Q1", "Q2", "Q3", "Q4", "TCI"}
+
+// Fixed keywords สำหรับ matching (แทน fixed descriptions)
+var QuartileKeywords = map[string][]string{
+	"T5":  {"5%", "5 %", "ลำดับ 5%", "ลำดับ5%"},
+	"T10": {"10%", "10 %", "ลำดับ 10%", "ลำดับ10%"},
+	"Q1":  {"ควอร์ไทล์ 1", "ควอร์ไท 1", "QUARTILE 1", "Q1"},
+	"Q2":  {"ควอร์ไทล์ 2", "ควอร์ไท 2", "QUARTILE 2", "Q2"},
+	"Q3":  {"ควอร์ไทล์ 3", "ควอร์ไท 3", "QUARTILE 3", "Q3"},
+	"Q4":  {"ควอร์ไทล์ 4", "ควอร์ไท 4", "QUARTILE 4", "Q4"},
+	"TCI": {"TCI", "กลุ่มที่ 1", "TCI กลุ่มที่ 1"},
+}
 
 // BudgetQuartileMapping - โครงสร้างสำหรับ mapping ระหว่าง quartile และ budget
 type BudgetQuartileMapping struct {
@@ -39,45 +49,28 @@ func normalizeQuartileCode(s string) string {
 	}
 }
 
-// รองรับทั้ง "ควอไทล์" และ "ควอร์ไทล์" รวมทั้ง QUARTILE/Q1..Q4
+// แก้ไข inferQuartileFromDescription ให้ใช้ keyword matching
 func inferQuartileFromDescription(desc string) string {
 	d := strings.ToUpper(strings.TrimSpace(desc))
 	if d == "" {
 		return ""
 	}
-	// Top 5% / Top 10%
-	if strings.Contains(d, "5%") {
-		return "T5"
+
+	// ตรวจสอบ keywords ของแต่ละ quartile
+	for quartileCode, keywords := range QuartileKeywords {
+		for _, keyword := range keywords {
+			if strings.Contains(d, strings.ToUpper(keyword)) {
+				return quartileCode
+			}
+		}
 	}
-	if strings.Contains(d, "10%") {
-		return "T10"
-	}
-	// Q1..Q4
-	if strings.Contains(d, "ควอร์ไทล์ 1") || strings.Contains(d, "ควอไทล์ 1") || strings.Contains(d, "QUARTILE 1") || strings.Contains(d, " Q1") {
-		return "Q1"
-	}
-	if strings.Contains(d, "ควอร์ไทล์ 2") || strings.Contains(d, "ควอไทล์ 2") || strings.Contains(d, "QUARTILE 2") || strings.Contains(d, " Q2") {
-		return "Q2"
-	}
-	if strings.Contains(d, "ควอร์ไทล์ 3") || strings.Contains(d, "ควอไทล์ 3") || strings.Contains(d, "QUARTILE 3") || strings.Contains(d, " Q3") {
-		return "Q3"
-	}
-	if strings.Contains(d, "ควอร์ไทล์ 4") || strings.Contains(d, "ควอไทล์ 4") || strings.Contains(d, "QUARTILE 4") || strings.Contains(d, " Q4") {
-		return "Q4"
-	}
-	// TCI
-	if strings.Contains(d, "TCI") {
-		return "TCI"
-	}
+
 	return ""
 }
 
 /* -------------------- Main Helpers -------------------- */
 
-// GetBudgetQuartileMapping:
-// - ใช้ FixedQuartiles เป็น expected set ตายตัว
-// - ดึง reward_amount ต่อ code จาก reward_config ถ้ามี (optional)
-// - หา budget ของ subcategory โดยอ่านจาก level; ถ้าไม่มีให้เดาจาก fund_description
+// GetBudgetQuartileMapping - ปรับปรุงให้ใช้ Fixed descriptions
 func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error) {
 	// 1) โหลด reward_amount สำหรับแต่ละ FixedQuartiles
 	type rcRow struct {
@@ -89,7 +82,7 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 		SELECT UPPER(journal_quartile) AS code, COALESCE(max_amount,0) AS max_amount
 		FROM reward_config
 		WHERE is_active = 1 AND delete_at IS NULL
-		  AND UPPER(journal_quartile) IN ( 'T5','T10','Q1','Q2','Q3','Q4','TCI' )
+		  AND UPPER(journal_quartile) IN ('T5','T10','Q1','Q2','Q3','Q4','TCI')
 	`
 	if err := config.DB.Raw(rcQuery).Scan(&rcRows).Error; err != nil {
 		return nil, err
@@ -124,20 +117,27 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 	sbMap := make(map[string]sbRow)
 	for _, r := range sbRows {
 		canon := ""
+
+		// ลองจาก level ก่อน
 		if r.Level != nil && strings.TrimSpace(*r.Level) != "" {
 			canon = normalizeQuartileCode(*r.Level)
 		}
+
+		// ถ้าไม่ได้จาก level ให้ลองจาก description
 		if canon == "" || canon == "UNKNOWN" {
 			canon = inferQuartileFromDescription(r.FundDescription)
 		}
-		if canon == "" {
+
+		if canon == "" || !isValidQuartileCode(canon) {
 			continue
 		}
-		// เก็บตัวที่ active/เหลืองบมากสุด
+
+		// เก็บตัวที่ active/เหลือบมากสุด
 		if existing, ok := sbMap[canon]; ok {
 			exIsActive := strings.EqualFold(existing.Status, "active")
 			curIsActive := strings.EqualFold(r.Status, "active")
-			if (curIsActive && !exIsActive) || (curIsActive == exIsActive && r.RemainingBudget > existing.RemainingBudget) {
+			if (curIsActive && !exIsActive) ||
+				(curIsActive == exIsActive && r.RemainingBudget > existing.RemainingBudget) {
 				sbMap[canon] = r
 			}
 		} else {
@@ -145,21 +145,23 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 		}
 	}
 
-	// 4) ประกอบผลตาม FixedQuartiles
+	// 4) ประกอบผลตาม FixedQuartiles โดยใช้ description จาก database หรือ fallback
 	mappings := make([]BudgetQuartileMapping, 0, len(FixedQuartiles))
 	for _, code := range FixedQuartiles {
 		rcAmount := amountByCode[code] // ถ้าไม่มีในตารางจะเป็น 0
-		sb, ok := sbMap[code]
+		sb, hasBudget := sbMap[code]
 
-		desc := fmt.Sprintf("รางวัล %s", code)
-		if ok && strings.TrimSpace(sb.FundDescription) != "" {
-			desc = sb.FundDescription
+		// ใช้ description จาก database ถ้ามี ไม่งั้นใช้ fallback
+		desc := fmt.Sprintf("รางวัล %s", code) // fallback description
+		if hasBudget && strings.TrimSpace(sb.FundDescription) != "" {
+			desc = sb.FundDescription // ใช้ description จาก database
 		}
 
 		isAvailable := false
 		remaining := 0.0
 		budgetID := 0
-		if ok {
+
+		if hasBudget {
 			remaining = sb.RemainingBudget
 			budgetID = sb.BudgetID
 			if strings.EqualFold(sb.Status, "active") && sb.RemainingBudget > 0 {
@@ -170,7 +172,7 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 		mappings = append(mappings, BudgetQuartileMapping{
 			QuartileCode:    code,
 			BudgetID:        budgetID,
-			Description:     desc,
+			Description:     desc, // ใช้ description จาก database หรือ fallback
 			RewardAmount:    rcAmount,
 			RemainingBudget: remaining,
 			IsAvailable:     isAvailable,
@@ -180,9 +182,14 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 	return mappings, nil
 }
 
-// ValidateBudgetSelection - ตรวจสอบการเลือก budget (normalize + เดาจาก description)
+// ValidateBudgetSelection - ปรับปรุงให้ใช้ Fixed descriptions
 func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQuartileMapping, error) {
 	canon := normalizeQuartileCode(quartileCode)
+
+	// ตรวจสอบว่าเป็น valid quartile code หรือไม่
+	if !isValidQuartileCode(canon) {
+		return nil, fmt.Errorf("invalid quartile code: %s", quartileCode)
+	}
 
 	// โหลดบรรทัด budget ทั้งหมดของ subcategory แล้วเลือกตัวที่ตรง canon
 	type sbRow struct {
@@ -208,19 +215,25 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 	var picked *sbRow
 	for _, r := range rows {
 		code := ""
+
+		// ลองจาก level ก่อน
 		if r.Level != nil && strings.TrimSpace(*r.Level) != "" {
 			code = normalizeQuartileCode(*r.Level)
 		}
+
+		// ถ้าไม่ได้จาก level ให้ลองจาก description
 		if code == "" || code == "UNKNOWN" {
 			code = inferQuartileFromDescription(r.FundDescription)
 		}
+
 		if code == canon {
 			if picked == nil {
 				picked = &r
 			} else {
 				exIsActive := strings.EqualFold(picked.Status, "active")
 				curIsActive := strings.EqualFold(r.Status, "active")
-				if (curIsActive && !exIsActive) || (curIsActive == exIsActive && r.RemainingBudget > picked.RemainingBudget) {
+				if (curIsActive && !exIsActive) ||
+					(curIsActive == exIsActive && r.RemainingBudget > picked.RemainingBudget) {
 					tmp := r
 					picked = &tmp
 				}
@@ -232,7 +245,7 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 		return nil, fmt.Errorf("budget not found for quartile %s (subcategory %d)", canon, subcategoryID)
 	}
 
-	// optional: ดึง max_amount ของ code นี้จาก reward_config
+	// ดึง max_amount ของ code นี้จาก reward_config
 	type rcRow struct {
 		MaxAmount float64 `gorm:"column:max_amount"`
 	}
@@ -246,14 +259,30 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 	`
 	_ = config.DB.Raw(rcQuery, canon).Scan(&rc).Error
 
+	// ใช้ description จาก database ถ้ามี ไม่งั้นใช้ fallback
+	desc := picked.FundDescription
+	if desc == "" {
+		desc = fmt.Sprintf("รางวัล %s", canon)
+	}
+
 	return &BudgetQuartileMapping{
 		QuartileCode:    canon,
 		BudgetID:        picked.BudgetID,
-		Description:     picked.FundDescription,
+		Description:     desc, // ใช้ description จาก database
 		RewardAmount:    rc.MaxAmount,
 		RemainingBudget: picked.RemainingBudget,
 		IsAvailable:     strings.EqualFold(picked.Status, "active") && picked.RemainingBudget > 0,
 	}, nil
+}
+
+// Helper function ตรวจสอบว่าเป็น valid quartile code หรือไม่
+func isValidQuartileCode(code string) bool {
+	for _, validCode := range FixedQuartiles {
+		if code == validCode {
+			return true
+		}
+	}
+	return false
 }
 
 // GetQuartileFromFormData - normalize ค่าที่มาจากฟอร์ม
@@ -273,7 +302,7 @@ func GetQuartileFromFormData(authorStatus string, journalQuartile string, journa
 			return "N/A"
 		}
 	}
-	return normalizeQuartileCode("UNKNOWN")
+	return "UNKNOWN"
 }
 
 // CalculateSubcategoryBudgetID - คำนวณหา subcategory_budget_id จากข้อมูลฟอร์ม
@@ -291,6 +320,10 @@ func CalculateSubcategoryBudgetID(categoryID int, subcategoryID int, formData ma
 	}
 
 	quartileCode := GetQuartileFromFormData(authorStatus, journalQuartile, journalTier)
+
+	if !isValidQuartileCode(quartileCode) {
+		return 0, fmt.Errorf("invalid quartile code: %s", quartileCode)
+	}
 
 	mapping, err := ValidateBudgetSelection(finalSubcategoryID, quartileCode)
 	if err != nil {
