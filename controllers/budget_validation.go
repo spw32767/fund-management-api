@@ -32,160 +32,6 @@ type AvailableBudgetInfo struct {
 	QuartileCode    string  `json:"quartile_code"`
 }
 
-// ValidateSubcategoryBudgets - ตรวจสอบ budget availability สำหรับ subcategory
-func ValidateSubcategoryBudgets(c *gin.Context) {
-	subcategoryIDStr := c.Query("subcategory_id")
-	if subcategoryIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "subcategory_id is required"})
-		return
-	}
-
-	subcategoryID, err := strconv.Atoi(subcategoryIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_id"})
-		return
-	}
-
-	// ดึงข้อมูล subcategory
-	var subcategory struct {
-		SubcategoryID      int    `json:"subcategory_id"`
-		SubcategoryName    string `json:"subcategory_name"`
-		BudgetCount        int    `json:"budget_count"`
-		BudgetDescriptions string `json:"budget_descriptions"`
-	}
-
-	query := `
-		SELECT 
-			fs.subcategory_id,
-			fs.subcategory_name,
-			COUNT(DISTINCT sb.subcategory_budget_id) as budget_count,
-			GROUP_CONCAT(DISTINCT sb.fund_description) as budget_descriptions
-		FROM fund_subcategories fs
-		LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id 
-			AND sb.delete_at IS NULL 
-			AND sb.status = 'active'
-		WHERE fs.subcategory_id = ? 
-			AND fs.delete_at IS NULL
-		GROUP BY fs.subcategory_id, fs.subcategory_name`
-
-	err = config.DB.Raw(query, subcategoryID).Scan(&subcategory).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch subcategory info"})
-		return
-	}
-
-	if subcategory.SubcategoryID == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory not found"})
-		return
-	}
-
-	// ดึงข้อมูล available budgets
-	var availableBudgets []AvailableBudgetInfo
-	budgetQuery := `
-		SELECT 
-			sb.subcategory_budget_id as budget_id,
-			sb.level,
-			sb.fund_description as description,
-			sb.allocated_amount,
-			sb.remaining_budget
-		FROM subcategory_budgets sb
-		WHERE sb.subcategory_id = ? 
-			AND sb.delete_at IS NULL 
-			AND sb.status = 'active'
-			AND sb.remaining_budget > 0
-		ORDER BY sb.subcategory_budget_id`
-
-	err = config.DB.Raw(budgetQuery, subcategoryID).Scan(&availableBudgets).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch available budgets"})
-		return
-	}
-
-	// เพิ่ม quartile_code สำหรับแต่ละ budget
-	for i := range availableBudgets {
-		availableBudgets[i].QuartileCode = generateQuartileCode(availableBudgets[i].Description)
-	}
-
-	// ดึงรายการ quartiles ทั้งหมดที่ควรมี (จาก reward_config)
-	expectedQuartiles := getExpectedQuartiles(subcategoryID)
-
-	// หา missing budgets
-	missingBudgets := findMissingBudgets(expectedQuartiles, availableBudgets)
-
-	response := BudgetValidationResponse{
-		SubcategoryID:    subcategoryID,
-		SubcategoryName:  subcategory.SubcategoryName,
-		ExpectedCount:    len(expectedQuartiles),
-		BudgetCount:      len(availableBudgets),
-		AvailableBudgets: availableBudgets,
-		MissingBudgets:   missingBudgets,
-		IsFullyAvailable: len(missingBudgets) == 0 && len(availableBudgets) >= len(expectedQuartiles),
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
-	})
-}
-
-// GetAvailableQuartiles - ดึงรายการ quartiles ที่มี budget พร้อมใช้งาน
-func GetAvailableQuartiles(c *gin.Context) {
-	subcategoryIDStr := c.Query("subcategory_id")
-	if subcategoryIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "subcategory_id is required"})
-		return
-	}
-
-	subcategoryID, err := strconv.Atoi(subcategoryIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_id"})
-		return
-	}
-
-	// ดึงรายการ quartiles ที่มี budget พร้อมใช้งาน
-	var availableQuartiles []struct {
-		BudgetID        int     `json:"budget_id"`
-		QuartileCode    string  `json:"quartile_code"`
-		Description     string  `json:"description"`
-		RewardAmount    float64 `json:"reward_amount"`
-		RemainingBudget float64 `json:"remaining_budget"`
-	}
-
-	query := `
-		SELECT 
-			sb.subcategory_budget_id as budget_id,
-			sb.level as quartile_code,
-			sb.fund_description as description,
-			COALESCE(rc.max_amount, 0) as reward_amount,
-			sb.remaining_budget
-		FROM subcategory_budgets sb
-		LEFT JOIN reward_config rc ON sb.level = rc.journal_quartile AND rc.is_active = 1
-		WHERE sb.subcategory_id = ? 
-			AND sb.delete_at IS NULL 
-			AND sb.status = 'active'
-			AND sb.remaining_budget > 0
-		ORDER BY 
-			CASE sb.level 
-				WHEN 'Q1' THEN 1 
-				WHEN 'Q2' THEN 2 
-				WHEN 'Q3' THEN 3 
-				WHEN 'Q4' THEN 4 
-				ELSE 5 
-			END`
-
-	err = config.DB.Raw(query, subcategoryID).Scan(&availableQuartiles).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch available quartiles"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":             true,
-		"available_quartiles": availableQuartiles,
-		"count":               len(availableQuartiles),
-	})
-}
-
 // Helper Functions
 
 // getExpectedQuartiles - ดึงรายการ quartiles ทั้งหมดที่ควรมี
@@ -261,4 +107,139 @@ func generateQuartileCode(description string) string {
 	}
 
 	return "UNKNOWN"
+}
+
+// NOTE: ใช้ชุด expected เดียวกันทั้งระบบ (7 รายการตามที่คุณใช้อยู่)
+var expectedQuartiles = []string{"Q1", "Q2", "Q3", "Q4", "T5", "T10", "TCI"}
+
+// small helper สำหรับเซ็ต
+func toSet(items []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		m[strings.ToUpper(strings.TrimSpace(it))] = struct{}{}
+	}
+	return m
+}
+
+func uniqueUpper(in []string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		k := strings.ToUpper(strings.TrimSpace(s))
+		if _, ok := seen[k]; !ok {
+			seen[k] = struct{}{}
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// GET /api/v1/subcategory-budgets/validate?subcategory_id=X
+func ValidateSubcategoryBudgets(c *gin.Context) {
+	idStr := c.Query("subcategory_id")
+	if idStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing subcategory_id"})
+		return
+	}
+	subID, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid subcategory_id"})
+		return
+	}
+
+	// ใช้ helper ที่ normalize แล้ว
+	mappings, err := GetBudgetQuartileMapping(subID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	// สร้าง available จาก mapping ที่ IsAvailable = true
+	type availItem struct {
+		QuartileCode    string  `json:"quartile_code"`
+		BudgetID        int     `json:"budget_id"`
+		Description     string  `json:"description"`
+		RewardAmount    float64 `json:"reward_amount"`
+		RemainingBudget float64 `json:"remaining_budget"`
+	}
+
+	available := make([]availItem, 0, len(mappings))
+	availableSet := make(map[string]struct{}, len(mappings))
+	for _, m := range mappings {
+		code := strings.ToUpper(strings.TrimSpace(m.QuartileCode))
+		if m.IsAvailable && m.BudgetID > 0 {
+			available = append(available, availItem{
+				QuartileCode:    code,
+				BudgetID:        m.BudgetID,
+				Description:     m.Description,
+				RewardAmount:    m.RewardAmount,
+				RemainingBudget: m.RemainingBudget,
+			})
+			availableSet[code] = struct{}{}
+		}
+	}
+
+	// ลบบรรทัดนี้ทิ้ง (ตัวแปรไม่ถูกใช้)
+	// expSet := toSet(expectedQuartiles)
+
+	// คำนวณ missing = expected - available (อิง canonical codes เท่านั้น)
+	missing := make([]string, 0, len(expectedQuartiles))
+	for _, exp := range expectedQuartiles {
+		if _, ok := availableSet[exp]; !ok {
+			missing = append(missing, exp)
+		}
+	}
+	missing = uniqueUpper(missing)
+
+	isFullyAvailable := len(missing) == 0
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"subcategory_id":     subID,
+			"is_fully_available": isFullyAvailable,
+			"available_budgets":  available,
+			"missing_budgets":    missing,
+		},
+	})
+}
+
+// GET /api/v1/subcategory-budgets/available-quartiles?subcategory_id=X
+func GetAvailableQuartiles(c *gin.Context) {
+	idStr := c.Query("subcategory_id")
+	if idStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing subcategory_id"})
+		return
+	}
+	subID, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid subcategory_id"})
+		return
+	}
+
+	mappings, err := GetBudgetQuartileMapping(subID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	availCodes := make([]string, 0, len(mappings))
+	seen := make(map[string]struct{})
+	for _, m := range mappings {
+		if m.IsAvailable && m.BudgetID > 0 {
+			code := strings.ToUpper(strings.TrimSpace(m.QuartileCode))
+			if _, ok := seen[code]; !ok {
+				seen[code] = struct{}{}
+				availCodes = append(availCodes, code)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"subcategory_id":      subID,
+			"available_quartiles": availCodes, // คืนเฉพาะโค้ด canonical
+		},
+	})
 }
