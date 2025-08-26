@@ -546,7 +546,7 @@ func ExportSubmissions(c *gin.Context) {
 			"submission_number": sub.SubmissionNumber,
 			"submission_type":   sub.SubmissionType,
 			"user_name":         sub.User.UserFname + " " + sub.User.UserLname,
-			"year":              sub.Year.YearName,
+			"year":              sub.Year.Year,
 			"status":            sub.Status.StatusName,
 			"submitted_at":      sub.SubmittedAt,
 			"created_at":        sub.CreatedAt,

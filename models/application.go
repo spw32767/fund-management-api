@@ -44,7 +44,7 @@ type ApplicationStatus struct {
 
 type Year struct {
 	YearID   int        `gorm:"primaryKey;column:year_id" json:"year_id"`
-	YearName string     `gorm:"column:year_name" json:"year_name"`
+	Year     string     `gorm:"column:year" json:"year"`
 	Budget   float64    `gorm:"column:budget" json:"budget"`
 	Status   string     `gorm:"column:status" json:"status"`
 	CreateAt *time.Time `gorm:"column:create_at" json:"create_at"`
