@@ -4,9 +4,12 @@ package controllers
 import (
 	"fmt"
 	"strings"
-
+	"controllers"
 	"fund-management-api/config"
 )
+
+// ===== Fixed canonical quartiles (order: T5, T10, Q1- Q4, TCI) =====
+var FixedQuartiles = []string{"T5", "T10", "Q1", "Q2", "Q3", "Q4", "TCI"}
 
 // BudgetQuartileMapping - โครงสร้างสำหรับ mapping ระหว่าง quartile และ budget
 type BudgetQuartileMapping struct {
@@ -36,7 +39,7 @@ func normalizeQuartileCode(s string) string {
 	}
 }
 
-// เดารหัสจากคำอธิบายไทย (รองรับข้อความที่พบใน DB)
+// รองรับทั้ง "ควอไทล์" และ "ควอร์ไทล์" รวมทั้ง QUARTILE/Q1..Q4
 func inferQuartileFromDescription(desc string) string {
 	d := strings.ToUpper(strings.TrimSpace(desc))
 	if d == "" {
@@ -49,17 +52,17 @@ func inferQuartileFromDescription(desc string) string {
 	if strings.Contains(d, "10%") {
 		return "T10"
 	}
-	// ควอร์ไทล์ 1-4
-	if strings.Contains(d, "ควอร์ไทล์ 1") || strings.Contains(d, "QUARTILE 1") || strings.Contains(d, " Q1") {
+	// Q1..Q4
+	if strings.Contains(d, "ควอร์ไทล์ 1") || strings.Contains(d, "ควอไทล์ 1") || strings.Contains(d, "QUARTILE 1") || strings.Contains(d, " Q1") {
 		return "Q1"
 	}
-	if strings.Contains(d, "ควอร์ไทล์ 2") || strings.Contains(d, "QUARTILE 2") || strings.Contains(d, " Q2") {
+	if strings.Contains(d, "ควอร์ไทล์ 2") || strings.Contains(d, "ควอไทล์ 2") || strings.Contains(d, "QUARTILE 2") || strings.Contains(d, " Q2") {
 		return "Q2"
 	}
-	if strings.Contains(d, "ควอร์ไทล์ 3") || strings.Contains(d, "QUARTILE 3") || strings.Contains(d, " Q3") {
+	if strings.Contains(d, "ควอร์ไทล์ 3") || strings.Contains(d, "ควอไทล์ 3") || strings.Contains(d, "QUARTILE 3") || strings.Contains(d, " Q3") {
 		return "Q3"
 	}
-	if strings.Contains(d, "ควอร์ไทล์ 4") || strings.Contains(d, "QUARTILE 4") || strings.Contains(d, " Q4") {
+	if strings.Contains(d, "ควอร์ไทล์ 4") || strings.Contains(d, "ควอไทล์ 4") || strings.Contains(d, "QUARTILE 4") || strings.Contains(d, " Q4") {
 		return "Q4"
 	}
 	// TCI
@@ -69,54 +72,36 @@ func inferQuartileFromDescription(desc string) string {
 	return ""
 }
 
-func synonymsForQuartile(canon string) []string {
-	switch canon {
-	case "T5":
-		return []string{"T5", "TOP_5_PERCENT", "TOP5", "TOP 5%", "TOP-5%", "TOP5PERCENT", "TOP 5 PERCENT"}
-	case "T10":
-		return []string{"T10", "TOP_10_PERCENT", "TOP10", "TOP 10%", "TOP-10%", "TOP10PERCENT", "TOP 10 PERCENT"}
-	case "N/A":
-		return []string{"N/A", "NA", "N-A", "N A"}
-	default:
-		return []string{canon}
-	}
-}
-
 /* -------------------- Main Helpers -------------------- */
 
-// GetBudgetQuartileMapping - ดึงการ mapping ระหว่าง quartile และ budget
-// ใช้ rc เป็น expected set และประกอบ budget แบบ normalize (อาศัย level ถ้าไม่มีให้เดาจาก fund_description)
+// GetBudgetQuartileMapping:
+// - ใช้ FixedQuartiles เป็น expected set ตายตัว
+// - ดึง reward_amount ต่อ code จาก reward_config ถ้ามี (optional)
+// - หา budget ของ subcategory โดยอ่านจาก level; ถ้าไม่มีให้เดาจาก fund_description
 func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error) {
-	// 1) expected set จาก reward_config
+	// 1) โหลด reward_amount สำหรับแต่ละ FixedQuartiles
 	type rcRow struct {
-		JournalQuartile string  `gorm:"column:journal_quartile"`
-		MaxAmount       float64 `gorm:"column:max_amount"`
+		Code      string  `gorm:"column:code"`
+		MaxAmount float64 `gorm:"column:max_amount"`
 	}
 	var rcRows []rcRow
 	rcQuery := `
-		SELECT journal_quartile, COALESCE(max_amount, 0) AS max_amount
+		SELECT UPPER(journal_quartile) AS code, COALESCE(max_amount,0) AS max_amount
 		FROM reward_config
 		WHERE is_active = 1 AND delete_at IS NULL
-		ORDER BY 
-			CASE UPPER(journal_quartile)
-				WHEN 'Q1' THEN 1
-				WHEN 'Q2' THEN 2
-				WHEN 'Q3' THEN 3
-				WHEN 'Q4' THEN 4
-				WHEN 'T5' THEN 5
-				WHEN 'T10' THEN 6
-				WHEN 'TCI' THEN 7
-				WHEN 'N/A' THEN 8
-				ELSE 99
-			END
+		  AND UPPER(journal_quartile) IN ( 'T5','T10','Q1','Q2','Q3','Q4','TCI' )
 	`
 	if err := config.DB.Raw(rcQuery).Scan(&rcRows).Error; err != nil {
 		return nil, err
 	}
+	amountByCode := make(map[string]float64, len(rcRows))
+	for _, r := range rcRows {
+		amountByCode[normalizeQuartileCode(r.Code)] = r.MaxAmount
+	}
 
-	// 2) budgets ของ subcategory นี้ทั้งหมด
+	// 2) โหลด budgets ของ subcategory นี้
 	type sbRow struct {
-		Level           *string `gorm:"column:level"` // อาจเป็น NULL
+		Level           *string `gorm:"column:level"`
 		BudgetID        int     `gorm:"column:subcategory_budget_id"`
 		FundDescription string  `gorm:"column:fund_description"`
 		RemainingBudget float64 `gorm:"column:remaining_budget"`
@@ -124,8 +109,10 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 	}
 	var sbRows []sbRow
 	sbQuery := `
-		SELECT level, subcategory_budget_id, COALESCE(fund_description,'') AS fund_description,
-		       COALESCE(remaining_budget,0) AS remaining_budget, COALESCE(status,'') AS status
+		SELECT level, subcategory_budget_id,
+		       COALESCE(fund_description,'') AS fund_description,
+		       COALESCE(remaining_budget,0) AS remaining_budget,
+		       COALESCE(status,'') AS status
 		FROM subcategory_budgets
 		WHERE subcategory_id = ? AND delete_at IS NULL
 	`
@@ -141,13 +128,12 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 			canon = normalizeQuartileCode(*r.Level)
 		}
 		if canon == "" || canon == "UNKNOWN" {
-			// เดาจากคำอธิบาย (กรณี level ไม่เก็บ quartile)
 			canon = inferQuartileFromDescription(r.FundDescription)
 		}
 		if canon == "" {
-			continue // ระงับแถวที่เดาไม่ได้
+			continue
 		}
-		// เก็บตัวที่ active/งบมากกว่า
+		// เก็บตัวที่ active/เหลืองบมากสุด
 		if existing, ok := sbMap[canon]; ok {
 			exIsActive := strings.EqualFold(existing.Status, "active")
 			curIsActive := strings.EqualFold(r.Status, "active")
@@ -159,13 +145,13 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 		}
 	}
 
-	// 4) ประกอบผลลัพธ์ตาม expected set
-	mappings := make([]BudgetQuartileMapping, 0, len(rcRows))
-	for _, rc := range rcRows {
-		canon := normalizeQuartileCode(rc.JournalQuartile)
-		sb, ok := sbMap[canon]
+	// 4) ประกอบผลตาม FixedQuartiles
+	mappings := make([]BudgetQuartileMapping, 0, len(FixedQuartiles))
+	for _, code := range FixedQuartiles {
+		rcAmount := amountByCode[code] // ถ้าไม่มีในตารางจะเป็น 0
+		sb, ok := sbMap[code]
 
-		desc := fmt.Sprintf("รางวัล %s", canon)
+		desc := fmt.Sprintf("รางวัล %s", code)
 		if ok && strings.TrimSpace(sb.FundDescription) != "" {
 			desc = sb.FundDescription
 		}
@@ -182,22 +168,23 @@ func GetBudgetQuartileMapping(subcategoryID int) ([]BudgetQuartileMapping, error
 		}
 
 		mappings = append(mappings, BudgetQuartileMapping{
-			QuartileCode:    canon,
+			QuartileCode:    code,
 			BudgetID:        budgetID,
 			Description:     desc,
-			RewardAmount:    rc.MaxAmount,
+			RewardAmount:    rcAmount,
 			RemainingBudget: remaining,
 			IsAvailable:     isAvailable,
 		})
 	}
+
 	return mappings, nil
 }
 
-// ValidateBudgetSelection - ตรวจสอบการเลือก budget (normalize + รองรับเดาจาก description)
+// ValidateBudgetSelection - ตรวจสอบการเลือก budget (normalize + เดาจาก description)
 func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQuartileMapping, error) {
 	canon := normalizeQuartileCode(quartileCode)
 
-	// โหลด budgets ของ subcategory ก่อน แล้วหาแถวที่แมตรหัส
+	// โหลดบรรทัด budget ทั้งหมดของ subcategory แล้วเลือกตัวที่ตรง canon
 	type sbRow struct {
 		Level           *string `gorm:"column:level"`
 		BudgetID        int     `gorm:"column:subcategory_budget_id"`
@@ -207,8 +194,10 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 	}
 	var rows []sbRow
 	sbQuery := `
-		SELECT level, subcategory_budget_id, COALESCE(fund_description,'') AS fund_description,
-		       COALESCE(remaining_budget,0) AS remaining_budget, COALESCE(status,'') AS status
+		SELECT level, subcategory_budget_id,
+		       COALESCE(fund_description,'') AS fund_description,
+		       COALESCE(remaining_budget,0) AS remaining_budget,
+		       COALESCE(status,'') AS status
 		FROM subcategory_budgets
 		WHERE subcategory_id = ? AND delete_at IS NULL
 	`
@@ -216,7 +205,6 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 		return nil, err
 	}
 
-	// หาแถวที่ตรงกับ canon
 	var picked *sbRow
 	for _, r := range rows {
 		code := ""
@@ -230,7 +218,6 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 			if picked == nil {
 				picked = &r
 			} else {
-				// เลือก active/งบมากกว่า
 				exIsActive := strings.EqualFold(picked.Status, "active")
 				curIsActive := strings.EqualFold(r.Status, "active")
 				if (curIsActive && !exIsActive) || (curIsActive == exIsActive && r.RemainingBudget > picked.RemainingBudget) {
@@ -245,7 +232,7 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 		return nil, fmt.Errorf("budget not found for quartile %s (subcategory %d)", canon, subcategoryID)
 	}
 
-	// ดึงจำนวนเงินจาก reward_config (optional)
+	// optional: ดึง max_amount ของ code นี้จาก reward_config
 	type rcRow struct {
 		MaxAmount float64 `gorm:"column:max_amount"`
 	}
@@ -253,10 +240,11 @@ func ValidateBudgetSelection(subcategoryID int, quartileCode string) (*BudgetQua
 	rcQuery := `
 		SELECT COALESCE(max_amount,0) AS max_amount
 		FROM reward_config
-		WHERE is_active = 1 AND delete_at IS NULL AND UPPER(journal_quartile) = UPPER(?)
+		WHERE is_active = 1 AND delete_at IS NULL
+		  AND UPPER(journal_quartile) = UPPER(?)
 		LIMIT 1
 	`
-	_ = config.DB.Raw(rcQuery, canon).Scan(&rc).Error // ไม่ critical
+	_ = config.DB.Raw(rcQuery, canon).Scan(&rc).Error
 
 	return &BudgetQuartileMapping{
 		QuartileCode:    canon,
