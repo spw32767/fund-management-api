@@ -208,11 +208,11 @@ func GetQuartileFromFormData(authorStatus string, journalQuartile string, journa
 
 	if strings.TrimSpace(journalTier) != "" {
 		switch strings.ToLower(strings.TrimSpace(journalTier)) {
-		case "top_5_percent", "top5", "top 5%", "top-5%":
+		case "5%", "top5", "top 5%", "top-5%":
 			return "T5"
-		case "top_10_percent", "top10", "top 10%", "top-10%":
+		case "10%", "top10", "top 10%", "top-10%":
 			return "T10"
-		case "tci_1", "tci":
+		case "tci1", "tci":
 			return "TCI"
 		case "na", "n/a":
 			return "N/A"
