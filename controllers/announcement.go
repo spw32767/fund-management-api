@@ -29,6 +29,7 @@ func GetAnnouncements(c *gin.Context) {
 		Joins("LEFT JOIN years ON years.year_id = announcements.year_id").
 		Select("announcements.*, years.year_name").
 		Preload("Creator").
+		Preload("Year").
 		Where("announcements.delete_at IS NULL")
 
 	// Apply filters
@@ -74,8 +75,9 @@ func GetAnnouncement(c *gin.Context) {
 	var announcement models.Announcement
 	if err := config.DB.Model(&models.Announcement{}).
 		Joins("LEFT JOIN years ON years.year_id = announcements.year_id").
-		Select("announcements.*, years.year_name").
+		Select("announcements.*, years.year AS year_name").
 		Preload("Creator").
+		Preload("Year").
 		Where("announcements.announcement_id = ? AND announcements.delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
@@ -477,8 +479,9 @@ func GetFundForms(c *gin.Context) {
 	// Build query with year join
 	query := config.DB.Model(&models.FundForm{}).
 		Joins("LEFT JOIN years ON years.year_id = fund_forms.year_id").
-		Select("fund_forms.*, years.year_name").
+		Select("fund_forms.*, years.year AS year_name").
 		Preload("Creator").
+		Preload("Year").
 		Where("fund_forms.delete_at IS NULL")
 
 	// Apply filters
@@ -527,8 +530,9 @@ func GetFundForm(c *gin.Context) {
 	var form models.FundForm
 	if err := config.DB.Model(&models.FundForm{}).
 		Joins("LEFT JOIN years ON years.year_id = fund_forms.year_id").
-		Select("fund_forms.*, years.year_name").
+		Select("fund_forms.*, years.year AS year_name").
 		Preload("Creator").
+		Preload("Year").
 		Where("fund_forms.form_id = ? AND fund_forms.delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
