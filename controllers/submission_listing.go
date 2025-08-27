@@ -26,18 +26,10 @@ func GetAllSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	if yearID == "" {
-		if currentYear, err := models.GetCurrentYear(); err == nil {
-			yearID = strconv.Itoa(currentYear)
-		}
-	}
 	priority := c.Query("priority")
 	search := c.Query("search")
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	// Validate pagination
 	if page < 1 {
@@ -66,37 +58,23 @@ func GetAllSubmissions(c *gin.Context) {
 
 	// Build base query
 	var submissions []models.Submission
-	query := config.DB.Model(&models.Submission{}).
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("User").Preload("Year").Preload("Status").
-		Where("submissions.deleted_at IS NULL")
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+		Where("deleted_at IS NULL")
 
 	// Permission-based filtering
 	if roleID.(int) != 3 { // Not admin
-		query = query.Where("submissions.user_id = ?", userID)
+		query = query.Where("user_id = ?", userID)
 	}
 
 	// Apply filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("submissions.year_id = ?", yearID)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("year_id = ?", yearID)
 	}
 	// if priority != "" {
 	// 	query = query.Where("priority = ?", priority)
@@ -106,17 +84,17 @@ func GetAllSubmissions(c *gin.Context) {
 	if search != "" {
 		searchTerm := "%" + search + "%"
 		query = query.Where(
-			"submissions.submission_number LIKE ? OR submissions.user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ?)",
+			"submission_number LIKE ? OR user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ?)",
 			searchTerm, searchTerm,
 		)
 	}
 
 	// Get total count for pagination
 	var totalCount int64
-	query.Count(&totalCount)
+	query.Model(&models.Submission{}).Count(&totalCount)
 
 	// Apply sorting and pagination
-	orderClause := "submissions." + sortBy + " " + strings.ToUpper(sortOrder)
+	orderClause := sortBy + " " + strings.ToUpper(sortOrder)
 	if err := query.Order(orderClause).Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
@@ -137,14 +115,11 @@ func GetAllSubmissions(c *gin.Context) {
 			"has_prev":     page > 1,
 		},
 		"filters": gin.H{
-			"type":                  submissionType,
-			"status":                status,
-			"year_id":               yearID,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
-			"priority":              priority,
-			"search":                search,
+			"type":     submissionType,
+			"status":   status,
+			"year_id":  yearID,
+			"priority": priority,
+			"search":   search,
 		},
 		"sorting": gin.H{
 			"sort_by":    sortBy,
@@ -170,14 +145,6 @@ func GetTeacherSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	if yearID == "" {
-		if currentYear, err := models.GetCurrentYear(); err == nil {
-			yearID = strconv.Itoa(currentYear)
-		}
-	}
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	if page < 1 {
 		page = 1
@@ -189,40 +156,26 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Build query for teacher's submissions
 	var submissions []models.Submission
-	query := config.DB.Model(&models.Submission{}).
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("Year").Preload("Status").
-		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID)
+	query := config.DB.Preload("Year").Preload("Status").
+		Where("user_id = ? AND deleted_at IS NULL", userID)
 
 	// Apply filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("submissions.year_id = ?", yearID)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("year_id = ?", yearID)
 	}
 
 	// Get total count
 	var totalCount int64
-	query.Count(&totalCount)
+	query.Model(&models.Submission{}).Count(&totalCount)
 
 	// Get submissions with pagination
-	if err := query.Order("submissions.created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
@@ -255,14 +208,6 @@ func GetTeacherSubmissions(c *gin.Context) {
 			"total_count":  totalCount,
 			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
 		},
-		"filters": gin.H{
-			"type":                  submissionType,
-			"status":                status,
-			"year_id":               yearID,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
-		},
 	})
 }
 
@@ -282,9 +227,6 @@ func GetStaffSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	priority := c.Query("priority")
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	if page < 1 {
 		page = 1
@@ -296,40 +238,26 @@ func GetStaffSubmissions(c *gin.Context) {
 
 	// Build query for submissions that need staff review
 	var submissions []models.Submission
-	query := config.DB.Model(&models.Submission{}).
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("User").Preload("Year").Preload("Status").
-		Where("submissions.deleted_at IS NULL AND submissions.submitted_at IS NOT NULL") // Only submitted submissions
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+		Where("deleted_at IS NULL AND submitted_at IS NOT NULL") // Only submitted submissions
 
 	// Apply filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if priority != "" {
-		query = query.Where("submissions.priority = ?", priority)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("priority = ?", priority)
 	}
 
 	// Get total count
 	var totalCount int64
-	query.Count(&totalCount)
+	query.Model(&models.Submission{}).Count(&totalCount)
 
 	// Get submissions with pagination
-	if err := query.Order("submissions.priority DESC, submissions.submitted_at ASC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order("priority DESC, submitted_at ASC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
@@ -342,14 +270,6 @@ func GetStaffSubmissions(c *gin.Context) {
 			"per_page":     limit,
 			"total_count":  totalCount,
 			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
-		},
-		"filters": gin.H{
-			"type":                  submissionType,
-			"status":                status,
-			"priority":              priority,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
 		},
 	})
 }
@@ -370,17 +290,9 @@ func GetAdminSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	if yearID == "" {
-		if currentYear, err := models.GetCurrentYear(); err == nil {
-			yearID = strconv.Itoa(currentYear)
-		}
-	}
 	userID := c.Query("user_id")
 	dateFrom := c.Query("date_from")
 	dateTo := c.Query("date_to")
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	if page < 1 {
 		page = 1
@@ -392,49 +304,35 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// Build comprehensive query for admin
 	var submissions []models.Submission
-	query := config.DB.Model(&models.Submission{}).
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("User").Preload("Year").Preload("Status").
-		Where("submissions.deleted_at IS NULL")
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+		Where("deleted_at IS NULL")
 
 	// Apply filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("submissions.year_id = ?", yearID)
+		query = query.Where("year_id = ?", yearID)
 	}
 	if userID != "" {
-		query = query.Where("submissions.user_id = ?", userID)
+		query = query.Where("user_id = ?", userID)
 	}
 	if dateFrom != "" {
-		query = query.Where("submissions.created_at >= ?", dateFrom)
+		query = query.Where("created_at >= ?", dateFrom)
 	}
 	if dateTo != "" {
-		query = query.Where("submissions.created_at <= ?", dateTo)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("created_at <= ?", dateTo)
 	}
 
 	// Get total count
 	var totalCount int64
-	query.Count(&totalCount)
+	query.Model(&models.Submission{}).Count(&totalCount)
 
 	// Get submissions with pagination
-	if err := query.Order("submissions.created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
@@ -463,15 +361,12 @@ func GetAdminSubmissions(c *gin.Context) {
 		},
 		"statistics": stats,
 		"filters": gin.H{
-			"type":                  submissionType,
-			"status":                status,
-			"year_id":               yearID,
-			"user_id":               userID,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
-			"date_from":             dateFrom,
-			"date_to":               dateTo,
+			"type":      submissionType,
+			"status":    status,
+			"year_id":   yearID,
+			"user_id":   userID,
+			"date_from": dateFrom,
+			"date_to":   dateTo,
 		},
 	})
 }
@@ -486,14 +381,6 @@ func SearchSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	if yearID == "" {
-		if currentYear, err := models.GetCurrentYear(); err == nil {
-			yearID = strconv.Itoa(currentYear)
-		}
-	}
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
 
@@ -514,31 +401,26 @@ func SearchSubmissions(c *gin.Context) {
 	var submissions []models.Submission
 	searchTerm := "%" + keyword + "%"
 
-	query := config.DB.Model(&models.Submission{}).
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("User").Preload("Year").Preload("Status").
-		Where("submissions.deleted_at IS NULL")
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+		Where("deleted_at IS NULL")
 
 	// Permission-based filtering
 	if roleID.(int) != 3 { // Not admin
-		query = query.Where("submissions.user_id = ?", userID)
+		query = query.Where("user_id = ?", userID)
 	}
 
 	// Search in multiple fields
 	query = query.Where(`
-        submissions.submission_number LIKE ? OR
-        submissions.user_id IN (
+        submission_number LIKE ? OR
+        user_id IN (
             SELECT user_id FROM users 
             WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?
         ) OR
-        submissions.submission_id IN (
+        submission_id IN (
             SELECT submission_id FROM fund_application_details 
             WHERE project_title LIKE ? OR project_description LIKE ?
         ) OR
-        submissions.submission_id IN (
+        submission_id IN (
             SELECT submission_id FROM publication_reward_details 
             WHERE paper_title LIKE ? OR journal_name LIKE ?
         )
@@ -546,22 +428,13 @@ func SearchSubmissions(c *gin.Context) {
 
 	// Apply additional filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("submissions.year_id = ?", yearID)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("year_id = ?", yearID)
 	}
 
 	// Get total count
@@ -569,7 +442,7 @@ func SearchSubmissions(c *gin.Context) {
 	query.Model(&models.Submission{}).Count(&totalCount)
 
 	// Get search results
-	if err := query.Order("submissions.created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Search failed"})
 		return
 	}
@@ -583,14 +456,6 @@ func SearchSubmissions(c *gin.Context) {
 			"per_page":     limit,
 			"total_count":  totalCount,
 			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
-		},
-		"filters": gin.H{
-			"type":                  submissionType,
-			"status":                status,
-			"year_id":               yearID,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
 		},
 	})
 }

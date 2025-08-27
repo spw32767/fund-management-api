@@ -162,92 +162,74 @@ func GetSubmissionDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ApproveSubmission - อนุมัติ submission
-// ApproveSubmission - อนุมัติ submission
+// ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน
 func ApproveSubmission(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
+	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 
-	// ตรวจสอบสิทธิ์ admin
-	if roleID.(int) != 3 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-		return
+	var request struct {
+		ApprovedAmount  float64 `json:"approved_amount" binding:"required"`
+		ApprovalComment string  `json:"approval_comment"`
 	}
 
-	submissionID := c.Param("id")
-
-	type ApprovalRequest struct {
-		ApprovedAmount *float64 `json:"approved_amount"` // pointer to align with DB model (nullable)
-		Comment        string   `json:"comment"`
-	}
-
-	var request ApprovalRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
 		return
 	}
 
-	// หา submission
+	// เริ่ม transaction
+	tx := config.DB.Begin()
+
+	// อัปเดต submission status
 	var submission models.Submission
-	if err := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID).
-		First(&submission).Error; err != nil {
+	if err := tx.First(&submission, submissionID).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
-	// ตรวจสอบสถานะปัจจุบัน (ต้องเป็น pending)
-	if submission.StatusID != 1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission cannot be approved"})
+	// ตรวจสอบสถานะปัจจุบัน
+	if submission.StatusID != 1 && submission.StatusID != 4 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or revision-requested submissions can be approved"})
 		return
 	}
 
-	// Start transaction
-	tx := config.DB.Begin()
-
-	// อัพเดท submission
+	// อัปเดต status เป็น approved (status_id = 2)
 	now := time.Now()
-	submission.StatusID = 2 // อนุมัติ
+	submission.StatusID = 2
 	submission.UpdatedAt = now
+	approvedByID := userID.(int)
+	submission.ApprovedBy = &approvedByID
+	submission.ApprovedAt = &now
 
 	if err := tx.Save(&submission).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// อัพเดทรายละเอียดตามประเภท
+	// อัปเดตจำนวนเงินที่อนุมัติตาม submission type
 	if submission.SubmissionType == "publication_reward" {
 		var detail models.PublicationRewardDetail
 		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			// model field is *float64
-			detail.ApprovedAmount = request.ApprovedAmount // assign pointer directly
+			detail.ApprovedAmount = &request.ApprovedAmount
+			detail.ApprovalComment = &request.ApprovalComment
 			detail.ApprovedAt = &now
-			approvedByID := userID.(int)
 			detail.ApprovedBy = &approvedByID
 			detail.UpdateAt = now
-			if err := tx.Save(&detail).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publication detail"})
-				return
-			}
+			tx.Save(&detail)
 		}
 	} else if submission.SubmissionType == "fund_application" {
 		var detail models.FundApplicationDetail
 		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			// model field is float64 (non-pointer) -> need a value
-			if request.ApprovedAmount != nil {
-				detail.ApprovedAmount = *request.ApprovedAmount // dereference
-			}
-			// else {
-			// 	detail.ApprovedAmount = 0 // or some default value
-			// }
-			detail.Comment = request.Comment
+			detail.ApprovedAmount = request.ApprovedAmount
+			detail.Comment = request.ApprovalComment
+			detail.ClosedAt = &now
+			detail.ApprovedBy = &approvedByID
+			detail.ApprovedAt = &now
 			detail.UpdateAt = now
-			if err := tx.Save(&detail).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund application detail"})
-				return
-			}
+			tx.Save(&detail)
 		}
 	}
 
@@ -258,28 +240,16 @@ func ApproveSubmission(c *gin.Context) {
 		EntityType:   "submission",
 		EntityID:     &submission.SubmissionID,
 		EntityNumber: &submission.SubmissionNumber,
-		Description:  &request.Comment,
+		Description:  &request.ApprovalComment,
 		IPAddress:    c.ClientIP(),
 		CreatedAt:    now,
 	}
-	if err := tx.Create(&auditLog).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create audit log"})
-		return
-	}
+	tx.Create(&auditLog)
 
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to approve submission"})
 		return
-	}
-
-	// Build a clean value (number or null) for response
-	var approved interface{}
-	if request.ApprovedAmount != nil {
-		approved = *request.ApprovedAmount
-	} else {
-		approved = nil
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -289,68 +259,59 @@ func ApproveSubmission(c *gin.Context) {
 			"submission_id":     submission.SubmissionID,
 			"submission_number": submission.SubmissionNumber,
 			"status_id":         submission.StatusID,
-			"approved_amount":   approved,
-			"comment":           request.Comment,
+			"approved_amount":   request.ApprovedAmount,
 		},
 	})
 }
 
-// RejectSubmission - ปฏิเสธ submission
+// RejectSubmission - ปฏิเสธ submission พร้อมเหตุผล
 func RejectSubmission(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
+	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 
-	// ตรวจสอบสิทธิ์ admin
-	if roleID.(int) != 3 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-		return
+	var request struct {
+		RejectionReason string `json:"rejection_reason" binding:"required"`
 	}
 
-	submissionID := c.Param("id")
-
-	type RejectionRequest struct {
-		Comment string `json:"comment" binding:"required"`
-	}
-
-	var request RejectionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
 		return
 	}
 
-	// หา submission
+	// เริ่ม transaction
+	tx := config.DB.Begin()
+
+	// อัปเดต submission status
 	var submission models.Submission
-	if err := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID).
-		First(&submission).Error; err != nil {
+	if err := tx.First(&submission, submissionID).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
 	// ตรวจสอบสถานะปัจจุบัน
-	if submission.StatusID != 1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission cannot be rejected"})
+	if submission.StatusID != 1 && submission.StatusID != 4 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or revision-requested submissions can be rejected"})
 		return
 	}
 
-	// Start transaction
-	tx := config.DB.Begin()
-
-	// อัพเดท submission
+	// อัปเดต status เป็น rejected (status_id = 3)
 	now := time.Now()
-	submission.StatusID = 3 // ปฏิเสธ
+	submission.StatusID = 3
 	submission.UpdatedAt = now
 
 	if err := tx.Save(&submission).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// อัพเดท detail tables
+	// บันทึกเหตุผลการปฏิเสธ
 	if submission.SubmissionType == "publication_reward" {
 		var detail models.PublicationRewardDetail
 		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			detail.RejectionReason = &request.Comment
+			detail.RejectionReason = &request.RejectionReason
 			detail.RejectedAt = &now
 			rejectedByID := userID.(int)
 			detail.RejectedBy = &rejectedByID
@@ -360,7 +321,11 @@ func RejectSubmission(c *gin.Context) {
 	} else if submission.SubmissionType == "fund_application" {
 		var detail models.FundApplicationDetail
 		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			detail.Comment = request.Comment
+			detail.Comment = request.RejectionReason
+			detail.ClosedAt = &now
+			rejectedByID := userID.(int)
+			detail.RejectedBy = &rejectedByID
+			detail.RejectedAt = &now
 			detail.UpdateAt = now
 			tx.Save(&detail)
 		}
@@ -373,7 +338,7 @@ func RejectSubmission(c *gin.Context) {
 		EntityType:   "submission",
 		EntityID:     &submission.SubmissionID,
 		EntityNumber: &submission.SubmissionNumber,
-		Description:  &request.Comment,
+		Description:  &request.RejectionReason,
 		IPAddress:    c.ClientIP(),
 		CreatedAt:    now,
 	}
@@ -392,63 +357,55 @@ func RejectSubmission(c *gin.Context) {
 			"submission_id":     submission.SubmissionID,
 			"submission_number": submission.SubmissionNumber,
 			"status_id":         submission.StatusID,
-			"rejection_reason":  request.Comment,
+			"rejection_reason":  request.RejectionReason,
 		},
 	})
 }
 
-// RequestRevision - ขอให้แก้ไข submission
+// RequestRevision - ขอข้อมูลเพิ่มเติม
 func RequestRevision(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
+	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 
-	// ตรวจสอบสิทธิ์ admin
-	if roleID.(int) != 3 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-		return
-	}
-
-	submissionID := c.Param("id")
-
-	type RevisionRequest struct {
+	var request struct {
 		RevisionRequest string `json:"revision_request" binding:"required"`
 	}
 
-	var request RevisionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Revision request details are required"})
 		return
 	}
 
-	// หา submission
+	// เริ่ม transaction
+	tx := config.DB.Begin()
+
+	// อัปเดต submission status
 	var submission models.Submission
-	if err := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID).
-		First(&submission).Error; err != nil {
+	if err := tx.First(&submission, submissionID).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
 	// ตรวจสอบสถานะปัจจุบัน
 	if submission.StatusID != 1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission cannot be revised"})
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending submissions can be requested for revision"})
 		return
 	}
 
-	// Start transaction
-	tx := config.DB.Begin()
-
-	// อัพเดท submission
+	// อัปเดต status เป็น revision required (status_id = 4)
 	now := time.Now()
-	submission.StatusID = 4 // ต้องการข้อมูลเพิ่มเติม
+	submission.StatusID = 4
 	submission.UpdatedAt = now
 
 	if err := tx.Save(&submission).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// อัพเดท detail tables
+	// บันทึกข้อมูลที่ต้องการเพิ่มเติม
 	if submission.SubmissionType == "publication_reward" {
 		var detail models.PublicationRewardDetail
 		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
@@ -546,7 +503,7 @@ func ExportSubmissions(c *gin.Context) {
 			"submission_number": sub.SubmissionNumber,
 			"submission_type":   sub.SubmissionType,
 			"user_name":         sub.User.UserFname + " " + sub.User.UserLname,
-			"year":              sub.Year.YearName,
+			"year":              sub.Year.Year,
 			"status":            sub.Status.StatusName,
 			"submitted_at":      sub.SubmittedAt,
 			"created_at":        sub.CreatedAt,
@@ -585,127 +542,5 @@ func ExportSubmissions(c *gin.Context) {
 		"data":    exportData,
 		"total":   len(exportData),
 		"message": "Export data prepared. Implementation of PDF/DOCX generation required.",
-	})
-}
-
-// GetCategoriesForAdmin - ดึง categories สำหรับ admin (ไม่มี role filtering)
-func GetCategoriesForAdmin(c *gin.Context) {
-	yearID := c.Query("year_id")
-
-	var categories []models.FundCategory
-
-	// Build query
-	query := config.DB.Where("status = ? AND delete_at IS NULL", "active")
-
-	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
-	}
-
-	if err := query.Order("category_id ASC").Find(&categories).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch categories",
-			"debug": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"categories": categories,
-		"total":      len(categories),
-	})
-}
-
-// GetSubcategoriesForAdmin - ดึง subcategories สำหรับ admin (ไม่มี role filtering)
-func GetSubcategoriesForAdmin(c *gin.Context) {
-	categoryID := c.Query("category_id")
-
-	var subcategories []models.FundSubcategory
-
-	// Build query - ไม่มี role filtering สำหรับ admin
-	query := config.DB.Where("status = ? AND delete_at IS NULL", "active")
-
-	if categoryID != "" {
-		query = query.Where("category_id = ?", categoryID)
-	}
-
-	if err := query.Order("subcategory_id ASC").Find(&subcategories).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch subcategories",
-			"debug": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":       true,
-		"subcategories": subcategories,
-		"total":         len(subcategories),
-	})
-}
-
-// GetSubmissionStatistics - ดึงสถิติ submissions สำหรับ admin
-func GetSubmissionStatistics(c *gin.Context) {
-	yearID := c.Query("year_id")
-
-	type StatisticsResult struct {
-		TotalSubmissions int64 `json:"total_submissions"`
-		PendingCount     int64 `json:"pending_count"`
-		ApprovedCount    int64 `json:"approved_count"`
-		RejectedCount    int64 `json:"rejected_count"`
-		RevisionCount    int64 `json:"revision_count"`
-		DraftCount       int64 `json:"draft_count"`
-	}
-
-	var stats StatisticsResult
-
-	// Build base query
-	baseQuery := config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL")
-
-	if yearID != "" {
-		baseQuery = baseQuery.Where("year_id = ?", yearID)
-	}
-
-	// Get total count
-	baseQuery.Count(&stats.TotalSubmissions)
-
-	// Get status-wise counts
-	var statusCounts []struct {
-		StatusID int   `json:"status_id"`
-		Count    int64 `json:"count"`
-	}
-
-	query := baseQuery
-	if yearID != "" {
-		query = config.DB.Model(&models.Submission{}).
-			Where("deleted_at IS NULL AND year_id = ?", yearID)
-	} else {
-		query = config.DB.Model(&models.Submission{}).
-			Where("deleted_at IS NULL")
-	}
-
-	query.Select("status_id, COUNT(*) as count").
-		Group("status_id").
-		Find(&statusCounts)
-
-	// Map status counts
-	for _, sc := range statusCounts {
-		switch sc.StatusID {
-		case 1:
-			stats.PendingCount = sc.Count
-		case 2:
-			stats.ApprovedCount = sc.Count
-		case 3:
-			stats.RejectedCount = sc.Count
-		case 4:
-			stats.RevisionCount = sc.Count
-		case 5:
-			stats.DraftCount = sc.Count
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"statistics": stats,
 	})
 }

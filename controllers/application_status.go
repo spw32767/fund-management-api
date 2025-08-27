@@ -9,17 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetApplicationStatuses - ดึงสถานะทั้งหมดจาก application_status table
+// GetApplicationStatuses returns all application statuses
 func GetApplicationStatuses(c *gin.Context) {
 	var statuses []models.ApplicationStatus
 
-	// ดึงสถานะที่ไม่ถูกลบ
-	if err := config.DB.Where("delete_at IS NULL").
-		Order("application_status_id ASC").
-		Find(&statuses).Error; err != nil {
+	if err := config.DB.Find(&statuses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch application statuses",
-			"debug": err.Error(),
 		})
 		return
 	}

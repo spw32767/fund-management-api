@@ -91,7 +91,6 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
-			SetupBudgetValidationRoutes(protected)
 			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
@@ -104,7 +103,6 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Common endpoints (all authenticated users)
 			protected.GET("/years", controllers.GetYears)
-			protected.GET("/years/current", controllers.GetCurrentYear)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
@@ -303,16 +301,8 @@ func SetupRoutes(router *gin.Engine) {
 			admin.Use(middleware.RequireRole(3)) // Require admin role
 			{
 				// Dashboard
-				admin.GET("/submissions", controllers.GetAdminSubmissions)                // Admin ดู submissions ทั้งหมด
-				admin.GET("/submissions/statistics", controllers.GetSubmissionStatistics) // Get statistics
-
-				// ==================== DYNAMIC DATA ENDPOINTS ====================
-
-				// Categories (admin version - no role filtering)
-				admin.GET("/categories/lookup", controllers.GetCategoriesForAdmin)
-
-				// Subcategories (admin version - no role filtering)
-				admin.GET("/subcategories/lookup", controllers.GetSubcategoriesForAdmin)
+				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
+				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")

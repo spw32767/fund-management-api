@@ -34,17 +34,17 @@ type FundApplication struct {
 }
 
 type ApplicationStatus struct {
-	ApplicationStatusID int        `json:"application_status_id" gorm:"primaryKey;column:application_status_id"`
-	StatusCode          string     `json:"status_code" gorm:"column:status_code"`
-	StatusName          string     `json:"status_name" gorm:"column:status_name"`
-	CreateAt            time.Time  `json:"create_at" gorm:"column:create_at;default:CURRENT_TIMESTAMP"`
-	UpdateAt            time.Time  `json:"update_at" gorm:"column:update_at;default:CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"`
-	DeleteAt            *time.Time `json:"delete_at" gorm:"column:delete_at"`
+	ApplicationStatusID int        `gorm:"primaryKey;column:application_status_id" json:"application_status_id"`
+	StatusCode          string     `gorm:"column:status_code" json:"status_code"`
+	StatusName          string     `gorm:"column:status_name" json:"status_name"`
+	CreateAt            *time.Time `gorm:"column:create_at" json:"create_at"`
+	UpdateAt            *time.Time `gorm:"column:update_at" json:"update_at"`
+	DeleteAt            *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 }
 
 type Year struct {
 	YearID   int        `gorm:"primaryKey;column:year_id" json:"year_id"`
-	YearName string     `gorm:"column:year" json:"year_name"`
+	Year     string     `gorm:"column:year" json:"year"`
 	Budget   float64    `gorm:"column:budget" json:"budget"`
 	Status   string     `gorm:"column:status" json:"status"`
 	CreateAt *time.Time `gorm:"column:create_at" json:"create_at"`
@@ -100,31 +100,6 @@ type SubcategoryBudget struct {
 	DeleteAt            *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 }
 
-// ApplicationStatusConstants ค่าคงที่สำหรับ status_id
-const (
-	StatusPending      = 1 // รอพิจารณา
-	StatusApproved     = 2 // อนุมัติ
-	StatusRejected     = 3 // ปฏิเสธ
-	StatusNeedRevision = 4 // ต้องการข้อมูลเพิ่มเติม
-	StatusDraft        = 5 // ร่าง
-)
-
-// GetStatusByID helper function สำหรับหา status ตาม ID
-func GetStatusNameByID(statusID int) string {
-	statusMap := map[int]string{
-		StatusPending:      "รอพิจารณา",
-		StatusApproved:     "อนุมัติ",
-		StatusRejected:     "ปฏิเสธ",
-		StatusNeedRevision: "ต้องการข้อมูลเพิ่มเติม",
-		StatusDraft:        "ร่าง",
-	}
-
-	if name, exists := statusMap[statusID]; exists {
-		return name
-	}
-	return "ไม่ทราบสถานะ"
-}
-
 // TableName overrides
 func (FundApplication) TableName() string {
 	return "fund_applications"
@@ -132,19 +107,6 @@ func (FundApplication) TableName() string {
 
 func (ApplicationStatus) TableName() string {
 	return "application_status"
-}
-
-// IsActive ตรวจสอบว่าสถานะยังใช้งานอยู่หรือไม่
-func (as *ApplicationStatus) IsActive() bool {
-	return as.DeleteAt == nil
-}
-
-// GetDisplayName ให้ชื่อสำหรับแสดงผล
-func (as *ApplicationStatus) GetDisplayName() string {
-	if as.StatusName != "" {
-		return as.StatusName
-	}
-	return as.StatusCode
 }
 
 func (Year) TableName() string {

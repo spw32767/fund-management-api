@@ -25,64 +25,40 @@ import (
 // ===================== SUBMISSION MANAGEMENT =====================
 
 // GetSubmissions returns user's submissions
-// GetSubmissions returns user's submissions
 func GetSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
-	// Parse query parameters - เพิ่มฟิลด์ใหม่
 	submissionType := c.Query("submission_type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	if yearID == "" {
-		if currentYear, err := models.GetCurrentYear(); err == nil {
-			yearID = strconv.Itoa(currentYear)
-		}
-	}
-	categoryID := c.Query("category_id")
-	subcategoryID := c.Query("subcategory_id")
-	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	var submissions []models.Submission
-	query := config.DB.
-		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
-		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
-		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
-		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
-		Preload("User").
+	query := config.DB.Preload("User").
 		Preload("Year").
 		Preload("Status").
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
 		Preload("SubmissionUsers.User").
-		Where("submissions.deleted_at IS NULL")
+		Where("deleted_at IS NULL")
 
 	// Filter by user if not admin
 	if roleID.(int) != 3 { // 3 = admin role
-		query = query.Where("submissions.user_id = ?", userID)
+		query = query.Where("user_id = ?", userID)
 	}
 
-	// Apply filters - เพิ่มฟิลด์ใหม่
+	// Apply filters
 	if submissionType != "" {
-		query = query.Where("submissions.submission_type = ?", submissionType)
+		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("submissions.status_id = ?", status)
+		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("submissions.year_id = ?", yearID)
-	}
-	if categoryID != "" {
-		query = query.Where("submissions.category_id = ?", categoryID)
-	}
-	if subcategoryID != "" {
-		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
-	}
-	if subcategoryBudgetID != "" {
-		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
+		query = query.Where("year_id = ?", yearID)
 	}
 
-	if err := query.Order("submissions.created_at DESC").Find(&submissions).Error; err != nil {
+	if err := query.Order("created_at DESC").Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
@@ -110,14 +86,6 @@ func GetSubmissions(c *gin.Context) {
 		"success":     true,
 		"submissions": submissions,
 		"total":       len(submissions),
-		"filters": gin.H{
-			"submission_type":       submissionType,
-			"status":                status,
-			"year_id":               yearID,
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
-		},
 	})
 }
 
@@ -204,82 +172,77 @@ func GetSubmission(c *gin.Context) {
 	})
 }
 
-// CreateSubmission - แก้ไขเพื่อรองรับ budget validation และสร้าง submission_number
+// CreateSubmission creates a new submission
 func CreateSubmission(c *gin.Context) {
-	var requestData map[string]interface{}
-	if err := c.ShouldBindJSON(&requestData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON data"})
+	userID, _ := c.Get("userID")
+
+	type CreateSubmissionRequest struct {
+		SubmissionType string `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward'
+		YearID         int    `json:"year_id" binding:"required"`
+		//Priority       string `json:"priority"`
+	}
+
+	var req CreateSubmissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	userID, _ := c.Get("userID")
-
-	// ดึงข้อมูลที่จำเป็น
-	categoryID := int(requestData["category_id"].(float64))
-	subcategoryID := int(requestData["subcategory_id"].(float64))
-	submissionType := requestData["submission_type"].(string)
-
-	// **===== แก้ไขตรงนี้: สร้าง submission_number =====**
-	submissionNumber := generateSubmissionNumber(submissionType)
-
-	// Log เพื่อ debug
-	fmt.Printf("=== CREATING SUBMISSION ===\n")
-	fmt.Printf("Submission Type: %s\n", submissionType)
-	fmt.Printf("Generated Number: %s\n", submissionNumber)
-	fmt.Printf("==============================\n")
-
-	// ตรวจสอบ subcategory_budget_id (ถ้ามี)
-	var subcategoryBudgetID *int
-	if budgetIDFloat, exists := requestData["subcategory_budget_id"]; exists && budgetIDFloat != nil {
-		budgetIDInt := int(budgetIDFloat.(float64))
-		subcategoryBudgetID = &budgetIDInt
+	// Validate submission type
+	validTypes := []string{"fund_application", "publication_reward", "conference_grant", "training_request"}
+	isValidType := false
+	for _, validType := range validTypes {
+		if req.SubmissionType == validType {
+			isValidType = true
+			break
+		}
+	}
+	if !isValidType {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission type"})
+		return
 	}
 
-	// สร้าง submission object พร้อม submission_number
+	// Validate year exists
+	var year models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", req.YearID).First(&year).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year"})
+		return
+	}
+
+	// Generate submission number
+	submissionNumber := generateSubmissionNumber(req.SubmissionType)
+
+	// Set default priority
+	// priority := req.Priority
+	// if priority == "" {
+	// 	priority = "normal"
+	// }
+
+	// Create submission
+	now := time.Now()
 	submission := models.Submission{
-		SubmissionNumber:    submissionNumber, // **แก้ไขตรงนี้**
-		UserID:              userID.(int),
-		YearID:              int(requestData["year_id"].(float64)),
-		CategoryID:          &categoryID,
-		SubcategoryID:       &subcategoryID,
-		SubcategoryBudgetID: subcategoryBudgetID,
-		SubmissionType:      submissionType,
-		StatusID:            int(requestData["status_id"].(float64)),
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		SubmissionType:   req.SubmissionType,
+		SubmissionNumber: submissionNumber,
+		UserID:           userID.(int),
+		YearID:           req.YearID,
+		StatusID:         1, // Draft status
+		//Priority:         priority,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
-	// บันทึกลง database
 	if err := config.DB.Create(&submission).Error; err != nil {
-		fmt.Printf("ERROR creating submission: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission"})
 		return
 	}
 
-	// Log สำหรับ tracking
-	fmt.Printf("=== SUBMISSION CREATED ===\n")
-	fmt.Printf("Submission ID: %d\n", submission.SubmissionID)
-	fmt.Printf("Submission Number: %s\n", submission.SubmissionNumber)
-	fmt.Printf("Category ID: %d\n", categoryID)
-	fmt.Printf("Subcategory ID: %d\n", subcategoryID)
-	if subcategoryBudgetID != nil {
-		fmt.Printf("Subcategory Budget ID: %d\n", *subcategoryBudgetID)
-	}
-	fmt.Printf("==========================\n")
+	// Load relations for response
+	config.DB.Preload("User").Preload("Year").Preload("Status").First(&submission, submission.SubmissionID)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"success":       true,
-		"submission_id": submission.SubmissionID,
-		"submission": gin.H{
-			"submission_id":     submission.SubmissionID,
-			"submission_number": submission.SubmissionNumber, // ส่งกลับให้ frontend ด้วย
-		},
-		"message": "Submission created successfully",
-		"budget_info": gin.H{
-			"category_id":           categoryID,
-			"subcategory_id":        subcategoryID,
-			"subcategory_budget_id": subcategoryBudgetID,
-		},
+		"success":    true,
+		"message":    "Submission created successfully",
+		"submission": submission,
 	})
 }
 
@@ -1148,75 +1111,4 @@ func AddFundDetails(c *gin.Context) {
 		"message": "Fund details saved successfully",
 		"details": fundDetails,
 	})
-}
-
-// ValidateBudgetSelectionByID - ตรวจสอบ budget โดยใช้ budget_id
-func ValidateBudgetSelectionByID(budgetID int) (*BudgetQuartileMapping, error) {
-	// 1) ดึงข้อมูล budget แถวเดียวจาก subcategory_budgets
-	type sbRow struct {
-		Level           *string `gorm:"column:level"`
-		BudgetID        int     `gorm:"column:subcategory_budget_id"`
-		FundDescription string  `gorm:"column:fund_description"`
-		RemainingBudget float64 `gorm:"column:remaining_budget"`
-		Status          string  `gorm:"column:status"`
-	}
-	var sb sbRow
-	sbQuery := `
-                SELECT level, subcategory_budget_id,
-                       COALESCE(fund_description,'') AS fund_description,
-                       COALESCE(remaining_budget,0) AS remaining_budget,
-                       COALESCE(status,'') AS status
-                FROM subcategory_budgets
-                WHERE subcategory_budget_id = ? AND delete_at IS NULL
-                LIMIT 1
-        `
-	if err := config.DB.Raw(sbQuery, budgetID).Scan(&sb).Error; err != nil {
-		return nil, err
-	}
-	if sb.BudgetID == 0 {
-		return nil, fmt.Errorf("budget with ID %d not found", budgetID)
-	}
-
-	// 2) หาค่า quartile code จาก level หรือ description
-	code := ""
-	if sb.Level != nil && strings.TrimSpace(*sb.Level) != "" {
-		code = normalizeQuartileCode(*sb.Level)
-	}
-	if code == "" || !isValidQuartileCode(code) {
-		code = inferQuartileFromDescription(sb.FundDescription)
-	}
-
-	// 3) ดึงวงเงินรางวัลจาก reward_config
-	rewardAmount := 0.0
-	if code != "" {
-		type rcRow struct {
-			MaxAmount float64 `gorm:"column:max_amount"`
-		}
-		var rc rcRow
-		rcQuery := `
-                        SELECT COALESCE(max_amount,0) AS max_amount
-                        FROM reward_config
-                        WHERE is_active = 1 AND delete_at IS NULL
-                          AND UPPER(journal_quartile) = UPPER(?)
-                        LIMIT 1
-                `
-		_ = config.DB.Raw(rcQuery, code).Scan(&rc).Error
-		rewardAmount = rc.MaxAmount
-	}
-
-	// 4) ประกอบผลลัพธ์
-	desc := sb.FundDescription
-	if desc == "" {
-		desc = fmt.Sprintf("รางวัล %s", code)
-	}
-	isAvailable := strings.EqualFold(sb.Status, "active") && sb.RemainingBudget > 0
-
-	return &BudgetQuartileMapping{
-		QuartileCode:    code,
-		BudgetID:        sb.BudgetID,
-		Description:     desc,
-		RewardAmount:    rewardAmount,
-		RemainingBudget: sb.RemainingBudget,
-		IsAvailable:     isAvailable,
-	}, nil
 }

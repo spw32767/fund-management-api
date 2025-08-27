@@ -13,8 +13,6 @@ type Submission struct {
 	SubmissionType   string `gorm:"column:submission_type" json:"submission_type"`
 	UserID           int    `gorm:"column:user_id" json:"user_id"`
 	YearID           int    `gorm:"column:year_id" json:"year_id"`
-	CategoryID       *int   `gorm:"column:category_id" json:"category_id"`
-	CategoryName     string `gorm:"column:category_name;->" json:"category_name,omitempty"`
 	StatusID         int    `gorm:"column:status_id" json:"status_id"`
 	//Priority         string     `gorm:"column:priority" json:"priority"`
 	ApprovedBy  *int       `gorm:"column:approved_by" json:"approved_by"`
@@ -24,15 +22,10 @@ type Submission struct {
 	UpdatedAt   time.Time  `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt   *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 
-	// (nullable, because passed &categoryID, &subcategoryID, &subcategoryBudgetID)
-	SubcategoryID       *int `gorm:"column:subcategory_id" json:"subcategory_id,omitempty"`
-	SubcategoryBudgetID *int `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id,omitempty"`
-
 	// Relations
 	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`
 	Status                  ApplicationStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
-	Category                *FundCategory            `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
 	Documents               []SubmissionDocument     `gorm:"foreignKey:SubmissionID" json:"documents,omitempty"`
 	SubmissionUsers         []SubmissionUser         `gorm:"foreignKey:SubmissionID" json:"submission_users,omitempty"` // เพิ่มใหม่
 	FundApplicationDetail   *FundApplicationDetail   `json:"fund_application_detail,omitempty"`
