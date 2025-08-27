@@ -37,17 +37,17 @@ func GetAnnouncements(c *gin.Context) {
 		query = query.Where("announcement_type = ?", announcementType)
 	}
 	if status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("announcements.status = ?", status)
 	}
 	if priority != "" {
-		query = query.Where("priority = ?", priority)
+		query = query.Where("announcements.status = ?", "active")
 	}
 	if activeOnly {
 		query = query.Where("status = ?", "active")
 	}
 
 	// Order by priority and published_at
-	query = query.Order("CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, published_at DESC")
+	query = query.Order("CASE announcements.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, announcements.published_at DESC")
 
 	var announcements []models.Announcement
 	if err := query.Find(&announcements).Error; err != nil {
@@ -209,7 +209,7 @@ func UpdateAnnouncement(c *gin.Context) {
 
 	// Find existing announcement
 	var announcement models.Announcement
-	if err := config.DB.Where("announcement_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("announcements.announcement_id = ? AND announcements.delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
 		return
@@ -353,7 +353,7 @@ func DeleteAnnouncement(c *gin.Context) {
 
 	// Find announcement
 	var announcement models.Announcement
-	if err := config.DB.Where("announcement_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("announcements.announcement_id = ? AND announcements.delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
 		return
@@ -381,7 +381,7 @@ func DownloadAnnouncementFile(c *gin.Context) {
 
 	// Find announcement
 	var announcement models.Announcement
-	if err := config.DB.Where("announcement_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("announcements.announcement_id = ? AND announcements.delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
 		return
@@ -426,7 +426,7 @@ func ViewAnnouncementFile(c *gin.Context) {
 
 	// Find announcement
 	var announcement models.Announcement
-	if err := config.DB.Where("announcement_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("announcements.announcement_id = ? AND announcements.delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
 		return
@@ -486,23 +486,23 @@ func GetFundForms(c *gin.Context) {
 
 	// Apply filters
 	if formType != "" {
-		query = query.Where("form_type = ?", formType)
+		query = query.Where("fund_forms.form_type = ?", formType)
 	}
 	if fundCategory != "" {
-		query = query.Where("fund_category = ? OR fund_category = 'both'", fundCategory)
+		query = query.Where("(fund_forms.fund_category = ? OR fund_forms.fund_category = 'both')", fundCategory)
 	}
 	if status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("fund_forms.status = ?", status)
 	}
 	if activeOnly {
-		query = query.Where("status = ?", "active")
+		query = query.Where("fund_forms.status = ?", "active")
 	}
 	if requiredOnly {
-		query = query.Where("is_required = ?", true)
+		query = query.Where("fund_forms.is_required = ?", true)
 	}
 
 	// Order by form_type and create_at
-	query = query.Order("CASE form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, create_at DESC")
+	query = query.Order("CASE fund_forms.form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, fund_forms.create_at DESC")
 
 	var forms []models.FundForm
 	if err := query.Find(&forms).Error; err != nil {
@@ -661,7 +661,7 @@ func UpdateFundForm(c *gin.Context) {
 
 	// Find existing form
 	var form models.FundForm
-	if err := config.DB.Where("form_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("fund_forms.form_id = ? AND fund_forms.delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
 		return
@@ -805,7 +805,7 @@ func DeleteFundForm(c *gin.Context) {
 
 	// Find form
 	var form models.FundForm
-	if err := config.DB.Where("form_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("fund_forms.form_id = ? AND fund_forms.delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
 		return
@@ -833,7 +833,7 @@ func DownloadFundForm(c *gin.Context) {
 
 	// Find form
 	var form models.FundForm
-	if err := config.DB.Where("form_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("fund_forms.form_id = ? AND fund_forms.delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
 		return
@@ -876,7 +876,7 @@ func ViewFundForm(c *gin.Context) {
 
 	// Find form
 	var form models.FundForm
-	if err := config.DB.Where("form_id = ? AND delete_at IS NULL", id).
+	if err := config.DB.Where("fund_forms.form_id = ? AND fund_forms.delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
 		return
@@ -919,18 +919,18 @@ func GetAnnouncementStats(c *gin.Context) {
 	}
 
 	// Count announcements
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL").Count(&stats.TotalAnnouncements)
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL AND status = 'active'").Count(&stats.ActiveAnnouncements)
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL AND expired_at IS NOT NULL AND expired_at < NOW()").Count(&stats.ExpiredAnnouncements)
+	config.DB.Model(&models.Announcement{}).Where("announcements.delete_at IS NULL").Count(&stats.TotalAnnouncements)
+	config.DB.Model(&models.Announcement{}).Where("announcements.delete_at IS NULL AND announcements.status = 'active'").Count(&stats.ActiveAnnouncements)
+	config.DB.Model(&models.Announcement{}).Where("announcements.delete_at IS NULL AND announcements.expired_at IS NOT NULL AND announcements.expired_at < NOW()").Count(&stats.ExpiredAnnouncements)
 
 	// Sum views and downloads
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL").Select("COALESCE(SUM(view_count), 0)").Scan(&stats.TotalViews)
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.TotalDownloads)
+	config.DB.Model(&models.Announcement{}).Where("announcements.delete_at IS NULL").Select("COALESCE(SUM(view_count), 0)").Scan(&stats.TotalViews)
+	config.DB.Model(&models.Announcement{}).Where("announcements.delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.TotalDownloads)
 
 	// Count forms
-	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL").Count(&stats.TotalForms)
-	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL AND status = 'active'").Count(&stats.ActiveForms)
-	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.FormDownloads)
+	config.DB.Model(&models.FundForm{}).Where("fund_forms.delete_at IS NULL").Count(&stats.TotalForms)
+	config.DB.Model(&models.FundForm{}).Where("fund_forms.delete_at IS NULL AND fund_forms.status = 'active'").Count(&stats.ActiveForms)
+	config.DB.Model(&models.FundForm{}).Where("fund_forms.delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.FormDownloads)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
