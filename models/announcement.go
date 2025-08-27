@@ -394,8 +394,8 @@ func (a *Announcement) ToResponse() AnnouncementResponse {
 		resp.CreatorName = a.Creator.UserFname + " " + a.Creator.UserLname
 	}
 
-	if a.Year.Year != "" {
-		year := a.Year.Year
+	if a.Year.YearName != "" {
+		year := a.Year.YearName
 		resp.YearName = &year
 	}
 
@@ -431,8 +431,8 @@ func (f *FundForm) ToResponse() FundFormResponse {
 		resp.CreatorName = f.Creator.UserFname + " " + f.Creator.UserLname
 	}
 
-	if f.Year.Year != "" {
-		year := f.Year.Year
+	if f.Year.YearName != "" {
+		year := f.Year.YearName
 		resp.YearName = &year
 	}
 
