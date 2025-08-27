@@ -104,6 +104,7 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Common endpoints (all authenticated users)
 			protected.GET("/years", controllers.GetYears)
+			protected.GET("/years/current", controllers.GetCurrentYear)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
