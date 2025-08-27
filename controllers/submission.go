@@ -25,40 +25,59 @@ import (
 // ===================== SUBMISSION MANAGEMENT =====================
 
 // GetSubmissions returns user's submissions
+// GetSubmissions returns user's submissions
 func GetSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
+	// Parse query parameters - เพิ่มฟิลด์ใหม่
 	submissionType := c.Query("submission_type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	categoryID := c.Query("category_id")
+	subcategoryID := c.Query("subcategory_id")
+	subcategoryBudgetID := c.Query("subcategory_budget_id")
 
 	var submissions []models.Submission
-	query := config.DB.Preload("User").
+	query := config.DB.
+		Select("submissions.*, fund_categories.category_name, fund_subcategories.subcategory_name, subcategory_budgets.fund_description").
+		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
+		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id").
+		Joins("LEFT JOIN subcategory_budgets ON subcategory_budgets.subcategory_budget_id = submissions.subcategory_budget_id").
+		Preload("User").
 		Preload("Year").
 		Preload("Status").
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
 		Preload("SubmissionUsers.User").
-		Where("deleted_at IS NULL")
+		Where("submissions.deleted_at IS NULL")
 
 	// Filter by user if not admin
 	if roleID.(int) != 3 { // 3 = admin role
-		query = query.Where("user_id = ?", userID)
+		query = query.Where("submissions.user_id = ?", userID)
 	}
 
-	// Apply filters
+	// Apply filters - เพิ่มฟิลด์ใหม่
 	if submissionType != "" {
-		query = query.Where("submission_type = ?", submissionType)
+		query = query.Where("submissions.submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("status_id = ?", status)
+		query = query.Where("submissions.status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
+		query = query.Where("submissions.year_id = ?", yearID)
+	}
+	if categoryID != "" {
+		query = query.Where("submissions.category_id = ?", categoryID)
+	}
+	if subcategoryID != "" {
+		query = query.Where("submissions.subcategory_id = ?", subcategoryID)
+	}
+	if subcategoryBudgetID != "" {
+		query = query.Where("submissions.subcategory_budget_id = ?", subcategoryBudgetID)
 	}
 
-	if err := query.Order("created_at DESC").Find(&submissions).Error; err != nil {
+	if err := query.Order("submissions.created_at DESC").Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
@@ -86,6 +105,14 @@ func GetSubmissions(c *gin.Context) {
 		"success":     true,
 		"submissions": submissions,
 		"total":       len(submissions),
+		"filters": gin.H{
+			"submission_type":       submissionType,
+			"status":                status,
+			"year_id":               yearID,
+			"category_id":           categoryID,
+			"subcategory_id":        subcategoryID,
+			"subcategory_budget_id": subcategoryBudgetID,
+		},
 	})
 }
 
