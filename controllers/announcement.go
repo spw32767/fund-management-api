@@ -27,7 +27,7 @@ func GetAnnouncements(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.Announcement{}).
 		Joins("LEFT JOIN years ON years.year_id = announcements.year_id").
-		Select("announcements.*, years.year_name").
+		Select("announcements.*, years.year AS year_name").
 		Preload("Creator").
 		Preload("Year").
 		Where("announcements.delete_at IS NULL")

@@ -805,7 +805,7 @@ func CreateYear(c *gin.Context) {
 
 	// Check if year already exists
 	var existingYear models.Year
-	if err := config.DB.Where("year = ? AND delete_at IS NULL", req.Year).First(&existingYear).Error; err == nil {
+	if err := config.DB.Where("year_name = ? AND delete_at IS NULL", req.Year).First(&existingYear).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{
 			"error": "Year already exists",
 		})
@@ -815,7 +815,7 @@ func CreateYear(c *gin.Context) {
 	// Create new year
 	now := time.Now()
 	year := models.Year{
-		Year:     req.Year,
+		YearName: req.Year,
 		Budget:   req.Budget,
 		Status:   "active",
 		CreateAt: &now,
@@ -866,9 +866,9 @@ func UpdateYear(c *gin.Context) {
 	}
 
 	// Check if new year conflicts (if changed)
-	if req.Year != "" && req.Year != year.Year {
+	if req.Year != "" && req.Year != year.YearName {
 		var existingYear models.Year
-		if err := config.DB.Where("year = ? AND year_id != ? AND delete_at IS NULL",
+		if err := config.DB.Where("year_name = ? AND year_id != ? AND delete_at IS NULL",
 			req.Year, yearID).First(&existingYear).Error; err == nil {
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "Year already exists",
@@ -884,7 +884,7 @@ func UpdateYear(c *gin.Context) {
 	}
 
 	if req.Year != "" {
-		updates["year"] = req.Year
+		updates["year_name"] = req.Year
 	}
 	if req.Budget > 0 {
 		updates["budget"] = req.Budget
@@ -1055,7 +1055,7 @@ func GetYearStats(c *gin.Context) {
 
 	// Basic year info
 	stats.YearID = year.YearID
-	stats.Year = year.Year
+	stats.Year = year.YearName
 	stats.Budget = year.Budget
 	stats.Status = year.Status
 
