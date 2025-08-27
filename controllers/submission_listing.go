@@ -26,6 +26,11 @@ func GetAllSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	if yearID == "" {
+		if currentYear, err := models.GetCurrentYear(); err == nil {
+			yearID = strconv.Itoa(currentYear)
+		}
+	}
 	priority := c.Query("priority")
 	search := c.Query("search")
 	sortBy := c.DefaultQuery("sort_by", "created_at")
@@ -165,6 +170,11 @@ func GetTeacherSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	if yearID == "" {
+		if currentYear, err := models.GetCurrentYear(); err == nil {
+			yearID = strconv.Itoa(currentYear)
+		}
+	}
 	categoryID := c.Query("category_id")
 	subcategoryID := c.Query("subcategory_id")
 	subcategoryBudgetID := c.Query("subcategory_budget_id")
@@ -360,6 +370,11 @@ func GetAdminSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	if yearID == "" {
+		if currentYear, err := models.GetCurrentYear(); err == nil {
+			yearID = strconv.Itoa(currentYear)
+		}
+	}
 	userID := c.Query("user_id")
 	dateFrom := c.Query("date_from")
 	dateTo := c.Query("date_to")
@@ -471,6 +486,11 @@ func SearchSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	if yearID == "" {
+		if currentYear, err := models.GetCurrentYear(); err == nil {
+			yearID = strconv.Itoa(currentYear)
+		}
+	}
 	categoryID := c.Query("category_id")
 	subcategoryID := c.Query("subcategory_id")
 	subcategoryBudgetID := c.Query("subcategory_budget_id")

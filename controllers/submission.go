@@ -34,6 +34,11 @@ func GetSubmissions(c *gin.Context) {
 	submissionType := c.Query("submission_type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	if yearID == "" {
+		if currentYear, err := models.GetCurrentYear(); err == nil {
+			yearID = strconv.Itoa(currentYear)
+		}
+	}
 	categoryID := c.Query("category_id")
 	subcategoryID := c.Query("subcategory_id")
 	subcategoryBudgetID := c.Query("subcategory_budget_id")
