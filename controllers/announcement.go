@@ -34,16 +34,16 @@ func GetAnnouncements(c *gin.Context) {
 
 	// Apply filters
 	if announcementType != "" {
-		query = query.Where("announcement_type = ?", announcementType)
+		query = query.Where("announcements.announcement_type = ?", announcementType)
 	}
 	if status != "" {
 		query = query.Where("announcements.status = ?", status)
 	}
 	if priority != "" {
-		query = query.Where("announcements.status = ?", "active")
+		query = query.Where("announcements.priority = ?", priority)
 	}
 	if activeOnly {
-		query = query.Where("status = ?", "active")
+		query = query.Where("announcements.status = ?", "active")
 	}
 
 	// Order by priority and published_at
