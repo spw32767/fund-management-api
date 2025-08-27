@@ -1158,34 +1158,71 @@ func AddFundDetails(c *gin.Context) {
 
 // ValidateBudgetSelectionByID - ตรวจสอบ budget โดยใช้ budget_id
 func ValidateBudgetSelectionByID(budgetID int) (*BudgetQuartileMapping, error) {
-	var mapping BudgetQuartileMapping
-
-	query := `
-		SELECT 
-			sb.level as quartile_code,
-			sb.subcategory_budget_id as budget_id,
-			sb.fund_description as description,
-			COALESCE(rc.max_amount, 0) as reward_amount,
-			sb.remaining_budget,
-			CASE 
-				WHEN sb.status = 'active' AND sb.remaining_budget > 0 
-				THEN 1 
-				ELSE 0 
-			END as is_available
-		FROM subcategory_budgets sb
-		LEFT JOIN reward_config rc ON sb.level = rc.journal_quartile 
-			AND rc.is_active = 1
-		WHERE sb.subcategory_budget_id = ?
-			AND sb.delete_at IS NULL`
-
-	err := config.DB.Raw(query, budgetID).Scan(&mapping).Error
-	if err != nil {
+	// 1) ดึงข้อมูล budget แถวเดียวจาก subcategory_budgets
+	type sbRow struct {
+		Level           *string `gorm:"column:level"`
+		BudgetID        int     `gorm:"column:subcategory_budget_id"`
+		FundDescription string  `gorm:"column:fund_description"`
+		RemainingBudget float64 `gorm:"column:remaining_budget"`
+		Status          string  `gorm:"column:status"`
+	}
+	var sb sbRow
+	sbQuery := `
+                SELECT level, subcategory_budget_id,
+                       COALESCE(fund_description,'') AS fund_description,
+                       COALESCE(remaining_budget,0) AS remaining_budget,
+                       COALESCE(status,'') AS status
+                FROM subcategory_budgets
+                WHERE subcategory_budget_id = ? AND delete_at IS NULL
+                LIMIT 1
+        `
+	if err := config.DB.Raw(sbQuery, budgetID).Scan(&sb).Error; err != nil {
 		return nil, err
 	}
-
-	if mapping.BudgetID == 0 {
+	if sb.BudgetID == 0 {
 		return nil, fmt.Errorf("budget with ID %d not found", budgetID)
 	}
 
-	return &mapping, nil
+	// 2) หาค่า quartile code จาก level หรือ description
+	code := ""
+	if sb.Level != nil && strings.TrimSpace(*sb.Level) != "" {
+		code = normalizeQuartileCode(*sb.Level)
+	}
+	if code == "" || !isValidQuartileCode(code) {
+		code = inferQuartileFromDescription(sb.FundDescription)
+	}
+
+	// 3) ดึงวงเงินรางวัลจาก reward_config
+	rewardAmount := 0.0
+	if code != "" {
+		type rcRow struct {
+			MaxAmount float64 `gorm:"column:max_amount"`
+		}
+		var rc rcRow
+		rcQuery := `
+                        SELECT COALESCE(max_amount,0) AS max_amount
+                        FROM reward_config
+                        WHERE is_active = 1 AND delete_at IS NULL
+                          AND UPPER(journal_quartile) = UPPER(?)
+                        LIMIT 1
+                `
+		_ = config.DB.Raw(rcQuery, code).Scan(&rc).Error
+		rewardAmount = rc.MaxAmount
+	}
+
+	// 4) ประกอบผลลัพธ์
+	desc := sb.FundDescription
+	if desc == "" {
+		desc = fmt.Sprintf("รางวัล %s", code)
+	}
+	isAvailable := strings.EqualFold(sb.Status, "active") && sb.RemainingBudget > 0
+
+	return &BudgetQuartileMapping{
+		QuartileCode:    code,
+		BudgetID:        sb.BudgetID,
+		Description:     desc,
+		RewardAmount:    rewardAmount,
+		RemainingBudget: sb.RemainingBudget,
+		IsAvailable:     isAvailable,
+	}, nil
 }
