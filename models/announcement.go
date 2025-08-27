@@ -324,6 +324,7 @@ type AnnouncementResponse struct {
 	ExpiredAt            *time.Time `json:"expired_at"`
 	IsExpired            bool       `json:"is_expired"`
 	IsActive             bool       `json:"is_active"`
+	Year                 *string    `json:"year"`
 	YearName             *string    `json:"year_name"`
 	CreatedBy            int        `json:"created_by"`
 	CreatorName          string     `json:"creator_name,omitempty"`
@@ -353,6 +354,7 @@ type FundFormResponse struct {
 	ExpiryDate       *time.Time `json:"expiry_date"`
 	IsExpired        bool       `json:"is_expired"`
 	IsActive         bool       `json:"is_active"`
+	Year             *string    `json:"year"`
 	YearName         *string    `json:"year_name"`
 	DownloadCount    int        `json:"download_count"`
 	CreatedBy        int        `json:"created_by"`
@@ -396,6 +398,7 @@ func (a *Announcement) ToResponse() AnnouncementResponse {
 
 	if a.Year.YearName != "" {
 		year := a.Year.YearName
+		resp.Year = &year
 		resp.YearName = &year
 	}
 	return resp
@@ -432,6 +435,7 @@ func (f *FundForm) ToResponse() FundFormResponse {
 
 	if f.Year.YearName != "" {
 		year := f.Year.YearName
+		resp.Year = &year
 		resp.YearName = &year
 	}
 
