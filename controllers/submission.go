@@ -199,7 +199,7 @@ func GetSubmission(c *gin.Context) {
 	})
 }
 
-// CreateSubmission - แก้ไขเพื่อรองรับ budget validation
+// CreateSubmission - แก้ไขเพื่อรองรับ budget validation และสร้าง submission_number
 func CreateSubmission(c *gin.Context) {
 	var requestData map[string]interface{}
 	if err := c.ShouldBindJSON(&requestData); err != nil {
@@ -214,55 +214,39 @@ func CreateSubmission(c *gin.Context) {
 	subcategoryID := int(requestData["subcategory_id"].(float64))
 	submissionType := requestData["submission_type"].(string)
 
-	// สำหรับ publication_reward ต้องคำนวณ subcategory_budget_id
-	var subcategoryBudgetID *int
-	if submissionType == "publication_reward" {
-		// ตรวจสอบว่ามีการส่ง subcategory_budget_id มาหรือไม่
-		if budgetIDFloat, exists := requestData["subcategory_budget_id"]; exists && budgetIDFloat != nil {
-			budgetID := int(budgetIDFloat.(float64))
-			subcategoryBudgetID = &budgetID
-		} else {
-			// คำนวณ subcategory_budget_id จากข้อมูลฟอร์ม
-			calculatedBudgetID, err := CalculateSubcategoryBudgetID(categoryID, subcategoryID, requestData)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":   "Failed to determine budget allocation",
-					"details": err.Error(),
-				})
-				return
-			}
-			subcategoryBudgetID = &calculatedBudgetID
-		}
+	// **===== แก้ไขตรงนี้: สร้าง submission_number =====**
+	submissionNumber := generateSubmissionNumber(submissionType)
 
-		// Double-check budget availability
-		if subcategoryBudgetID != nil {
-			mapping, err := ValidateBudgetSelectionByID(*subcategoryBudgetID)
-			if err != nil || !mapping.IsAvailable {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":   "Selected budget is not available",
-					"details": "งบประมาณที่เลือกไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
-				})
-				return
-			}
-		}
+	// Log เพื่อ debug
+	fmt.Printf("=== CREATING SUBMISSION ===\n")
+	fmt.Printf("Submission Type: %s\n", submissionType)
+	fmt.Printf("Generated Number: %s\n", submissionNumber)
+	fmt.Printf("==============================\n")
+
+	// ตรวจสอบ subcategory_budget_id (ถ้ามี)
+	var subcategoryBudgetID *int
+	if budgetIDFloat, exists := requestData["subcategory_budget_id"]; exists && budgetIDFloat != nil {
+		budgetIDInt := int(budgetIDFloat.(float64))
+		subcategoryBudgetID = &budgetIDInt
 	}
 
-	// สร้าง submission object
+	// สร้าง submission object พร้อม submission_number
 	submission := models.Submission{
+		SubmissionNumber:    submissionNumber, // **แก้ไขตรงนี้**
 		UserID:              userID.(int),
 		YearID:              int(requestData["year_id"].(float64)),
 		CategoryID:          &categoryID,
 		SubcategoryID:       &subcategoryID,
-		SubcategoryBudgetID: subcategoryBudgetID, // ใหม่!
+		SubcategoryBudgetID: subcategoryBudgetID,
 		SubmissionType:      submissionType,
 		StatusID:            int(requestData["status_id"].(float64)),
-		//Priority:            requestData["priority"].(string),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 
 	// บันทึกลง database
 	if err := config.DB.Create(&submission).Error; err != nil {
+		fmt.Printf("ERROR creating submission: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission"})
 		return
 	}
@@ -270,6 +254,7 @@ func CreateSubmission(c *gin.Context) {
 	// Log สำหรับ tracking
 	fmt.Printf("=== SUBMISSION CREATED ===\n")
 	fmt.Printf("Submission ID: %d\n", submission.SubmissionID)
+	fmt.Printf("Submission Number: %s\n", submission.SubmissionNumber)
 	fmt.Printf("Category ID: %d\n", categoryID)
 	fmt.Printf("Subcategory ID: %d\n", subcategoryID)
 	if subcategoryBudgetID != nil {
@@ -280,7 +265,11 @@ func CreateSubmission(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"success":       true,
 		"submission_id": submission.SubmissionID,
-		"message":       "Submission created successfully",
+		"submission": gin.H{
+			"submission_id":     submission.SubmissionID,
+			"submission_number": submission.SubmissionNumber, // ส่งกลับให้ frontend ด้วย
+		},
+		"message": "Submission created successfully",
 		"budget_info": gin.H{
 			"category_id":           categoryID,
 			"subcategory_id":        subcategoryID,
