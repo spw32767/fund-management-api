@@ -290,9 +290,12 @@ func GetAdminSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
+	categoryID := c.Query("category")       // ✅ เพิ่ม
+	subcategoryID := c.Query("subcategory") // ✅ เพิ่ม
 	userID := c.Query("user_id")
 	dateFrom := c.Query("date_from")
 	dateTo := c.Query("date_to")
+	search := c.Query("search") // ✅ เพิ่ม search
 
 	if page < 1 {
 		page = 1
@@ -307,15 +310,23 @@ func GetAdminSubmissions(c *gin.Context) {
 	query := config.DB.Preload("User").Preload("Year").Preload("Status").
 		Where("deleted_at IS NULL")
 
-	// Apply filters
+	// ✅ IMPORTANT: Apply year filter FIRST
+	if yearID != "" && yearID != "0" {
+		query = query.Where("year_id = ?", yearID)
+	}
+
+	// Apply other filters
 	if submissionType != "" {
 		query = query.Where("submission_type = ?", submissionType)
 	}
 	if status != "" {
 		query = query.Where("status_id = ?", status)
 	}
-	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
+	if categoryID != "" {
+		query = query.Where("category_id = ?", categoryID)
+	}
+	if subcategoryID != "" {
+		query = query.Where("subcategory_id = ?", subcategoryID)
 	}
 	if userID != "" {
 		query = query.Where("user_id = ?", userID)
@@ -325,6 +336,18 @@ func GetAdminSubmissions(c *gin.Context) {
 	}
 	if dateTo != "" {
 		query = query.Where("created_at <= ?", dateTo)
+	}
+
+	// ✅ Add search functionality
+	if search != "" {
+		searchTerm := "%" + search + "%"
+		query = query.Where(
+			`submission_number LIKE ? OR 
+			 submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
+			 submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ?) OR
+			 user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ?)`,
+			searchTerm, searchTerm, searchTerm, searchTerm,
+		)
 	}
 
 	// Get total count
@@ -337,18 +360,27 @@ func GetAdminSubmissions(c *gin.Context) {
 		return
 	}
 
-	// Get summary statistics
+	// ✅ IMPORTANT: Get statistics WITH year filter
 	var stats struct {
 		TotalSubmissions int64 `json:"total_submissions"`
 		PendingCount     int64 `json:"pending_count"`
 		ApprovedCount    int64 `json:"approved_count"`
 		RejectedCount    int64 `json:"rejected_count"`
+		RevisionCount    int64 `json:"revision_count"`
 	}
 
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL").Count(&stats.TotalSubmissions)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 1").Count(&stats.PendingCount)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 2").Count(&stats.ApprovedCount)
-	config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL AND status_id = 3").Count(&stats.RejectedCount)
+	// Base query for statistics (with year filter)
+	statsQuery := config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL")
+	if yearID != "" && yearID != "0" {
+		statsQuery = statsQuery.Where("year_id = ?", yearID)
+	}
+
+	// Count by status
+	statsQuery.Count(&stats.TotalSubmissions)
+	statsQuery.Where("status_id = 1").Count(&stats.PendingCount)
+	statsQuery.Where("status_id = 2").Count(&stats.ApprovedCount)
+	statsQuery.Where("status_id = 3").Count(&stats.RejectedCount)
+	statsQuery.Where("status_id = 4").Count(&stats.RevisionCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
@@ -361,12 +393,15 @@ func GetAdminSubmissions(c *gin.Context) {
 		},
 		"statistics": stats,
 		"filters": gin.H{
-			"type":      submissionType,
-			"status":    status,
-			"year_id":   yearID,
-			"user_id":   userID,
-			"date_from": dateFrom,
-			"date_to":   dateTo,
+			"type":        submissionType,
+			"status":      status,
+			"year_id":     yearID,
+			"category":    categoryID,
+			"subcategory": subcategoryID,
+			"user_id":     userID,
+			"date_from":   dateFrom,
+			"date_to":     dateTo,
+			"search":      search,
 		},
 	})
 }
