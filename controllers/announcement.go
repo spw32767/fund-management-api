@@ -44,8 +44,8 @@ func GetAnnouncements(c *gin.Context) {
 		query = query.Where("status = ?", "active")
 	}
 
-	// Order by priority and published_at
-	query = query.Order("CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, published_at DESC")
+	// Order by creation time (newest first)
+	query = query.Order("create_at DESC")
 
 	var announcements []models.Announcement
 	if err := query.Find(&announcements).Error; err != nil {
@@ -489,8 +489,8 @@ func GetFundForms(c *gin.Context) {
 		query = query.Where("is_required = ?", true)
 	}
 
-	// Order by form_type and create_at
-	query = query.Order("CASE form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, create_at DESC")
+	// Order by creation time (newest first)
+	query = query.Order("create_at DESC")
 
 	var forms []models.FundForm
 	if err := query.Find(&forms).Error; err != nil {
