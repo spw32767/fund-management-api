@@ -27,6 +27,7 @@ func GetAnnouncements(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.Announcement{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -43,8 +44,8 @@ func GetAnnouncements(c *gin.Context) {
 		query = query.Where("status = ?", "active")
 	}
 
-	// Order by priority and published_at
-	query = query.Order("CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, published_at DESC")
+	// Order by creation time (newest first)
+	query = query.Order("create_at DESC")
 
 	var announcements []models.Announcement
 	if err := query.Find(&announcements).Error; err != nil {
@@ -70,7 +71,7 @@ func GetAnnouncement(c *gin.Context) {
 	id := c.Param("id")
 
 	var announcement models.Announcement
-	if err := config.DB.Preload("Creator").
+	if err := config.DB.Preload("Creator").Preload("Year").
 		Where("announcement_id = ? AND delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
@@ -468,6 +469,7 @@ func GetFundForms(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.FundForm{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -487,8 +489,8 @@ func GetFundForms(c *gin.Context) {
 		query = query.Where("is_required = ?", true)
 	}
 
-	// Order by form_type and create_at
-	query = query.Order("CASE form_type WHEN 'application' THEN 1 WHEN 'guidelines' THEN 2 WHEN 'report' THEN 3 WHEN 'evaluation' THEN 4 ELSE 5 END, create_at DESC")
+	// Order by creation time (newest first)
+	query = query.Order("create_at DESC")
 
 	var forms []models.FundForm
 	if err := query.Find(&forms).Error; err != nil {
@@ -514,7 +516,7 @@ func GetFundForm(c *gin.Context) {
 	id := c.Param("id")
 
 	var form models.FundForm
-	if err := config.DB.Preload("Creator").
+	if err := config.DB.Preload("Creator").Preload("Year").
 		Where("form_id = ? AND delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
@@ -585,7 +587,7 @@ func CreateFundForm(c *gin.Context) {
 	ext := filepath.Ext(header.Filename)
 	timestamp := time.Now().Format("20060102_150405")
 	safeTitle := utils.SanitizeFilename(req.Title)
-	filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+	filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 	filePath := filepath.Join(uploadDir, filename)
 
 	// Save file
@@ -704,7 +706,7 @@ func UpdateFundForm(c *gin.Context) {
 		}
 		safeTitle := utils.SanitizeFilename(title)
 
-		filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+		filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 		newFilePath = filepath.Join(uploadDir, filename)
 
 		// Save new file
