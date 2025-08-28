@@ -27,6 +27,7 @@ func GetAnnouncements(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.Announcement{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -70,7 +71,7 @@ func GetAnnouncement(c *gin.Context) {
 	id := c.Param("id")
 
 	var announcement models.Announcement
-	if err := config.DB.Preload("Creator").
+	if err := config.DB.Preload("Creator").Preload("Year").
 		Where("announcement_id = ? AND delete_at IS NULL", id).
 		First(&announcement).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Announcement not found"})
@@ -468,6 +469,7 @@ func GetFundForms(c *gin.Context) {
 	// Build query
 	query := config.DB.Model(&models.FundForm{}).
 		Preload("Creator").
+		Preload("Year").
 		Where("delete_at IS NULL")
 
 	// Apply filters
@@ -514,7 +516,7 @@ func GetFundForm(c *gin.Context) {
 	id := c.Param("id")
 
 	var form models.FundForm
-	if err := config.DB.Preload("Creator").
+	if err := config.DB.Preload("Creator").Preload("Year").
 		Where("form_id = ? AND delete_at IS NULL", id).
 		First(&form).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fund form not found"})
@@ -585,7 +587,7 @@ func CreateFundForm(c *gin.Context) {
 	ext := filepath.Ext(header.Filename)
 	timestamp := time.Now().Format("20060102_150405")
 	safeTitle := utils.SanitizeFilename(req.Title)
-	filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+	filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 	filePath := filepath.Join(uploadDir, filename)
 
 	// Save file
@@ -704,7 +706,7 @@ func UpdateFundForm(c *gin.Context) {
 		}
 		safeTitle := utils.SanitizeFilename(title)
 
-		filename := fmt.Sprintf("%s_v%s_%s%s", safeTitle, timestamp, ext)
+		filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
 		newFilePath = filepath.Join(uploadDir, filename)
 
 		// Save new file
