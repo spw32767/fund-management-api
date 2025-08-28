@@ -28,7 +28,7 @@ type Announcement struct {
 
 	// Relations
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
-	Year    Year `gorm:"foreignKey:YearID" json:"year_info,omitempty"`
+	Year    Year `gorm:"foreignKey:YearID;references:YearID" json:"year_info,omitempty"`
 }
 
 // FundForm represents the fund_forms table
@@ -52,7 +52,7 @@ type FundForm struct {
 
 	// Relations
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
-	Year    Year `gorm:"foreignKey:YearID" json:"year_info,omitempty"`
+	Year    Year `gorm:"foreignKey:YearID;references:YearID" json:"year_info,omitempty"`
 }
 
 // AnnouncementView represents the announcement_views table (Optional tracking)
@@ -393,7 +393,7 @@ func (a *Announcement) ToResponse() AnnouncementResponse {
 		resp.CreatorName = a.Creator.UserFname + " " + a.Creator.UserLname
 	}
 
-	if a.YearID != nil && a.Year.Year != "" {
+	if a.Year.Year != "" {
 		year := a.Year.Year
 		resp.Year = &year
 	}
@@ -431,7 +431,7 @@ func (f *FundForm) ToResponse() FundFormResponse {
 		resp.CreatorName = f.Creator.UserFname + " " + f.Creator.UserLname
 	}
 
-	if f.YearID != nil && f.Year.Year != "" {
+	if f.Year.Year != "" {
 		year := f.Year.Year
 		resp.Year = &year
 	}
