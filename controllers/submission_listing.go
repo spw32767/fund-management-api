@@ -274,7 +274,7 @@ func GetStaffSubmissions(c *gin.Context) {
 	})
 }
 
-// GetAdminSubmissions returns all submissions for admin
+// GetAdminSubmissions returns all submissions for admin with proper year filtering
 func GetAdminSubmissions(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
@@ -290,12 +290,14 @@ func GetAdminSubmissions(c *gin.Context) {
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearID := c.Query("year_id")
-	categoryID := c.Query("category")       // ✅ เพิ่ม
-	subcategoryID := c.Query("subcategory") // ✅ เพิ่ม
+	categoryID := c.Query("category")
+	subcategoryID := c.Query("subcategory")
 	userID := c.Query("user_id")
 	dateFrom := c.Query("date_from")
 	dateTo := c.Query("date_to")
-	search := c.Query("search") // ✅ เพิ่ม search
+	search := c.Query("search")
+	sortBy := c.DefaultQuery("sort_by", "created_at")
+	sortOrder := c.DefaultQuery("sort_order", "desc")
 
 	if page < 1 {
 		page = 1
@@ -308,6 +310,8 @@ func GetAdminSubmissions(c *gin.Context) {
 	// Build comprehensive query for admin
 	var submissions []models.Submission
 	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+		Preload("PublicationRewardDetail").
+		Preload("FundApplicationDetail").
 		Where("deleted_at IS NULL")
 
 	// ✅ IMPORTANT: Apply year filter FIRST
@@ -332,35 +336,39 @@ func GetAdminSubmissions(c *gin.Context) {
 		query = query.Where("user_id = ?", userID)
 	}
 	if dateFrom != "" {
-		query = query.Where("created_at >= ?", dateFrom)
+		query = query.Where("DATE(created_at) >= ?", dateFrom)
 	}
 	if dateTo != "" {
-		query = query.Where("created_at <= ?", dateTo)
+		query = query.Where("DATE(created_at) <= ?", dateTo)
 	}
 
-	// ✅ Add search functionality
+	// Add search functionality
 	if search != "" {
 		searchTerm := "%" + search + "%"
 		query = query.Where(
 			`submission_number LIKE ? OR 
+			 title LIKE ? OR
 			 submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
-			 submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ?) OR
-			 user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ?)`,
-			searchTerm, searchTerm, searchTerm, searchTerm,
+			 submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
+			 user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?)`,
+			searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm,
 		)
 	}
 
-	// Get total count
+	// Get total count for pagination (with all filters applied)
 	var totalCount int64
 	query.Model(&models.Submission{}).Count(&totalCount)
 
+	// Apply sorting
+	orderClause := sortBy + " " + sortOrder
+
 	// Get submissions with pagination
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order(orderClause).Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
 
-	// ✅ IMPORTANT: Get statistics WITH year filter
+	// ✅ FIXED: Calculate statistics with proper year filter (create fresh queries)
 	var stats struct {
 		TotalSubmissions int64 `json:"total_submissions"`
 		PendingCount     int64 `json:"pending_count"`
@@ -369,18 +377,80 @@ func GetAdminSubmissions(c *gin.Context) {
 		RevisionCount    int64 `json:"revision_count"`
 	}
 
-	// Base query for statistics (with year filter)
-	statsQuery := config.DB.Model(&models.Submission{}).Where("deleted_at IS NULL")
+	// Build base conditions for statistics
+	baseConditions := "deleted_at IS NULL"
+	baseArgs := []interface{}{}
+
 	if yearID != "" && yearID != "0" {
-		statsQuery = statsQuery.Where("year_id = ?", yearID)
+		baseConditions += " AND year_id = ?"
+		baseArgs = append(baseArgs, yearID)
+	}
+	if submissionType != "" {
+		baseConditions += " AND submission_type = ?"
+		baseArgs = append(baseArgs, submissionType)
+	}
+	if categoryID != "" {
+		baseConditions += " AND category_id = ?"
+		baseArgs = append(baseArgs, categoryID)
+	}
+	if subcategoryID != "" {
+		baseConditions += " AND subcategory_id = ?"
+		baseArgs = append(baseArgs, subcategoryID)
+	}
+	if userID != "" {
+		baseConditions += " AND user_id = ?"
+		baseArgs = append(baseArgs, userID)
+	}
+	if dateFrom != "" {
+		baseConditions += " AND DATE(created_at) >= ?"
+		baseArgs = append(baseArgs, dateFrom)
+	}
+	if dateTo != "" {
+		baseConditions += " AND DATE(created_at) <= ?"
+		baseArgs = append(baseArgs, dateTo)
 	}
 
-	// Count by status
-	statsQuery.Count(&stats.TotalSubmissions)
-	statsQuery.Where("status_id = 1").Count(&stats.PendingCount)
-	statsQuery.Where("status_id = 2").Count(&stats.ApprovedCount)
-	statsQuery.Where("status_id = 3").Count(&stats.RejectedCount)
-	statsQuery.Where("status_id = 4").Count(&stats.RevisionCount)
+	// Add search to base conditions if present
+	if search != "" {
+		searchTerm := "%" + search + "%"
+		baseConditions += ` AND (submission_number LIKE ? OR 
+			title LIKE ? OR
+			submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
+			submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
+			user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?))`
+		baseArgs = append(baseArgs, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm)
+	}
+
+	// Total count (already calculated above, but recalculate to ensure consistency)
+	stats.TotalSubmissions = totalCount
+
+	// Count by status - Create fresh queries for each status
+	// Status 1: Pending
+	pendingArgs := append([]interface{}{}, baseArgs...)
+	config.DB.Model(&models.Submission{}).
+		Where(baseConditions+" AND status_id = ?", append(pendingArgs, 1)...).
+		Count(&stats.PendingCount)
+
+	// Status 2: Approved
+	approvedArgs := append([]interface{}{}, baseArgs...)
+	config.DB.Model(&models.Submission{}).
+		Where(baseConditions+" AND status_id = ?", append(approvedArgs, 2)...).
+		Count(&stats.ApprovedCount)
+
+	// Status 3: Rejected
+	rejectedArgs := append([]interface{}{}, baseArgs...)
+	config.DB.Model(&models.Submission{}).
+		Where(baseConditions+" AND status_id = ?", append(rejectedArgs, 3)...).
+		Count(&stats.RejectedCount)
+
+	// Status 4: Revision Required
+	revisionArgs := append([]interface{}{}, baseArgs...)
+	config.DB.Model(&models.Submission{}).
+		Where(baseConditions+" AND status_id = ?", append(revisionArgs, 4)...).
+		Count(&stats.RevisionCount)
+
+	// Calculate total pages
+	totalPages := (totalCount + int64(limit) - 1) / int64(limit)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
@@ -389,7 +459,7 @@ func GetAdminSubmissions(c *gin.Context) {
 			"current_page": page,
 			"per_page":     limit,
 			"total_count":  totalCount,
-			"total_pages":  (totalCount + int64(limit) - 1) / int64(limit),
+			"total_pages":  totalPages,
 		},
 		"statistics": stats,
 		"filters": gin.H{
@@ -402,6 +472,8 @@ func GetAdminSubmissions(c *gin.Context) {
 			"date_from":   dateFrom,
 			"date_to":     dateTo,
 			"search":      search,
+			"sort_by":     sortBy,
+			"sort_order":  sortOrder,
 		},
 	})
 }
