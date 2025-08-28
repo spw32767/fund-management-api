@@ -61,18 +61,21 @@ func GetSubmissionDetails(c *gin.Context) {
 	// สร้าง response structure
 	response := gin.H{
 		"submission": gin.H{
-			"submission_id":     submission.SubmissionID,
-			"submission_number": submission.SubmissionNumber,
-			"submission_type":   submission.SubmissionType,
-			"user_id":           submission.UserID,
-			"year_id":           submission.YearID,
-			"status_id":         submission.StatusID,
-			"submitted_at":      submission.SubmittedAt,
-			"created_at":        submission.CreatedAt,
-			"updated_at":        submission.UpdatedAt,
-			"user":              submission.User,
-			"year":              submission.Year,
-			"status":            submission.Status,
+			"submission_id":         submission.SubmissionID,
+			"submission_number":     submission.SubmissionNumber,
+			"submission_type":       submission.SubmissionType,
+			"user_id":               submission.UserID,
+			"year_id":               submission.YearID,
+			"category_id":           submission.CategoryID,          // ✅ เพิ่มใหม่
+			"subcategory_id":        submission.SubcategoryID,       // ✅ เพิ่มใหม่
+			"subcategory_budget_id": submission.SubcategoryBudgetID, // ✅ เพิ่มใหม่
+			"status_id":             submission.StatusID,
+			"submitted_at":          submission.SubmittedAt,
+			"created_at":            submission.CreatedAt,
+			"updated_at":            submission.UpdatedAt,
+			"user":                  submission.User,
+			"year":                  submission.Year,
+			"status":                submission.Status,
 		},
 		"details":          nil,
 		"submission_users": []gin.H{},
