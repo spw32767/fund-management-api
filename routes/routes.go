@@ -233,6 +233,12 @@ func SetupRoutes(router *gin.Engine) {
 				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
 				publications.GET("/:id/documents", controllers.GetPublicationDocuments)
 
+				// Dynamic lookup endpoints
+				publications.GET("/enabled-years", controllers.GetEnabledYearsForCategory)
+				publications.GET("/options", controllers.GetPublicationOptions)
+				publications.GET("/resolve", controllers.ResolvePublicationBudget)
+				publications.GET("/availability/:id", controllers.CheckBudgetAvailability)
+
 				// === REWARD RATES API ===
 				rates := publications.Group("/rates")
 				{
