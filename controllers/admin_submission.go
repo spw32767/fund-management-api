@@ -5,6 +5,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,11 +13,12 @@ import (
 
 // GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
 func GetSubmissionDetails(c *gin.Context) {
-	submissionID := c.Param("id")
+	submissionIDStr := c.Param("id")
 
 	// Validate submissionID
-	if submissionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission ID is required"})
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
 		return
 	}
 
@@ -167,7 +169,12 @@ func GetSubmissionDetails(c *gin.Context) {
 
 // ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน
 func ApproveSubmission(c *gin.Context) {
-	submissionID := c.Param("id")
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
 	userID, _ := c.Get("userID")
 
 	var request struct {
@@ -269,7 +276,12 @@ func ApproveSubmission(c *gin.Context) {
 
 // RejectSubmission - ปฏิเสธ submission พร้อมเหตุผล
 func RejectSubmission(c *gin.Context) {
-	submissionID := c.Param("id")
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
 	userID, _ := c.Get("userID")
 
 	var request struct {
@@ -367,7 +379,12 @@ func RejectSubmission(c *gin.Context) {
 
 // RequestRevision - ขอข้อมูลเพิ่มเติม
 func RequestRevision(c *gin.Context) {
-	submissionID := c.Param("id")
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
 	userID, _ := c.Get("userID")
 
 	var request struct {
