@@ -3,6 +3,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"fund-management-api/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ===================== SUBMISSIONS LISTING =====================
@@ -274,7 +276,6 @@ func GetStaffSubmissions(c *gin.Context) {
 	})
 }
 
-// GetAdminSubmissions returns all submissions for admin with proper year filtering
 func GetAdminSubmissions(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
@@ -289,7 +290,7 @@ func GetAdminSubmissions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
 	submissionType := c.Query("type")
 	status := c.Query("status")
-	yearID := c.Query("year_id")
+	yearIDStr := c.Query("year_id") // Keep as string first
 	categoryID := c.Query("category")
 	subcategoryID := c.Query("subcategory")
 	userID := c.Query("user_id")
@@ -298,6 +299,16 @@ func GetAdminSubmissions(c *gin.Context) {
 	search := c.Query("search")
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
+
+	// Convert yearID to integer if provided
+	var yearID int
+	var hasYearFilter bool
+	if yearIDStr != "" && yearIDStr != "0" {
+		yearID, _ = strconv.Atoi(yearIDStr)
+		hasYearFilter = true
+		// Debug log
+		log.Printf("Admin Submissions Filter - Year ID: %d (from string: %s)", yearID, yearIDStr)
+	}
 
 	if page < 1 {
 		page = 1
@@ -311,41 +322,120 @@ func GetAdminSubmissions(c *gin.Context) {
 	var submissions []models.Submission
 	query := config.DB.Preload("User").Preload("Year").Preload("Status").
 		Preload("PublicationRewardDetail").
-		Preload("FundApplicationDetail").
-		Where("deleted_at IS NULL")
+		Preload("FundApplicationDetail")
 
-	// ✅ IMPORTANT: Apply year filter FIRST
-	if yearID != "" && yearID != "0" {
-		query = query.Where("year_id = ?", yearID)
+	// ✅ IMPORTANT: Apply year filter FIRST with proper integer comparison
+	if hasYearFilter {
+		query = query.Where("submissions.year_id = ?", yearID)
+		log.Printf("Applying year filter: year_id = %d", yearID)
 	}
 
 	// Apply other filters
 	if submissionType != "" {
-		query = query.Where("submission_type = ?", submissionType)
+		query = query.Where("submissions.submission_type = ?", submissionType)
 	}
 	if status != "" {
-		query = query.Where("status_id = ?", status)
+		statusInt, _ := strconv.Atoi(status)
+		query = query.Where("submissions.status_id = ?", statusInt)
 	}
 	if categoryID != "" {
-		query = query.Where("category_id = ?", categoryID)
+		catID, _ := strconv.Atoi(categoryID)
+		query = query.Where("submissions.category_id = ?", catID)
 	}
 	if subcategoryID != "" {
-		query = query.Where("subcategory_id = ?", subcategoryID)
+		subCatID, _ := strconv.Atoi(subcategoryID)
+		query = query.Where("submissions.subcategory_id = ?", subCatID)
 	}
 	if userID != "" {
-		query = query.Where("user_id = ?", userID)
+		uid, _ := strconv.Atoi(userID)
+		query = query.Where("submissions.user_id = ?", uid)
 	}
 	if dateFrom != "" {
-		query = query.Where("DATE(created_at) >= ?", dateFrom)
+		query = query.Where("DATE(submissions.created_at) >= ?", dateFrom)
 	}
 	if dateTo != "" {
-		query = query.Where("DATE(created_at) <= ?", dateTo)
+		query = query.Where("DATE(submissions.created_at) <= ?", dateTo)
 	}
 
 	// Add search functionality
 	if search != "" {
 		searchTerm := "%" + search + "%"
 		query = query.Where(
+			`submissions.submission_number LIKE ? OR 
+			 submissions.title LIKE ? OR
+			 submissions.submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
+			 submissions.submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
+			 submissions.user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?)`,
+			searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm,
+		)
+	}
+
+	// Get total count for pagination (with all filters applied)
+	var totalCount int64
+	countQuery := query.Model(&models.Submission{})
+	countQuery.Count(&totalCount)
+
+	log.Printf("Total submissions with filters: %d", totalCount)
+
+	// Apply sorting
+	orderClause := sortBy + " " + sortOrder
+
+	// Get submissions with pagination
+	var err error
+	if err = query.Order(orderClause).Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+		log.Printf("Error fetching submissions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
+		return
+	}
+
+	// Debug: Log the actual year_ids in the results
+	for _, sub := range submissions {
+		log.Printf("Submission %d has year_id: %d", sub.SubmissionID, sub.YearID)
+	}
+
+	// ✅ FIXED: Calculate statistics with proper year filter
+	var stats struct {
+		TotalSubmissions int64 `json:"total_submissions"`
+		PendingCount     int64 `json:"pending_count"`
+		ApprovedCount    int64 `json:"approved_count"`
+		RejectedCount    int64 `json:"rejected_count"`
+		RevisionCount    int64 `json:"revision_count"`
+	}
+
+	// Use the total from above
+	stats.TotalSubmissions = totalCount
+
+	// Build base query for statistics
+	statsBaseQuery := config.DB.Model(&models.Submission{})
+
+	// Apply the same filters for statistics
+	if hasYearFilter {
+		statsBaseQuery = statsBaseQuery.Where("year_id = ?", yearID)
+	}
+	if submissionType != "" {
+		statsBaseQuery = statsBaseQuery.Where("submission_type = ?", submissionType)
+	}
+	if categoryID != "" {
+		catID, _ := strconv.Atoi(categoryID)
+		statsBaseQuery = statsBaseQuery.Where("category_id = ?", catID)
+	}
+	if subcategoryID != "" {
+		subCatID, _ := strconv.Atoi(subcategoryID)
+		statsBaseQuery = statsBaseQuery.Where("subcategory_id = ?", subCatID)
+	}
+	if userID != "" {
+		uid, _ := strconv.Atoi(userID)
+		statsBaseQuery = statsBaseQuery.Where("user_id = ?", uid)
+	}
+	if dateFrom != "" {
+		statsBaseQuery = statsBaseQuery.Where("DATE(created_at) >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		statsBaseQuery = statsBaseQuery.Where("DATE(created_at) <= ?", dateTo)
+	}
+	if search != "" {
+		searchTerm := "%" + search + "%"
+		statsBaseQuery = statsBaseQuery.Where(
 			`submission_number LIKE ? OR 
 			 title LIKE ? OR
 			 submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
@@ -355,99 +445,14 @@ func GetAdminSubmissions(c *gin.Context) {
 		)
 	}
 
-	// Get total count for pagination (with all filters applied)
-	var totalCount int64
-	query.Model(&models.Submission{}).Count(&totalCount)
+	// Count each status separately - Use Session to create independent queries
+	statsBaseQuery.Session(&gorm.Session{}).Where("status_id = ?", 1).Count(&stats.PendingCount)
+	statsBaseQuery.Session(&gorm.Session{}).Where("status_id = ?", 2).Count(&stats.ApprovedCount)
+	statsBaseQuery.Session(&gorm.Session{}).Where("status_id = ?", 3).Count(&stats.RejectedCount)
+	statsBaseQuery.Session(&gorm.Session{}).Where("status_id = ?", 4).Count(&stats.RevisionCount)
 
-	// Apply sorting
-	orderClause := sortBy + " " + sortOrder
-
-	// Get submissions with pagination
-	if err := query.Order(orderClause).Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
-		return
-	}
-
-	// ✅ FIXED: Calculate statistics with proper year filter (create fresh queries)
-	var stats struct {
-		TotalSubmissions int64 `json:"total_submissions"`
-		PendingCount     int64 `json:"pending_count"`
-		ApprovedCount    int64 `json:"approved_count"`
-		RejectedCount    int64 `json:"rejected_count"`
-		RevisionCount    int64 `json:"revision_count"`
-	}
-
-	// Build base conditions for statistics
-	baseConditions := "deleted_at IS NULL"
-	baseArgs := []interface{}{}
-
-	if yearID != "" && yearID != "0" {
-		baseConditions += " AND year_id = ?"
-		baseArgs = append(baseArgs, yearID)
-	}
-	if submissionType != "" {
-		baseConditions += " AND submission_type = ?"
-		baseArgs = append(baseArgs, submissionType)
-	}
-	if categoryID != "" {
-		baseConditions += " AND category_id = ?"
-		baseArgs = append(baseArgs, categoryID)
-	}
-	if subcategoryID != "" {
-		baseConditions += " AND subcategory_id = ?"
-		baseArgs = append(baseArgs, subcategoryID)
-	}
-	if userID != "" {
-		baseConditions += " AND user_id = ?"
-		baseArgs = append(baseArgs, userID)
-	}
-	if dateFrom != "" {
-		baseConditions += " AND DATE(created_at) >= ?"
-		baseArgs = append(baseArgs, dateFrom)
-	}
-	if dateTo != "" {
-		baseConditions += " AND DATE(created_at) <= ?"
-		baseArgs = append(baseArgs, dateTo)
-	}
-
-	// Add search to base conditions if present
-	if search != "" {
-		searchTerm := "%" + search + "%"
-		baseConditions += ` AND (submission_number LIKE ? OR 
-			title LIKE ? OR
-			submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR 
-			submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
-			user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?))`
-		baseArgs = append(baseArgs, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm)
-	}
-
-	// Total count (already calculated above, but recalculate to ensure consistency)
-	stats.TotalSubmissions = totalCount
-
-	// Count by status - Create fresh queries for each status
-	// Status 1: Pending
-	pendingArgs := append([]interface{}{}, baseArgs...)
-	config.DB.Model(&models.Submission{}).
-		Where(baseConditions+" AND status_id = ?", append(pendingArgs, 1)...).
-		Count(&stats.PendingCount)
-
-	// Status 2: Approved
-	approvedArgs := append([]interface{}{}, baseArgs...)
-	config.DB.Model(&models.Submission{}).
-		Where(baseConditions+" AND status_id = ?", append(approvedArgs, 2)...).
-		Count(&stats.ApprovedCount)
-
-	// Status 3: Rejected
-	rejectedArgs := append([]interface{}{}, baseArgs...)
-	config.DB.Model(&models.Submission{}).
-		Where(baseConditions+" AND status_id = ?", append(rejectedArgs, 3)...).
-		Count(&stats.RejectedCount)
-
-	// Status 4: Revision Required
-	revisionArgs := append([]interface{}{}, baseArgs...)
-	config.DB.Model(&models.Submission{}).
-		Where(baseConditions+" AND status_id = ?", append(revisionArgs, 4)...).
-		Count(&stats.RevisionCount)
+	log.Printf("Statistics - Total: %d, Pending: %d, Approved: %d, Rejected: %d, Revision: %d",
+		stats.TotalSubmissions, stats.PendingCount, stats.ApprovedCount, stats.RejectedCount, stats.RevisionCount)
 
 	// Calculate total pages
 	totalPages := (totalCount + int64(limit) - 1) / int64(limit)
@@ -465,7 +470,7 @@ func GetAdminSubmissions(c *gin.Context) {
 		"filters": gin.H{
 			"type":        submissionType,
 			"status":      status,
-			"year_id":     yearID,
+			"year_id":     yearIDStr, // Return the original string
 			"category":    categoryID,
 			"subcategory": subcategoryID,
 			"user_id":     userID,
@@ -474,6 +479,11 @@ func GetAdminSubmissions(c *gin.Context) {
 			"search":      search,
 			"sort_by":     sortBy,
 			"sort_order":  sortOrder,
+		},
+		"debug": gin.H{
+			"year_filter_applied": hasYearFilter,
+			"year_id_int":         yearID,
+			"year_id_str":         yearIDStr,
 		},
 	})
 }
