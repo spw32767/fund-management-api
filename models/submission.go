@@ -52,10 +52,6 @@ type FundApplicationDetail struct {
 	RejectedBy *int       `json:"rejected_by" gorm:"column:rejected_by"`
 	RejectedAt *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
 
-	CreateAt time.Time  `json:"create_at" gorm:"column:create_at;autoCreateTime"`
-	UpdateAt time.Time  `json:"update_at" gorm:"column:update_at;autoUpdateTime"`
-	DeleteAt *time.Time `json:"delete_at" gorm:"column:delete_at"`
-
 	// Relations
 	Submission  Submission      `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
 	Subcategory FundSubcategory `gorm:"foreignKey:SubcategoryID" json:"subcategory,omitempty"`

@@ -321,7 +321,6 @@ func ApproveSubmission(c *gin.Context) {
 			detail.ApprovedBy = &approvedByID
 			detail.ApprovedAt = &now
 			detail.ClosedAt = &now
-			detail.UpdateAt = now
 			if err := tx.Save(&detail).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save fund_application approval"})
@@ -442,7 +441,6 @@ func RejectSubmission(c *gin.Context) {
 			detail.RejectedBy = &rejectedByID
 			detail.RejectedAt = &now
 			detail.ClosedAt = &now
-			detail.UpdateAt = now
 			if err := tx.Save(&detail).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save rejection info"})
