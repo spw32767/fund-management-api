@@ -407,20 +407,19 @@ func SetupRoutes(router *gin.Engine) {
 
 				submissionManagement := admin.Group("/submissions")
 				{
-					// Get submission with full details
+					// List / basic CRUD you already have
+					submissionManagement.GET("", controllers.GetAllSubmissions)
+					submissionManagement.POST("", controllers.CreateSubmission)
+					submissionManagement.PUT("/:id", controllers.UpdateSubmission)
+					submissionManagement.DELETE("/:id", controllers.DeleteSubmission)
+
+					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
 
-					// Approval/Rejection/Revision actions
-					submissionManagement.PUT("/:id/approve", controllers.ApproveSubmission)
-					submissionManagement.PUT("/:id/reject", controllers.RejectSubmission)
-					submissionManagement.PUT("/:id/request-revision", controllers.RequestRevision)
-
-					// Export submissions
-					submissionManagement.GET("/export", controllers.ExportSubmissions)
-
-					// Bulk operations (future enhancement)
-					// submissionManagement.POST("/bulk-approve", controllers.BulkApproveSubmissions)
-					// submissionManagement.POST("/bulk-reject", controllers.BulkRejectSubmissions)
+					// Approval flow (cleaned: only new endpoints)
+					submissionManagement.PATCH("/:id/publication-reward/approval-amounts", controllers.UpdatePublicationRewardApprovalAmounts)
+					submissionManagement.POST("/:id/approve", controllers.ApproveSubmission)
+					submissionManagement.POST("/:id/reject", controllers.RejectSubmission)
 				}
 
 				documentTypes := admin.Group("/document-types")
