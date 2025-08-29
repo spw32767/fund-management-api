@@ -407,11 +407,6 @@ func SetupRoutes(router *gin.Engine) {
 
 				submissionManagement := admin.Group("/submissions")
 				{
-					// List / basic CRUD you already have
-					submissionManagement.GET("", controllers.GetAllSubmissions)
-					submissionManagement.POST("", controllers.CreateSubmission)
-					submissionManagement.PUT("/:id", controllers.UpdateSubmission)
-					submissionManagement.DELETE("/:id", controllers.DeleteSubmission)
 
 					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
