@@ -1092,6 +1092,13 @@ func AddFundDetails(c *gin.Context) {
 		return
 	}
 
+	// Fetch subcategory to determine its parent category
+	var subcategory models.FundSubcategory
+	if err := config.DB.Where("subcategory_id = ?", req.SubcategoryID).First(&subcategory).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_id"})
+		return
+	}
+
 	// Create fund application details
 	fundDetails := models.FundApplicationDetail{
 		SubmissionID:       submission.SubmissionID,
@@ -1103,6 +1110,15 @@ func AddFundDetails(c *gin.Context) {
 
 	if err := config.DB.Create(&fundDetails).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save fund details"})
+		return
+	}
+
+	// Update submission with category and subcategory references
+	if err := config.DB.Model(&submission).Updates(map[string]interface{}{
+		"subcategory_id": req.SubcategoryID,
+		"category_id":    subcategory.CategoryID,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission category"})
 		return
 	}
 
