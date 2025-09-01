@@ -1120,10 +1120,11 @@ func AddFundDetails(c *gin.Context) {
 		return
 	}
 
-	// Update submission with category and subcategory references
+	// Update submission with category, subcategory, and budget references
 	if err := config.DB.Model(&submission).Updates(map[string]interface{}{
-		"subcategory_id": req.SubcategoryID,
-		"category_id":    subcategory.CategoryID,
+		"subcategory_id":        req.SubcategoryID,
+		"category_id":           subcategory.CategoryID,
+		"subcategory_budget_id": budget.SubcategoryBudgetID,
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission category"})
 		return
