@@ -1099,6 +1099,13 @@ func AddFundDetails(c *gin.Context) {
 		return
 	}
 
+	// Find active budget for the selected subcategory
+	var budget models.SubcategoryBudget
+	if err := config.DB.Where("subcategory_id = ? AND status = 'active' AND delete_at IS NULL", req.SubcategoryID).First(&budget).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Active subcategory budget not found"})
+		return
+	}
+
 	// Create fund application details
 	fundDetails := models.FundApplicationDetail{
 		SubmissionID:       submission.SubmissionID,
