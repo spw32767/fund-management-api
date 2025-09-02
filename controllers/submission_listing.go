@@ -187,7 +187,8 @@ func GetTeacherSubmissions(c *gin.Context) {
 		switch submissions[i].SubmissionType {
 		case "fund_application":
 			var fundDetail models.FundApplicationDetail
-			if err := config.DB.Preload("Subcategory").Where("submission_id = ?", submissions[i].SubmissionID).First(&fundDetail).Error; err == nil {
+			// Preload subcategory and its parent category to expose category information
+			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(&fundDetail).Error; err == nil {
 				submissions[i].FundApplicationDetail = &fundDetail
 			}
 		case "publication_reward":
