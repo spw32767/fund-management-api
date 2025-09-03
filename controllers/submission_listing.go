@@ -159,7 +159,9 @@ func GetTeacherSubmissions(c *gin.Context) {
 	// Build query for teacher's submissions
 	var submissions []models.Submission
 	query := config.DB.Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
-		Where("user_id = ? AND deleted_at IS NULL", userID)
+		Joins("LEFT JOIN fund_categories ON submissions.category_id = fund_categories.category_id").
+		Select("submissions.*, fund_categories.category_name").
+		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID)
 
 	// Apply filters
 	if submissionType != "" {
