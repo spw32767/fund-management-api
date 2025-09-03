@@ -37,6 +37,8 @@ func GetSubmissions(c *gin.Context) {
 	query := config.DB.Preload("User").
 		Preload("Year").
 		Preload("Status").
+		Preload("Category").
+		Preload("Subcategory").
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
 		Preload("SubmissionUsers.User").

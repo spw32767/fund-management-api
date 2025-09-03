@@ -28,6 +28,8 @@ type Submission struct {
 	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`
 	Status                  ApplicationStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
+	Category                *FundCategory            `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
+	Subcategory             *FundSubcategory         `gorm:"foreignKey:SubcategoryID" json:"subcategory,omitempty"`
 	Documents               []SubmissionDocument     `gorm:"foreignKey:SubmissionID" json:"documents,omitempty"`
 	SubmissionUsers         []SubmissionUser         `gorm:"foreignKey:SubmissionID" json:"submission_users,omitempty"`
 	FundApplicationDetail   *FundApplicationDetail   `json:"fund_application_detail,omitempty"`

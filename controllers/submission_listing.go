@@ -158,7 +158,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 	// Build query for teacher's submissions
 	var submissions []models.Submission
-	query := config.DB.Preload("Year").Preload("Status").
+	query := config.DB.Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
 		Where("user_id = ? AND deleted_at IS NULL", userID)
 
 	// Apply filters
@@ -241,7 +241,7 @@ func GetStaffSubmissions(c *gin.Context) {
 
 	// Build query for submissions that need staff review
 	var submissions []models.Submission
-	query := config.DB.Preload("User").Preload("Year").Preload("Status").
+	query := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
 		Where("deleted_at IS NULL AND submitted_at IS NOT NULL") // Only submitted submissions
 
 	// Apply filters
@@ -336,7 +336,7 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// ---------- Base list query (with preloads) ----------
 	var submissions []models.Submission
-	listQ := config.DB.Preload("User").Preload("Year").Preload("Status").
+	listQ := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
 		Where("submissions.deleted_at IS NULL")
 
 	// Apply filters (identical set used later for stats)
