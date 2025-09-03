@@ -230,7 +230,7 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 // REPLACED: ApproveSubmission (single source of truth)
 // ==============================
 
-// ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน (รองรับ publication_reward approve amounts)
+// ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน และบันทึกเลขประกาศ
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -240,133 +240,135 @@ func ApproveSubmission(c *gin.Context) {
 	}
 	userID, _ := c.Get("userID")
 
+	// Accept both legacy and new payloads
 	var req struct {
-		// For publication_reward
+		// New granular fields (admin page)
 		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
 		RevisionFeeApproveAmount    *float64 `json:"revision_fee_approve_amount"`
 		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
 		TotalApproveAmount          *float64 `json:"total_approve_amount"`
-		ApprovalComment             string   `json:"approval_comment"`
+		AnnounceReferenceNumber     string   `json:"announce_reference_number"`
 
-		// For fund_application (kept for compatibility)
-		ApprovedAmount *float64 `json:"approved_amount"`
+		// Legacy fields (keep compatibility)
+		ApprovedAmount  *float64 `json:"approved_amount"`
+		ApprovalComment string   `json:"approval_comment"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// Allow empty body only for types that don't need amounts (but we require for publication_reward)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
 	}
 
 	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
+	// Load submission with publication detail
 	var submission models.Submission
-	if err := tx.First(&submission, submissionID).Error; err != nil {
+	if err := tx.Preload("PublicationRewardDetail").
+		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
+		First(&submission).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
-	// Only pending (1) or revision-requested (4) can be approved
+	// Validate status (1=pending, 4=revision requested)
 	if submission.StatusID != 1 && submission.StatusID != 4 {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or revision-requested submissions can be approved"})
 		return
 	}
 
+	// Update submission status → approved
 	now := time.Now()
-	approvedByID := userID.(int)
-
-	switch submission.SubmissionType {
-	case "publication_reward":
-		// Require all 4 amounts for publication_reward
-		if req.RewardApproveAmount == nil || req.RevisionFeeApproveAmount == nil || req.PublicationFeeApproveAmount == nil || req.TotalApproveAmount == nil {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "All approve amounts are required for publication_reward"})
-			return
-		}
-		// Non-negative
-		if *req.RewardApproveAmount < 0 || *req.RevisionFeeApproveAmount < 0 || *req.PublicationFeeApproveAmount < 0 || *req.TotalApproveAmount < 0 {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Amounts must be non-negative"})
-			return
-		}
-		// Persist amounts + approval meta
-		if err := tx.Model(&models.PublicationRewardDetail{}).
-			Where("submission_id = ?", submissionID).
-			Updates(map[string]interface{}{
-				"reward_approve_amount":          *req.RewardApproveAmount,
-				"revision_fee_approve_amount":    *req.RevisionFeeApproveAmount,
-				"publication_fee_approve_amount": *req.PublicationFeeApproveAmount,
-				"total_approve_amount":           *req.TotalApproveAmount,
-				"approval_comment":               req.ApprovalComment,
-				"approved_by":                    approvedByID,
-				"approved_at":                    now,
-				"update_at":                      now,
-			}).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update approval amounts"})
-			return
-		}
-
-	case "fund_application":
-		// Keep simple approved_amount flow
-		if req.ApprovedAmount == nil || *req.ApprovedAmount < 0 {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "approved_amount is required and must be non-negative"})
-			return
-		}
-		var detail models.FundApplicationDetail
-		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			detail.ApprovedAmount = *req.ApprovedAmount
-			detail.Comment = req.ApprovalComment
-			detail.ApprovedBy = &approvedByID
-			detail.ApprovedAt = &now
-			detail.ClosedAt = &now
-			if err := tx.Save(&detail).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save fund_application approval"})
-				return
-			}
-		}
-	default:
-		// Other types: just allow approve without amounts
-	}
-
-	// Update submission status -> approved (2)
 	submission.StatusID = 2
-	submission.ApprovedBy = &approvedByID
-	submission.ApprovedAt = &now
 	submission.UpdatedAt = now
+	if uid, ok := userID.(int); ok {
+		submission.ApprovedBy = &uid
+	}
+	submission.ApprovedAt = &now
 	if err := tx.Save(&submission).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// Audit log
-	auditLog := models.AuditLog{
-		UserID:       approvedByID,
-		Action:       "approve",
-		EntityType:   "submission",
-		EntityID:     &submission.SubmissionID,
-		EntityNumber: &submission.SubmissionNumber,
-		Description:  &req.ApprovalComment,
-		IPAddress:    c.ClientIP(),
-		CreatedAt:    now,
+	// Update detail for publication_reward
+	if submission.SubmissionType == "publication_reward" {
+		var detail models.PublicationRewardDetail
+		if submission.PublicationRewardDetail != nil {
+			detail = *submission.PublicationRewardDetail
+		} else {
+			// try to find; or prepare new
+			if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err != nil {
+				detail.SubmissionID = submissionID
+			}
+		}
+
+		// Apply amounts if provided
+		if req.RewardApproveAmount != nil {
+			detail.RewardApproveAmount = *req.RewardApproveAmount
+		}
+		if req.RevisionFeeApproveAmount != nil {
+			detail.RevisionFeeApproveAmount = *req.RevisionFeeApproveAmount
+		}
+		if req.PublicationFeeApproveAmount != nil {
+			detail.PublicationFeeApproveAmount = *req.PublicationFeeApproveAmount
+		}
+
+		// Total priority: explicit total → legacy approved_amount → sum of parts
+		if req.TotalApproveAmount != nil {
+			detail.TotalApproveAmount = *req.TotalApproveAmount
+		} else if req.ApprovedAmount != nil {
+			detail.TotalApproveAmount = *req.ApprovedAmount
+		} else {
+			detail.TotalApproveAmount = detail.RewardApproveAmount +
+				detail.RevisionFeeApproveAmount +
+				detail.PublicationFeeApproveAmount
+		}
+
+		// Save announce reference number
+		detail.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
+
+		if detail.DetailID == 0 {
+			if err := tx.Create(&detail).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create detail"})
+				return
+			}
+		} else {
+			if err := tx.Save(&detail).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update detail"})
+				return
+			}
+		}
 	}
-	tx.Create(&auditLog)
 
 	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to approve submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed"})
+		return
+	}
+
+	// Return latest (with detail)
+	var out models.Submission
+	if err := config.DB.Preload("PublicationRewardDetail").
+		Where("submission_id = ?", submissionID).
+		First(&out).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Submission approved"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Submission approved successfully",
-		"submission": gin.H{
-			"submission_id":     submission.SubmissionID,
-			"submission_number": submission.SubmissionNumber,
-			"status_id":         submission.StatusID,
+		"success":    true,
+		"message":    "Submission approved successfully",
+		"submission": out,
+		"details": gin.H{
+			"type": "publication_reward",
+			"data": out.PublicationRewardDetail,
 		},
 	})
 }
