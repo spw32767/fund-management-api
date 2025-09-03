@@ -16,6 +16,7 @@ type Submission struct {
 	CategoryID          *int       `gorm:"column:category_id" json:"category_id"`                     // ✅ เพิ่มใหม่
 	CategoryName        *string    `gorm:"column:category_name;->" json:"category_name"`              // ✅ เพิ่มใหม่ (read-only, มาจาก join)
 	SubcategoryID       *int       `gorm:"column:subcategory_id" json:"subcategory_id"`               // ✅ เพิ่มใหม่
+	SubcategoryName     *string    `gorm:"column:subcategory_name;->" json:"subcategory_name"`        // ✅ เพิ่มใหม่ (read-only, มาจาก join)
 	SubcategoryBudgetID *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
 	StatusID            int        `gorm:"column:status_id" json:"status_id"`
 	ApprovedBy          *int       `gorm:"column:approved_by" json:"approved_by"`
