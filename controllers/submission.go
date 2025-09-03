@@ -67,17 +67,17 @@ func GetSubmissions(c *gin.Context) {
 	for i := range submissions {
 		switch submissions[i].SubmissionType {
 		case "fund_application":
-			var fundDetail models.FundApplicationDetail
-			if err := config.DB.Preload("Subcategory").Where("submission_id = ?", submissions[i].SubmissionID).First(&fundDetail).Error; err == nil {
-				submissions[i].FundApplicationDetail = &fundDetail
+			fundDetail := &models.FundApplicationDetail{}
+			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(fundDetail).Error; err == nil {
+				submissions[i].FundApplicationDetail = fundDetail
 			}
 		case "publication_reward":
-			var pubDetail models.PublicationRewardDetail
-			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(&pubDetail).Error; err == nil {
+			pubDetail := &models.PublicationRewardDetail{}
+			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(pubDetail).Error; err == nil {
 				if submissions[i].StatusID != 2 {
 					pubDetail.AnnounceReferenceNumber = ""
 				}
-				submissions[i].PublicationRewardDetail = &pubDetail
+				submissions[i].PublicationRewardDetail = pubDetail
 			}
 		}
 	}
@@ -148,18 +148,18 @@ func GetSubmission(c *gin.Context) {
 	// Load type-specific details
 	switch submission.SubmissionType {
 	case "fund_application":
-		var fundDetail models.FundApplicationDetail
-		if err := config.DB.Preload("Subcategory").Where("submission_id = ?", submission.SubmissionID).First(&fundDetail).Error; err == nil {
-			submission.FundApplicationDetail = &fundDetail
+		fundDetail := &models.FundApplicationDetail{}
+		if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submission.SubmissionID).First(fundDetail).Error; err == nil {
+			submission.FundApplicationDetail = fundDetail
 		}
 	case "publication_reward":
-		var pubDetail models.PublicationRewardDetail
-		if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(&pubDetail).Error; err == nil {
+		pubDetail := &models.PublicationRewardDetail{}
+		if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(pubDetail).Error; err == nil {
 			if submission.StatusID != 2 {
 				pubDetail.ApprovedAmount = nil
 				pubDetail.AnnounceReferenceNumber = ""
 			}
-			submission.PublicationRewardDetail = &pubDetail
+			submission.PublicationRewardDetail = pubDetail
 		}
 	}
 

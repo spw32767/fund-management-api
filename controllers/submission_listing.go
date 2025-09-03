@@ -186,18 +186,18 @@ func GetTeacherSubmissions(c *gin.Context) {
 	for i := range submissions {
 		switch submissions[i].SubmissionType {
 		case "fund_application":
-			var fundDetail models.FundApplicationDetail
+			fundDetail := &models.FundApplicationDetail{}
 			// Preload subcategory and its parent category to expose category information
-			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(&fundDetail).Error; err == nil {
-				submissions[i].FundApplicationDetail = &fundDetail
+			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(fundDetail).Error; err == nil {
+				submissions[i].FundApplicationDetail = fundDetail
 			}
 		case "publication_reward":
-			var pubDetail models.PublicationRewardDetail
-			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(&pubDetail).Error; err == nil {
+			pubDetail := &models.PublicationRewardDetail{}
+			if err := config.DB.Where("submission_id = ?", submissions[i].SubmissionID).First(pubDetail).Error; err == nil {
 				if submissions[i].StatusID != 2 {
 					pubDetail.AnnounceReferenceNumber = ""
 				}
-				submissions[i].PublicationRewardDetail = &pubDetail
+				submissions[i].PublicationRewardDetail = pubDetail
 			}
 		}
 	}
