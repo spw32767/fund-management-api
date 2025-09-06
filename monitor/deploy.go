@@ -1,4 +1,4 @@
-// deploy.go
+// deploy.go – simple web UI to deploy latest backend code from git repo
 package monitor
 
 import (
