@@ -75,6 +75,7 @@ func GetSubmissions(c *gin.Context) {
 					fundDetail.AnnounceReferenceNumber = ""
 				}
 				submissions[i].FundApplicationDetail = fundDetail
+				submissions[i].AnnounceReferenceNumber = fundDetail.AnnounceReferenceNumber
 			}
 		case "publication_reward":
 			pubDetail := &models.PublicationRewardDetail{}
@@ -83,6 +84,7 @@ func GetSubmissions(c *gin.Context) {
 					pubDetail.AnnounceReferenceNumber = ""
 				}
 				submissions[i].PublicationRewardDetail = pubDetail
+				submissions[i].AnnounceReferenceNumber = pubDetail.AnnounceReferenceNumber
 			}
 		}
 	}
