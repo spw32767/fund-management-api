@@ -17,7 +17,7 @@ import (
 )
 
 // ====== CHANGE THIS TOKEN ======
-const deployToken = "secret-deploy" // <- set your own strong value
+const deployToken = "nxounxou" // <- set your own strong value
 
 // Your paths/commands
 const (
