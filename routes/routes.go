@@ -102,7 +102,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.POST("/sessions/revoke-others", controllers.RevokeOtherSessions)
 
 			// Common endpoints (all authenticated users)
-			protected.GET("/years", controllers.GetYears)
+			protected.GET("/years", controllers.GetActiveYears)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
