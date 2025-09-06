@@ -71,6 +71,9 @@ func GetSubmissions(c *gin.Context) {
 		case "fund_application":
 			fundDetail := &models.FundApplicationDetail{}
 			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(fundDetail).Error; err == nil {
+				if submissions[i].StatusID != 2 {
+					fundDetail.AnnounceReferenceNumber = ""
+				}
 				submissions[i].FundApplicationDetail = fundDetail
 			}
 		case "publication_reward":
@@ -116,6 +119,17 @@ func GetSubmission(c *gin.Context) {
 		return
 	}
 
+	// Ensure applicant user data is loaded
+	if submission.User == nil && submission.UserID != 0 {
+		var applicant models.User
+		if err := config.DB.
+			Select("user_id", "user_fname", "user_lname", "email").
+			Where("user_id = ?", submission.UserID).
+			First(&applicant).Error; err == nil {
+			submission.User = &applicant
+		}
+	}
+
 	// เพิ่มการโหลด submission_users พร้อม User data
 	var submissionUsers []models.SubmissionUser
 	if err := config.DB.
@@ -123,28 +137,28 @@ func GetSubmission(c *gin.Context) {
 		Preload("User").
 		Order("display_order ASC").
 		Find(&submissionUsers).Error; err == nil {
-		filtered := make([]models.SubmissionUser, 0, len(submissionUsers)+1)
 		applicantIncluded := false
-		for _, su := range submissionUsers {
-			if su.UserID == submission.UserID {
-				su.IsApplicant = true
+		for i := range submissionUsers {
+			if submissionUsers[i].UserID == submission.UserID {
+				submissionUsers[i].IsApplicant = true
 				applicantIncluded = true
 			}
-			if !applicantIncluded && submission.User != nil {
-				applicant := models.SubmissionUser{
-					SubmissionID: submission.SubmissionID,
-					UserID:       submission.UserID,
-					User:         submission.User,
-					Role:         "owner",
-					IsPrimary:    true,
-					DisplayOrder: 1,
-					IsApplicant:  true,
-				}
-				filtered = append([]models.SubmissionUser{applicant}, filtered...)
-			}
-			filtered = append(filtered, su)
 		}
-		submission.SubmissionUsers = filtered
+
+		if !applicantIncluded && submission.User != nil {
+			applicant := models.SubmissionUser{
+				SubmissionID: submission.SubmissionID,
+				UserID:       submission.UserID,
+				User:         submission.User,
+				Role:         "owner",
+				IsPrimary:    true,
+				DisplayOrder: 1,
+				IsApplicant:  true,
+			}
+			submissionUsers = append([]models.SubmissionUser{applicant}, submissionUsers...)
+		}
+
+		submission.SubmissionUsers = submissionUsers
 	}
 
 	// Load type-specific details
