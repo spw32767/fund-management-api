@@ -40,15 +40,16 @@ type Submission struct {
 
 // FundApplicationDetail represents fund application specific details
 type FundApplicationDetail struct {
-	DetailID           int        `gorm:"primaryKey;column:detail_id" json:"detail_id"`
-	SubmissionID       int        `gorm:"column:submission_id" json:"submission_id"`
-	SubcategoryID      int        `gorm:"column:subcategory_id" json:"subcategory_id"`
-	ProjectTitle       string     `gorm:"column:project_title" json:"project_title"`
-	ProjectDescription string     `gorm:"column:project_description" json:"project_description"`
-	RequestedAmount    float64    `gorm:"column:requested_amount" json:"requested_amount"`
-	ApprovedAmount     float64    `gorm:"column:approved_amount" json:"approved_amount"`
-	ClosedAt           *time.Time `gorm:"column:closed_at" json:"closed_at"`
-	Comment            string     `gorm:"column:comment" json:"comment"`
+	DetailID                int        `gorm:"primaryKey;column:detail_id" json:"detail_id"`
+	SubmissionID            int        `gorm:"column:submission_id" json:"submission_id"`
+	SubcategoryID           int        `gorm:"column:subcategory_id" json:"subcategory_id"`
+	ProjectTitle            string     `gorm:"column:project_title" json:"project_title"`
+	ProjectDescription      string     `gorm:"column:project_description" json:"project_description"`
+	RequestedAmount         float64    `gorm:"column:requested_amount" json:"requested_amount"`
+	ApprovedAmount          float64    `gorm:"column:approved_amount" json:"approved_amount"`
+	ClosedAt                *time.Time `gorm:"column:closed_at" json:"closed_at"`
+	Comment                 string     `gorm:"column:comment" json:"comment"`
+	AnnounceReferenceNumber string     `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ tracking ==========
 	ApprovedBy *int       `json:"approved_by" gorm:"column:approved_by"`

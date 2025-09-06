@@ -95,6 +95,9 @@ func GetSubmissionDetails(c *gin.Context) {
 			"data": submission.PublicationRewardDetail,
 		}
 	} else if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
+		if submission.StatusID != 2 {
+			submission.FundApplicationDetail.AnnounceReferenceNumber = ""
+		}
 		response["details"] = gin.H{
 			"type": "fund_application",
 			"data": submission.FundApplicationDetail,

@@ -71,6 +71,9 @@ func GetSubmissions(c *gin.Context) {
 		case "fund_application":
 			fundDetail := &models.FundApplicationDetail{}
 			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(fundDetail).Error; err == nil {
+				if submissions[i].StatusID != 2 {
+					fundDetail.AnnounceReferenceNumber = ""
+				}
 				submissions[i].FundApplicationDetail = fundDetail
 			}
 		case "publication_reward":
