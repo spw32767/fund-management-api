@@ -35,6 +35,8 @@ func SetupRoutes(router *gin.Engine) {
 			RegisterUploadRoutes(public) // สำหรับ POST /upload
 			RegisterFileRoutes(public)   // สำหรับ GET /files, DELETE /files/:name
 
+			public.GET("/years", controllers.GetActiveYears)
+
 			// Authentication
 			public.POST("/login", controllers.Login)
 
@@ -102,7 +104,6 @@ func SetupRoutes(router *gin.Engine) {
 			protected.POST("/sessions/revoke-others", controllers.RevokeOtherSessions)
 
 			// Common endpoints (all authenticated users)
-			protected.GET("/years", controllers.GetActiveYears)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
