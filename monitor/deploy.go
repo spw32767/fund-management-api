@@ -1,4 +1,4 @@
-// deploy.go – simple web UI to deploy latest backend code from git repo
+// deploy.go
 package monitor
 
 import (
@@ -16,24 +16,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ====== IMPORTANT ======
 // ====== CHANGE THIS TOKEN ======
-const deployToken = "nxounxou" // <- set your own strong value
+const deployToken = "secret-deploy" // <- set your own strong value
 
-// Paths/commands you asked for:
+// Your paths/commands
 const (
 	repoDir     = "/root/fundproject/fund-management-api"
 	buildDir    = "/root/fundproject/fund-management-api/cmd/api"
 	outputBin   = "/root/fundproject/fund-api"
 	serviceName = "fund-api"
+
+	gitBin       = "/usr/bin/git"
+	goBin        = "/usr/local/go/bin/go"
+	systemctlBin = "/usr/bin/systemctl"
+	sudoBin      = "/usr/bin/sudo"
 )
 
-// Mount all deploy endpoints (call this from your routes.go)
 func RegisterDeployPage(router *gin.Engine) {
 	router.GET("/deploy", deployUI)
-	router.POST("/deploy/run", deployRun)
+	router.GET("/deploy/preview", deployPreview)
 	router.GET("/deploy/diag", deployDiag)
-	router.GET("/deploy/preview", deployPreview) // NEW: preview changes
+	router.POST("/deploy/run", deployRun)
 }
 
 // ---------- UI ----------
@@ -101,8 +104,7 @@ document.getElementById('btnPreview').onclick = async ()=>{
   set("Fetching and comparing with remote...");
   try{
     const res = await fetch('/deploy/preview?token=' + token);
-    const text = await res.text();
-    set(text);
+    set(await res.text());
   }catch(e){ set("ERROR: " + e.message); }
 };
 
@@ -115,12 +117,11 @@ document.getElementById('btnDiag').onclick = async ()=>{
 };
 
 document.getElementById('btnDeploy').onclick = async ()=>{
-  // Confirmation dialog
   const ok = confirm(
-    "This will:\n\n" +
-    "1) git pull (merge remote changes)\n" +
-    "2) go build -o {{.OutputBin}}\n" +
-    "3) systemctl restart {{.ServiceName}}\n\n" +
+    "This will:\\n\\n" +
+    "1) git pull (merge remote changes)\\n" +
+    "2) go build -o {{.OutputBin}}\\n" +
+    "3) systemctl restart {{.ServiceName}}\\n\\n" +
     "Are you sure you want to continue?"
   );
   if(!ok) return;
@@ -146,59 +147,7 @@ document.getElementById('btnDeploy').onclick = async ()=>{
 	})
 }
 
-// ---------- STREAMED RUN ----------
-func deployRun(c *gin.Context) {
-	if c.Query("token") != deployToken {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	// Streaming response (terminal-like)
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.WriteHeader(http.StatusOK)
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.String(http.StatusInternalServerError, "streaming not supported by server")
-		return
-	}
-	write := func(s string) {
-		_, _ = c.Writer.Write([]byte(s + "\n"))
-		flusher.Flush()
-	}
-
-	// Step 1: git pull (run in repoDir)
-	write("== Step 1: git pull ==")
-	if err := runAndStream(write, repoDir, "/usr/bin/git", "pull"); err != nil {
-		write("ERROR: " + err.Error())
-		return
-	}
-
-	// Step 2: go build (run in buildDir, output to absolute outputBin)
-	write("\n== Step 2: go build ==")
-	if err := runAndStream(write, buildDir, "/usr/local/go/bin/go", "build", "-o", outputBin); err != nil {
-		write("ERROR: " + err.Error())
-		return
-	}
-
-	// Step 3: systemctl restart
-	write("\n== Step 3: systemctl restart " + serviceName + " ==")
-	// Try sudo -n first (non-interactive). If it fails, try without sudo.
-	if err := runAndStream(write, "", "/usr/bin/sudo", "-n", "/usr/bin/systemctl", "restart", serviceName); err != nil {
-		write("sudo restart failed, trying without sudo...")
-		if err2 := runAndStream(write, "", "/usr/bin/systemctl", "restart", serviceName); err2 != nil {
-			write("ERROR: " + err.Error())
-			write("ERROR (fallback): " + err2.Error())
-			return
-		}
-	}
-
-	// Optional: show status
-	write("\n== Status after restart ==")
-	_ = runAndStream(write, "", "systemctl", "is-active", serviceName)
-}
-
-// ---------- PREVIEW (no changes applied) ----------
+// ---------- PREVIEW ----------
 func deployPreview(c *gin.Context) {
 	if c.Query("token") != deployToken {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -208,10 +157,10 @@ func deployPreview(c *gin.Context) {
 	var buf bytes.Buffer
 	w := func(s string) { buf.WriteString(s + "\n") }
 
-	branch, _ := runCmd(repoDir, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	branch, _ := runCmd(repoDir, gitBin, "rev-parse", "--abbrev-ref", "HEAD")
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
-		branch = "main" // fallback if unknown
+		branch = "main"
 	}
 	remoteRef := "origin/" + branch
 
@@ -222,7 +171,7 @@ func deployPreview(c *gin.Context) {
 	w("")
 
 	// Fetch remote updates
-	if out, err := runCmd(repoDir, "git", "fetch", "--all", "--prune"); err != nil {
+	if out, err := runCmd(repoDir, gitBin, "fetch", "--all", "--prune"); err != nil {
 		w("ERROR fetching: " + err.Error())
 		w(strings.TrimSpace(out))
 		c.String(http.StatusOK, buf.String())
@@ -230,15 +179,15 @@ func deployPreview(c *gin.Context) {
 	}
 
 	// Warn if local uncommitted changes exist
-	if out, _ := runCmd(repoDir, "git", "status", "--porcelain"); strings.TrimSpace(out) != "" {
+	if out, _ := runCmd(repoDir, gitBin, "status", "--porcelain"); strings.TrimSpace(out) != "" {
 		w("⚠️ Local changes detected (uncommitted):")
 		w(strings.TrimSpace(out))
 		w("")
 	}
 
-	// Commits that will come in
+	// Incoming commits
 	w("> Incoming commits (HEAD.." + remoteRef + "):")
-	if out, _ := runCmd(repoDir, "git", "log", "--oneline", "HEAD.."+remoteRef); strings.TrimSpace(out) != "" {
+	if out, _ := runCmd(repoDir, gitBin, "log", "--oneline", "HEAD.."+remoteRef); strings.TrimSpace(out) != "" {
 		w(out)
 	} else {
 		w("(none)")
@@ -247,7 +196,7 @@ func deployPreview(c *gin.Context) {
 
 	// Files that will change
 	w("> Files changed (diff --name-status HEAD.." + remoteRef + "):")
-	if out, _ := runCmd(repoDir, "git", "diff", "--name-status", "HEAD.."+remoteRef); strings.TrimSpace(out) != "" {
+	if out, _ := runCmd(repoDir, gitBin, "diff", "--name-status", "HEAD.."+remoteRef); strings.TrimSpace(out) != "" {
 		w(out)
 	} else {
 		w("(none)")
@@ -287,7 +236,7 @@ func deployDiag(c *gin.Context) {
 
 	// sudo non-interactive test
 	w("\n> sudo -n -v")
-	if out, err := runCmd("", "sudo", "-n", "-v"); err != nil {
+	if out, err := runCmd("", sudoBin, "-n", "-v"); err != nil {
 		w("ERROR: " + err.Error())
 		w(strings.TrimSpace(out))
 	} else {
@@ -296,7 +245,7 @@ func deployDiag(c *gin.Context) {
 
 	// sudo systemctl status
 	w("\n> sudo -n systemctl status " + serviceName)
-	if out, err := runCmd("", "sudo", "-n", "systemctl", "status", serviceName); err != nil {
+	if out, err := runCmd("", sudoBin, "-n", systemctlBin, "status", serviceName); err != nil {
 		w("ERROR: " + err.Error())
 		w(strings.TrimSpace(out))
 	} else {
@@ -305,7 +254,7 @@ func deployDiag(c *gin.Context) {
 
 	// active?
 	w("\n> systemctl is-active " + serviceName)
-	if out, err := runCmd("", "systemctl", "is-active", serviceName); err != nil {
+	if out, err := runCmd("", systemctlBin, "is-active", serviceName); err != nil {
 		w("ERROR: " + err.Error())
 		w(strings.TrimSpace(out))
 	} else {
@@ -313,6 +262,50 @@ func deployDiag(c *gin.Context) {
 	}
 
 	c.String(http.StatusOK, buf.String())
+}
+
+// ---------- DEPLOY (via login shell) ----------
+func deployRun(c *gin.Context) {
+	if c.Query("token") != deployToken {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Streaming response
+	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.WriteHeader(http.StatusOK)
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.String(http.StatusInternalServerError, "streaming not supported by server")
+		return
+	}
+	write := func(s string) {
+		_, _ = c.Writer.Write([]byte(s + "\n"))
+		flusher.Flush()
+	}
+
+	write("== Deploy via login shell ==")
+
+	// Use a login shell so it behaves the same as your terminal session.
+	// Absolute paths are kept for extra safety.
+	cmd := exec.Command("/bin/bash", "-lc", `
+set -e
+cd /root/fundproject/fund-management-api
+`+gitBin+` pull
+cd cmd/api
+`+goBin+` build -o `+outputBin+`
+`+sudoBin+` -n `+systemctlBin+` restart `+serviceName+` || `+systemctlBin+` restart `+serviceName+`
+`)
+
+	if err := runCmdStreaming(cmd, write); err != nil {
+		write("ERROR: deploy failed: " + err.Error())
+		return
+	}
+
+	// Show status after restart
+	write("\n== Status after restart ==")
+	_ = runAndStream(write, "", systemctlBin, "is-active", serviceName)
 }
 
 // ---------- helpers ----------
@@ -358,6 +351,43 @@ func runAndStream(write func(string), dir string, name string, args ...string) e
 		return errors.New(name + " failed: " + err.Error())
 	}
 	return nil
+}
+
+func runCmdStreaming(cmd *exec.Cmd, write func(string)) error {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	outScan := bufio.NewScanner(stdout)
+	errScan := bufio.NewScanner(stderr)
+	outScan.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	errScan.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	done := make(chan struct{}, 2)
+	go func() {
+		for outScan.Scan() {
+			write(outScan.Text())
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		for errScan.Scan() {
+			write(errScan.Text())
+		}
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+
+	return cmd.Wait()
 }
 
 func runCmd(dir string, name string, args ...string) (string, error) {
