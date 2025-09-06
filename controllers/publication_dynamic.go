@@ -11,54 +11,43 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// matchesFund checks if a budget description matches author status and quartile
+// matchesFund determines if a fund description matches a given quartile bucket.
+// NOTE: budgets are NOT split by author status, so we intentionally ignore authorStatus here.
 func matchesFund(desc, authorStatus, quartile string) bool {
-	if desc == "" {
+	if desc == "" || quartile == "" {
 		return false
 	}
 	d := strings.ToLower(desc)
-	// Quartile keywords
+
+	// normalize some Thai/typographical variants
+	d = strings.ReplaceAll(d, "ลําดับ", "ลำดับ") // normalize variants
+	d = strings.ReplaceAll(d, "％", "%")
+	d = strings.ReplaceAll(d, "  ", " ")
+
 	switch quartile {
 	case "T5":
-		if !strings.Contains(d, "5%") {
-			return false
-		}
+		// วารสาร ... (ลำดับ 5% แรก)
+		return strings.Contains(d, "5%") || strings.Contains(d, "5 %")
 	case "T10":
-		if !strings.Contains(d, "10%") {
-			return false
-		}
+		// วารสาร ... (ลำดับ 10% แรก)
+		return strings.Contains(d, "10%") || strings.Contains(d, "10 %")
 	case "Q1":
-		if !strings.Contains(d, "q1") && !strings.Contains(d, "ควอร์ไทล์ 1") {
-			return false
-		}
+		return strings.Contains(d, "ควอร์ไทล์ 1") || strings.Contains(d, "q1")
 	case "Q2":
-		if !strings.Contains(d, "q2") && !strings.Contains(d, "ควอร์ไทล์ 2") {
-			return false
-		}
+		return strings.Contains(d, "ควอร์ไทล์ 2") || strings.Contains(d, "q2")
 	case "Q3":
-		if !strings.Contains(d, "q3") && !strings.Contains(d, "ควอร์ไทล์ 3") {
-			return false
-		}
+		return strings.Contains(d, "ควอร์ไทล์ 3") || strings.Contains(d, "q3")
 	case "Q4":
-		if !strings.Contains(d, "q4") && !strings.Contains(d, "ควอร์ไทล์ 4") {
-			return false
-		}
+		return strings.Contains(d, "ควอร์ไทล์ 4") || strings.Contains(d, "q4")
 	case "TCI":
-		if !strings.Contains(d, "tci") {
-			return false
-		}
+		// TCI กลุ่มที่ 1 สาขาวิทยาศาสตร์เทคโนโลยี
+		return strings.Contains(d, "tci") &&
+			(strings.Contains(d, "กลุ่มที่ 1") || strings.Contains(d, "group 1")) &&
+			(strings.Contains(d, "วิทยาศาสตร์") || strings.Contains(d, "เทคโนโลยี") ||
+				strings.Contains(d, "science") || strings.Contains(d, "technology"))
+	default:
+		return false
 	}
-	switch authorStatus {
-	case "first_author":
-		if strings.Contains(d, "ผู้แต่ง") || strings.Contains(d, "first") {
-			return true
-		}
-	case "corresponding_author":
-		if strings.Contains(d, "ประพันธ์") || strings.Contains(d, "corresponding") {
-			return true
-		}
-	}
-	return false
 }
 
 // GetEnabledYearsForCategory returns years that have budgets for a category
@@ -70,12 +59,24 @@ func GetEnabledYearsForCategory(c *gin.Context) {
 	}
 
 	var years []models.Year
-	err := config.DB.Table("years").
-		Joins("JOIN fund_categories fc ON fc.year_id = years.year_id AND fc.category_id = ? AND fc.delete_at IS NULL", categoryID).
-		Joins("JOIN fund_subcategories fs ON fs.category_id = fc.category_id AND fs.status = 'active' AND fs.delete_at IS NULL").
-		Joins("JOIN subcategory_budgets sb ON sb.subcategory_id = fs.subcategory_id AND sb.status = 'active' AND sb.delete_at IS NULL").
-		Where("years.delete_at IS NULL").
-		Distinct().Find(&years).Error
+	err := config.DB.Table("years y").
+		Joins(`
+			JOIN fund_subcategories fs 
+			  ON fs.year_id = y.year_id
+			 AND fs.category_id = ?
+			 AND fs.status = 'active'
+			 AND fs.delete_at IS NULL
+			 AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
+		`, categoryID).
+		Joins(`
+			JOIN subcategory_budgets sb
+			  ON sb.subcategory_id = fs.subcategory_id
+			 AND sb.status = 'active'
+			 AND sb.delete_at IS NULL
+		`).
+		Where("y.delete_at IS NULL").
+		Distinct().
+		Find(&years).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch years"})
 		return
@@ -93,18 +94,23 @@ func GetPublicationOptions(c *gin.Context) {
 		return
 	}
 
+	// Resolve year string from year_id
 	var year models.Year
 	if err := config.DB.First(&year, "year_id = ? AND delete_at IS NULL", yearID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year_id"})
 		return
 	}
 
+	// Load active rates for the given year
 	var rates []models.PublicationRewardRate
-	if err := config.DB.Where("year = ? AND is_active = ?", year.Year, true).Find(&rates).Error; err != nil {
+	if err := config.DB.
+		Where("year = ? AND is_active = ?", year.Year, true).
+		Find(&rates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch rates"})
 		return
 	}
 
+	// Load active budgets for the category/year
 	type budgetRow struct {
 		SubcategoryID   int
 		BudgetID        int
@@ -112,16 +118,27 @@ func GetPublicationOptions(c *gin.Context) {
 	}
 	var budgets []budgetRow
 	err := config.DB.Table("fund_subcategories fs").
-		Select("fs.subcategory_id, sb.subcategory_budget_id as budget_id, sb.fund_description").
-		Joins("JOIN fund_categories fc ON fs.category_id = fc.category_id AND fc.category_id = ? AND fc.year_id = ?", categoryID, yearID).
-		Joins("JOIN subcategory_budgets sb ON sb.subcategory_id = fs.subcategory_id AND sb.status = 'active' AND sb.delete_at IS NULL").
-		Where("fs.delete_at IS NULL AND fs.status = 'active'").
+		Select("fs.subcategory_id, sb.subcategory_budget_id AS budget_id, sb.fund_description").
+		Joins(`
+			JOIN subcategory_budgets sb
+			  ON sb.subcategory_id = fs.subcategory_id
+			 AND sb.status = 'active'
+			 AND sb.delete_at IS NULL
+		`).
+		Where(`
+			fs.delete_at IS NULL
+			AND fs.status = 'active'
+			AND fs.category_id = ?
+			AND fs.year_id = ?
+			AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
+		`, categoryID, yearID).
 		Find(&budgets).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch budgets"})
 		return
 	}
 
+	// Match budgets to rate rows by fund_description bucket
 	options := []gin.H{}
 	for _, rate := range rates {
 		for _, b := range budgets {
@@ -153,19 +170,23 @@ func ResolvePublicationBudget(c *gin.Context) {
 		return
 	}
 
+	// Resolve year string from year_id
 	var year models.Year
 	if err := config.DB.First(&year, "year_id = ? AND delete_at IS NULL", yearID).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid year_id"})
 		return
 	}
 
+	// Find the active rate row for (year, authorStatus, quartile)
 	var rate models.PublicationRewardRate
-	if err := config.DB.Where("year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?", year.Year, authorStatus, quartile, true).
+	if err := config.DB.
+		Where("year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?", year.Year, authorStatus, quartile, true).
 		First(&rate).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "rate not found"})
 		return
 	}
 
+	// Load budgets for the category/year
 	type budgetRow struct {
 		SubcategoryID   int
 		BudgetID        int
@@ -174,10 +195,20 @@ func ResolvePublicationBudget(c *gin.Context) {
 	}
 	var budgets []budgetRow
 	err := config.DB.Table("fund_subcategories fs").
-		Select("fs.subcategory_id, sb.subcategory_budget_id as budget_id, sb.fund_description, sb.remaining_budget").
-		Joins("JOIN fund_categories fc ON fs.category_id = fc.category_id AND fc.category_id = ? AND fc.year_id = ?", categoryID, yearID).
-		Joins("JOIN subcategory_budgets sb ON sb.subcategory_id = fs.subcategory_id AND sb.status = 'active' AND sb.delete_at IS NULL").
-		Where("fs.delete_at IS NULL AND fs.status = 'active'").
+		Select("fs.subcategory_id, sb.subcategory_budget_id AS budget_id, sb.fund_description, sb.remaining_budget").
+		Joins(`
+			JOIN subcategory_budgets sb
+			  ON sb.subcategory_id = fs.subcategory_id
+			 AND sb.status = 'active'
+			 AND sb.delete_at IS NULL
+		`).
+		Where(`
+			fs.delete_at IS NULL
+			AND fs.status = 'active'
+			AND fs.category_id = ?
+			AND fs.year_id = ?
+			AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
+		`, categoryID, yearID).
 		Find(&budgets).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch budgets"})
@@ -196,6 +227,7 @@ func ResolvePublicationBudget(c *gin.Context) {
 			return
 		}
 	}
+
 	c.JSON(http.StatusNotFound, gin.H{"error": "no matching fund"})
 }
 
