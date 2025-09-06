@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ====== IMPORTANT ======
 // ====== CHANGE THIS TOKEN ======
 const deployToken = "nxounxou" // <- set your own strong value
 
