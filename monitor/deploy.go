@@ -169,14 +169,14 @@ func deployRun(c *gin.Context) {
 
 	// Step 1: git pull (run in repoDir)
 	write("== Step 1: git pull ==")
-	if err := runAndStream(write, repoDir, "git", "pull"); err != nil {
+	if err := runAndStream(write, repoDir, "/usr/bin/git", "pull"); err != nil {
 		write("ERROR: " + err.Error())
 		return
 	}
 
 	// Step 2: go build (run in buildDir, output to absolute outputBin)
 	write("\n== Step 2: go build ==")
-	if err := runAndStream(write, buildDir, "go", "build", "-o", outputBin); err != nil {
+	if err := runAndStream(write, buildDir, "/usr/local/go/bin/go", "build", "-o", outputBin); err != nil {
 		write("ERROR: " + err.Error())
 		return
 	}
@@ -184,9 +184,9 @@ func deployRun(c *gin.Context) {
 	// Step 3: systemctl restart
 	write("\n== Step 3: systemctl restart " + serviceName + " ==")
 	// Try sudo -n first (non-interactive). If it fails, try without sudo.
-	if err := runAndStream(write, "", "sudo", "-n", "systemctl", "restart", serviceName); err != nil {
+	if err := runAndStream(write, "", "/usr/bin/sudo", "-n", "/usr/bin/systemctl", "restart", serviceName); err != nil {
 		write("sudo restart failed, trying without sudo...")
-		if err2 := runAndStream(write, "", "systemctl", "restart", serviceName); err2 != nil {
+		if err2 := runAndStream(write, "", "/usr/bin/systemctl", "restart", serviceName); err2 != nil {
 			write("ERROR: " + err.Error())
 			write("ERROR (fallback): " + err2.Error())
 			return
