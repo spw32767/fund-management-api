@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
+	"fund-management-api/monitor"
 	"log"
 	"net/http"
 	"net/url"
@@ -24,6 +25,8 @@ func SetupRoutes(router *gin.Engine) {
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Next()
 	})
+
+	monitor.RegisterDeployPage(router)
 
 	// API v1 group
 	v1 := router.Group("/api/v1")
