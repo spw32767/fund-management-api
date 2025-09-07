@@ -17,7 +17,7 @@ import (
 )
 
 // ====== CHANGE THIS TOKEN ======
-const deployToken = "nxounxou" // <- set your own strong value
+const deployToken = "secret-deploy" // <- set your own strong value
 
 // Your paths/commands
 const (
@@ -264,7 +264,7 @@ func deployDiag(c *gin.Context) {
 	c.String(http.StatusOK, buf.String())
 }
 
-// ---------- DEPLOY (via login shell) ----------
+// ---------- DEPLOY (via login shell + explicit Go env) ----------
 func deployRun(c *gin.Context) {
 	if c.Query("token") != deployToken {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -287,10 +287,20 @@ func deployRun(c *gin.Context) {
 
 	write("== Deploy via login shell ==")
 
-	// Use a login shell so it behaves the same as your terminal session.
-	// Absolute paths are kept for extra safety.
+	// Use a login shell + set Go envs so it behaves exactly like your terminal session.
 	cmd := exec.Command("/bin/bash", "-lc", `
 set -e
+
+# --- Ensure Go env is available even under systemd ---
+export HOME=/root
+export GOPATH=/root/go
+export GOMODCACHE=/root/go/pkg/mod
+export GOCACHE=/root/.cache/go-build
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin"
+
+mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+
+# --- Steps ---
 cd /root/fundproject/fund-management-api
 `+gitBin+` pull
 cd cmd/api
