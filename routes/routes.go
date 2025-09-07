@@ -108,7 +108,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
 			protected.GET("/system-config/current-year", controllers.GetCurrentYear)
-			protected.GET("/system-config/window", controllers.GetApplicationWindow)
+			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
 
 			// General submissions listing (all users)
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
@@ -407,6 +407,13 @@ func SetupRoutes(router *gin.Engine) {
 				// File system utilities (เพิ่มเติมในอนาคต)
 				// admin.GET("/files/orphaned", controllers.FindOrphanedFiles)     // หาไฟล์ที่ไม่มีใน DB
 				// admin.DELETE("/files/orphaned", controllers.DeleteOrphanedFiles) // ลบไฟล์ที่ไม่มีใน DB
+
+				// ===== SYSTEM CONFIG (Admin) =====
+				systemConfig := admin.Group("/system-config")
+				{
+					systemConfig.GET("", controllers.GetSystemConfigAdmin)
+					systemConfig.PUT("", controllers.UpdateSystemConfig)
+				}
 
 				submissionManagement := admin.Group("/submissions")
 				{
