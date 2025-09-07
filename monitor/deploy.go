@@ -16,7 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ====== CHANGE THIS TOKEN ======
+// ======= CHANGE THIS TOKEN =======
 const deployToken = "secret-deploy" // <- set your own strong value
 
 // Your paths/commands
