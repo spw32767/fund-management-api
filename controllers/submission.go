@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ===================== SUBMISSION MANAGEMENT =====================
@@ -107,6 +108,10 @@ func GetSubmission(c *gin.Context) {
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
+		Preload("Documents", func(db *gorm.DB) *gorm.DB {
+			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+				Select("submission_documents.*, dt.document_type_name")
+		}).
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
 		Preload("SubmissionUsers.User")
@@ -814,7 +819,10 @@ func GetSubmissionDocuments(c *gin.Context) {
 
 	// Get documents
 	var documents []models.SubmissionDocument
-	if err := config.DB.Preload("File").Preload("DocumentType").
+	if err := config.DB.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.*, dt.document_type_name").
+		Preload("File").
+		Preload("DocumentType").
 		Where("submission_id = ?", submissionID).
 		Order("display_order, created_at").
 		Find(&documents).Error; err != nil {

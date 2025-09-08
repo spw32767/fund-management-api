@@ -125,17 +125,18 @@ type PublicationRewardDetail struct {
 
 // SubmissionDocument represents the submission_documents table (junction table)
 type SubmissionDocument struct {
-	DocumentID     int        `gorm:"primaryKey;column:document_id" json:"document_id"`
-	SubmissionID   int        `gorm:"column:submission_id" json:"submission_id"`
-	FileID         int        `gorm:"column:file_id" json:"file_id"`
-	DocumentTypeID int        `gorm:"column:document_type_id" json:"document_type_id"`
-	Description    string     `gorm:"column:description" json:"description"`
-	DisplayOrder   int        `gorm:"column:display_order" json:"display_order"`
-	IsRequired     bool       `gorm:"column:is_required" json:"is_required"`
-	IsVerified     bool       `gorm:"column:is_verified" json:"is_verified"`
-	VerifiedBy     *int       `gorm:"column:verified_by" json:"verified_by"`
-	VerifiedAt     *time.Time `gorm:"column:verified_at" json:"verified_at"`
-	CreatedAt      time.Time  `gorm:"column:created_at" json:"created_at"`
+	DocumentID       int        `gorm:"primaryKey;column:document_id" json:"document_id"`
+	SubmissionID     int        `gorm:"column:submission_id" json:"submission_id"`
+	FileID           int        `gorm:"column:file_id" json:"file_id"`
+	DocumentTypeID   int        `gorm:"column:document_type_id" json:"document_type_id"`
+	DocumentTypeName string     `gorm:"->;column:document_type_name" json:"document_type_name"`
+	Description      string     `gorm:"column:description" json:"description"`
+	DisplayOrder     int        `gorm:"column:display_order" json:"display_order"`
+	IsRequired       bool       `gorm:"column:is_required" json:"is_required"`
+	IsVerified       bool       `gorm:"column:is_verified" json:"is_verified"`
+	VerifiedBy       *int       `gorm:"column:verified_by" json:"verified_by"`
+	VerifiedAt       *time.Time `gorm:"column:verified_at" json:"verified_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
 
 	// Relations
 	Submission   Submission   `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
