@@ -123,6 +123,12 @@ func SetupRoutes(router *gin.Engine) {
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
 				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
+				// User Publications
+				teacher.GET("/user-publications", controllers.GetUserPublications)
+				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
+				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
+				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)
+
 			}
 
 			// Staff-specific endpoints
@@ -315,6 +321,8 @@ func SetupRoutes(router *gin.Engine) {
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
+				// User Publications Import from Scholar
+				admin.POST("/user-publications/import/scholar", controllers.AdminImportScholarPublications)
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
