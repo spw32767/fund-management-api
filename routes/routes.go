@@ -106,6 +106,17 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/sessions", controllers.GetActiveSessions)
 			protected.POST("/sessions/revoke-others", controllers.RevokeOtherSessions)
 
+			// ===== NOTIFICATIONS (NEW) =====
+			notifications := protected.Group("/notifications")
+			{
+				notifications.POST("", controllers.CreateNotification)                                                   // สร้างแจ้งเตือน 1 รายการ
+				notifications.GET("", controllers.GetNotifications)                                                      // list ของ user ปัจจุบัน
+				notifications.GET("/counter", controllers.GetNotificationCounter)                                        // นับ unread
+				notifications.PATCH("/:id/read", controllers.MarkNotificationRead)                                       // อ่าน 1 รายการ
+				notifications.POST("/mark-all-read", controllers.MarkAllNotificationsRead)                               // อ่านทั้งหมด
+				notifications.POST("/events/submissions/:submissionId/submitted", controllers.NotifySubmissionSubmitted) // อีเวนต์: ส่งคำร้องสำเร็จ
+			}
+
 			// Common endpoints (all authenticated users)
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
