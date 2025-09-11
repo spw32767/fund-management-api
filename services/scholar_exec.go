@@ -23,7 +23,12 @@ func FetchScholarOnce(authorID string) ([]ScholarPub, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "python3", "scripts/scholarly_fetch.py", authorID)
+	cmd := exec.CommandContext(
+		ctx,
+		"/root/fundproject/fund-management-api/venv/bin/python",
+		"/root/fundproject/fund-management-api/scripts/scholarly_fetch.py",
+		authorID,
+	)
 
 	out, err := cmd.Output()
 	if err != nil {
