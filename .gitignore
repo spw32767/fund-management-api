@@ -1,1 +1,36 @@
+# Go build outputs
+fund-api
+*.exe
+*.out
+*.test
 .env
+
+# Go coverage / build artifacts
+*.log
+*.tmp
+*.cache
+
+# Node/Next.js (if frontend code shares repo)
+node_modules/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python venv and caches
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and misc
+logs/
+*.log
+.DS_Store
+
+# Editor/IDE stuff
+.vscode/
+.idea/
+*.swp
