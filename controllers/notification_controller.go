@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -302,6 +304,43 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			).Error
 		}
 	}
+
+	// สร้างลิงก์ไปยังระบบ (ตั้งค่า APP_BASE_URL ใน .env ของ backend)
+	base := os.Getenv("APP_BASE_URL")
+	if base == "" {
+		base = "http://localhost:3000"
+	}
+	teacherURL := fmt.Sprintf("%s/teacher/submissions/%d", base, sid)
+	adminURL := fmt.Sprintf("%s/admin/submissions/%d/details", base, sid)
+
+	// ดึงอีเมลเจ้าของคำร้อง
+	var owner userLite
+	_ = db.Select("user_id, email, user_fname, user_lname").First(&owner, "user_id = ?", sub.UserID).Error
+
+	// เก็บอีเมล admin ทั้งหมดที่ไม่ว่าง
+	var adminEmails []string
+	for _, ad := range admins {
+		if ad.Email != nil && *ad.Email != "" {
+			adminEmails = append(adminEmails, *ad.Email)
+		}
+	}
+
+	// ส่งเมลแบบไม่บล็อคคำขอ
+	go func() {
+		// ผู้ยื่น
+		if owner.Email != nil && *owner.Email != "" {
+			subj := "ส่งคำร้องสำเร็จ (ระบบทุนตีพิมพ์)"
+			body := fmt.Sprintf(`<p>ระบบได้รับคำร้องของคุณแล้ว</p><p><a href="%s">เปิดดูคำร้อง</a></p>`, teacherURL)
+			_ = config.SendMail([]string{*owner.Email}, subj, body)
+		}
+
+		// แอดมิน
+		if len(adminEmails) > 0 {
+			subj := "มีคำร้องใหม่เข้าระบบ (ทุนตีพิมพ์)"
+			body := fmt.Sprintf(`<p>มีคำร้องใหม่ กรุณาตรวจสอบ</p><p><a href="%s">เปิดดูรายละเอียด</a></p>`, adminURL)
+			_ = config.SendMail(adminEmails, subj, body)
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
