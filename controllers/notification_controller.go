@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -306,19 +307,35 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}
 
-	// สร้างลิงก์ไปยังระบบ (ตั้งค่า APP_BASE_URL ใน .env ของ backend)
+	// base URL ของเว็บ (ไม่ต้องลิงก์เข้าหน้าเจาะจง)
 	base := os.Getenv("APP_BASE_URL")
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	teacherURL := fmt.Sprintf("%s/teacher/submissions/%d", base, sid)
-	adminURL := fmt.Sprintf("%s/admin/submissions/%d/details", base, sid)
 
-	// ดึงอีเมลเจ้าของคำร้อง
+	// ดึงข้อมูลเจ้าของคำร้อง (มีอยู่แล้วด้านบน)
 	var owner userLite
-	_ = db.Select("user_id, email, user_fname, user_lname").First(&owner, "user_id = ?", sub.UserID).Error
+	_ = db.Select("user_id, email, user_fname, user_lname").
+		First(&owner, "user_id = ?", sub.UserID).Error
 
-	// เก็บอีเมล admin ทั้งหมดที่ไม่ว่าง
+	// เตรียมชื่อผู้ส่งแสดงผล + escape HTML
+	fullName := strings.TrimSpace(fmt.Sprintf("%s %s",
+		func() string {
+			if owner.FName != nil {
+				return *owner.FName
+			}
+			return ""
+		}(),
+		func() string {
+			if owner.LName != nil {
+				return *owner.LName
+			}
+			return ""
+		}(),
+	))
+	safeName := template.HTMLEscapeString(fullName)
+
+	// รวมอีเมลแอดมิน
 	var adminEmails []string
 	for _, ad := range admins {
 		if ad.Email != nil && *ad.Email != "" {
@@ -326,18 +343,21 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}
 
-	// ล็อก config คร่าว ๆ เผื่อเช็ค (ไม่พิมพ์รหัสผ่าน)
+	// log config คร่าว ๆ
 	log.Printf("[MAIL] host=%s port=%s from=%s toOwner=%t adminCount=%d",
 		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_FROM"),
 		owner.Email != nil && *owner.Email != "", len(adminEmails),
 	)
 
-	// ส่งเมลแบบไม่บล็อคคำขอ แต่ "ล็อก error เสมอ"
+	// ส่งเมลแบบ async (log error เสมอ)
 	go func() {
-		// ผู้ยื่น
+		// ---- ผู้ยื่น (อาจารย์ผู้ส่ง) ----
 		if owner.Email != nil && *owner.Email != "" {
 			subj := "ส่งคำร้องสำเร็จ (ระบบทุนตีพิมพ์)"
-			body := fmt.Sprintf(`<p>ระบบได้รับคำร้องของคุณแล้ว</p><p><a href="%s">เปิดดูคำร้อง</a></p>`, teacherURL)
+			body := fmt.Sprintf(
+				`<p>ระบบได้รับคำร้อง <strong>%d</strong> ของคุณ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				sid, safeName, base,
+			)
 			if err := config.SendMail([]string{*owner.Email}, subj, body); err != nil {
 				log.Printf("[MAIL][owner=%s] send failed: %v", *owner.Email, err)
 			} else {
@@ -347,10 +367,13 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			log.Printf("[MAIL] owner email empty (user_id=%d) -> skip", sub.UserID)
 		}
 
-		// แอดมิน
+		// ---- แอดมิน ----
 		if len(adminEmails) > 0 {
 			subj := "มีคำร้องใหม่เข้าระบบ (ทุนตีพิมพ์)"
-			body := fmt.Sprintf(`<p>มีคำร้องใหม่ กรุณาตรวจสอบ</p><p><a href="%s">เปิดดูรายละเอียด</a></p>`, adminURL)
+			body := fmt.Sprintf(
+				`<p>มีคำร้องใหม่ <strong>%d</strong> จากอาจารย์ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				sid, safeName, base,
+			)
 			if err := config.SendMail(adminEmails, subj, body); err != nil {
 				log.Printf("[MAIL][admin %d recipients] send failed: %v", len(adminEmails), err)
 			} else {
@@ -360,6 +383,4 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			log.Printf("[MAIL] no admin emails -> skip")
 		}
 	}()
-
-	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
