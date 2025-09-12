@@ -382,7 +382,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		if owner.Email != nil && *owner.Email != "" {
 			subj := "ส่งคำร้องสำเร็จ จากระบบบริหารจัดการทุนวิจัย"
 			body := fmt.Sprintf(
-				`<p>ระบบได้รับคำร้อง <strong>%s</strong> ของ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				`<p>ระบบได้รับคำร้องหมายเลข <strong>%s</strong> ของ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
 				template.HTMLEscapeString(sub.SubmissionNumber), displayName, base,
 			)
 			if err := config.SendMail([]string{*owner.Email}, subj, body); err != nil {
@@ -398,7 +398,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		if len(adminEmails) > 0 {
 			subj := "มีคำร้องใหม่ จากระบบบริหารจัดการทุนวิจัย"
 			body := fmt.Sprintf(
-				`<p>มีคำร้องใหม่ <strong>%s</strong> จาก <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				`<p>มีคำร้องหมายเลข <strong>%s</strong> จาก <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
 				template.HTMLEscapeString(sub.SubmissionNumber), displayName, base,
 			)
 			if err := config.SendMail(adminEmails, subj, body); err != nil {
