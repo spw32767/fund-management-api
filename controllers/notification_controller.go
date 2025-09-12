@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -325,20 +326,38 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}
 
-	// ส่งเมลแบบไม่บล็อคคำขอ
+	// ล็อก config คร่าว ๆ เผื่อเช็ค (ไม่พิมพ์รหัสผ่าน)
+	log.Printf("[MAIL] host=%s port=%s from=%s toOwner=%t adminCount=%d",
+		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_FROM"),
+		owner.Email != nil && *owner.Email != "", len(adminEmails),
+	)
+
+	// ส่งเมลแบบไม่บล็อคคำขอ แต่ "ล็อก error เสมอ"
 	go func() {
 		// ผู้ยื่น
 		if owner.Email != nil && *owner.Email != "" {
 			subj := "ส่งคำร้องสำเร็จ (ระบบทุนตีพิมพ์)"
 			body := fmt.Sprintf(`<p>ระบบได้รับคำร้องของคุณแล้ว</p><p><a href="%s">เปิดดูคำร้อง</a></p>`, teacherURL)
-			_ = config.SendMail([]string{*owner.Email}, subj, body)
+			if err := config.SendMail([]string{*owner.Email}, subj, body); err != nil {
+				log.Printf("[MAIL][owner=%s] send failed: %v", *owner.Email, err)
+			} else {
+				log.Printf("[MAIL][owner=%s] sent", *owner.Email)
+			}
+		} else {
+			log.Printf("[MAIL] owner email empty (user_id=%d) -> skip", sub.UserID)
 		}
 
 		// แอดมิน
 		if len(adminEmails) > 0 {
 			subj := "มีคำร้องใหม่เข้าระบบ (ทุนตีพิมพ์)"
 			body := fmt.Sprintf(`<p>มีคำร้องใหม่ กรุณาตรวจสอบ</p><p><a href="%s">เปิดดูรายละเอียด</a></p>`, adminURL)
-			_ = config.SendMail(adminEmails, subj, body)
+			if err := config.SendMail(adminEmails, subj, body); err != nil {
+				log.Printf("[MAIL][admin %d recipients] send failed: %v", len(adminEmails), err)
+			} else {
+				log.Printf("[MAIL][admin %d recipients] sent", len(adminEmails))
+			}
+		} else {
+			log.Printf("[MAIL] no admin emails -> skip")
 		}
 	}()
 
