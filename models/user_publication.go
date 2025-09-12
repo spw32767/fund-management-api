@@ -30,7 +30,7 @@ type UserPublication struct {
 	DeletedAt gorm.DeletedAt `json:"deleted_at"  gorm:"column:deleted_at;index"`
 }
 
-func (UserPublication) TableName() string { return "publication" }
+func (UserPublication) TableName() string { return "publications" }
 
 // Auto-generate fingerprint if missing: sha1(lower(title) + ":" + year)
 func (p *UserPublication) BeforeCreate(tx *gorm.DB) error {
