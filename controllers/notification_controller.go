@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -34,18 +35,27 @@ type Notification struct {
 func (Notification) TableName() string { return "notifications" }
 
 type userLite struct {
-	UserID uint    `gorm:"column:user_id"`
-	RoleID uint    `gorm:"column:role_id"`
-	Email  *string `gorm:"column:email"`
-	FName  *string `gorm:"column:user_fname"`
-	LName  *string `gorm:"column:user_lname"`
+	UserID     uint    `gorm:"column:user_id"`
+	RoleID     uint    `gorm:"column:role_id"`
+	Email      *string `gorm:"column:email"`
+	FName      *string `gorm:"column:user_fname"`
+	LName      *string `gorm:"column:user_lname"`
+	PositionID *uint   `gorm:"column:position_id"`
 }
 
 func (userLite) TableName() string { return "users" }
 
+type positionLite struct {
+	PositionID   uint    `gorm:"column:position_id"`
+	PositionName *string `gorm:"column:position_name"`
+}
+
+func (positionLite) TableName() string { return "positions" }
+
 type submissionLite struct {
-	SubmissionID uint `gorm:"column:submission_id"`
-	UserID       uint `gorm:"column:user_id"`
+	SubmissionID     uint   `gorm:"column:submission_id"`
+	UserID           uint   `gorm:"column:user_id"`
+	SubmissionNumber string `gorm:"column:submission_number"`
 }
 
 func (submissionLite) TableName() string { return "submissions" }
@@ -57,8 +67,6 @@ func (submissionLite) TableName() string { return "submissions" }
 func getDB() *gorm.DB { return config.DB }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
-	// middleware ตั้งเป็น "userID" ไม่ใช่ "user_id"
-	// ดูได้จาก auth middleware ที่ c.Set("userID", claims.UserID) :contentReference[oaicite:4]{index=4}
 	if v, ok := c.Get("userID"); ok {
 		switch t := v.(type) {
 		case int:
@@ -75,7 +83,6 @@ func getCurrentUserID(c *gin.Context) (uint, bool) {
 }
 
 func getCurrentRoleID(c *gin.Context) (uint, bool) {
-	// ตั้งเป็น "roleID" ใน middleware :contentReference[oaicite:5]{index=5}
 	if v, ok := c.Get("roleID"); ok {
 		switch t := v.(type) {
 		case int:
@@ -89,6 +96,28 @@ func getCurrentRoleID(c *gin.Context) (uint, bool) {
 		}
 	}
 	return 0, false
+}
+
+func buildThaiDisplayName(owner userLite, posName string) string {
+	f := strings.TrimSpace(func() string {
+		if owner.FName != nil {
+			return *owner.FName
+		}
+		return ""
+	}())
+	l := strings.TrimSpace(func() string {
+		if owner.LName != nil {
+			return *owner.LName
+		}
+		return ""
+	}())
+
+	if posName != "" {
+		// รูปแบบ: รองศาสตราจารย์สมชาย ใจดี  (ตำแหน่งชิดหน้าชื่อ, เว้นก่อนนามสกุล)
+		return strings.TrimSpace(posName + f + " " + l)
+	}
+	// ไม่มีตำแหน่ง → สมชาย ใจดี
+	return strings.TrimSpace(f + " " + l)
 }
 
 /* ==========================
@@ -125,11 +154,11 @@ func CreateNotification(c *gin.Context) {
 		}
 	}
 
-	// ลองใช้ Stored Procedure ก่อน (คุณสร้างไว้แล้วใน DB)
+	// พยายามใช้ Stored Procedure ก่อน
 	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
 		req.UserID, req.Title, req.Message, req.Type, req.RelatedSubmissionID,
 	).Error; err != nil {
-		// ถ้า CALL ไม่ได้ ให้ insert ตรง
+		// ถ้า SP ใช้ไม่ได้ → insert ตรง
 		n := Notification{
 			UserID:              req.UserID,
 			Title:               req.Title,
@@ -253,6 +282,8 @@ func MarkAllNotificationsRead(c *gin.Context) {
 }
 
 // POST /api/v1/notifications/events/submissions/:submissionId/submitted
+// - บันทึก notification ลง DB (ผู้ยื่น + แอดมิน)
+// - ส่งอีเมล โดยใช้ "เลขคำร้อง = submission_number" และชื่อที่มี "ยศตำแหน่ง"
 func NotifySubmissionSubmitted(c *gin.Context) {
 	db := getDB()
 
@@ -270,9 +301,10 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		return
 	}
 
-	// ตรวจสอบ submission
+	// โหลด submission: ต้องมีทั้ง submission_id, user_id, submission_number
 	var sub submissionLite
-	if err := db.First(&sub, "submission_id = ?", sid).Error; err != nil {
+	if err := db.Select("submission_id, user_id, submission_number").
+		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
 	}
@@ -283,42 +315,54 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		return
 	}
 
-	// แจ้งผู้ยื่น
+	// ดึงข้อมูลผู้ส่ง (owner) รวม position_id
+	var owner userLite
+	_ = db.Select("user_id, role_id, email, user_fname, user_lname, position_id").
+		First(&owner, "user_id = ?", sub.UserID).Error
+
+	// หา position_name (ถ้ามี)
+	posName := ""
+	if owner.PositionID != nil {
+		var p positionLite
+		if err := db.Select("position_id, position_name").
+			First(&p, "position_id = ?", *owner.PositionID).Error; err == nil && p.PositionName != nil {
+			posName = *p.PositionName
+		}
+	}
+	// display name พร้อมยศ และ escape HTML
+	displayName := template.HTMLEscapeString(buildThaiDisplayName(owner, posName))
+
+	// ===== บันทึก Notification ลง DB =====
+	// ผู้ยื่น
 	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
 		sub.UserID,
 		"ส่งคำร้องสำเร็จ",
-		"ระบบได้รับคำร้องของคุณแล้ว",
+		fmt.Sprintf("ระบบได้รับคำร้อง %s ของคุณ %s แล้ว", sub.SubmissionNumber, displayName),
 		"success",
 		sid,
 	).Error
 
-	// แจ้งแอดมินทั้งหมด (role_id = 3)
+	// แอดมินทั้งหมด (role_id = 3)
 	var admins []userLite
 	if err := db.Where("role_id = 3").Find(&admins).Error; err == nil {
 		for _, ad := range admins {
 			_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
 				ad.UserID,
 				"มีคำร้องใหม่",
-				"มีคำร้องใหม่เข้าระบบ กรุณาตรวจสอบ",
+				fmt.Sprintf("มีคำร้องใหม่ %s จากอาจารย์ %s แล้ว", sub.SubmissionNumber, displayName),
 				"info",
 				sid,
 			).Error
 		}
 	}
 
-	// สร้างลิงก์ไปยังระบบ (ตั้งค่า APP_BASE_URL ใน .env ของ backend)
+	// ===== ส่งอีเมล =====
 	base := os.Getenv("APP_BASE_URL")
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	teacherURL := fmt.Sprintf("%s/teacher/submissions/%d", base, sid)
-	adminURL := fmt.Sprintf("%s/admin/submissions/%d/details", base, sid)
 
-	// ดึงอีเมลเจ้าของคำร้อง
-	var owner userLite
-	_ = db.Select("user_id, email, user_fname, user_lname").First(&owner, "user_id = ?", sub.UserID).Error
-
-	// เก็บอีเมล admin ทั้งหมดที่ไม่ว่าง
+	// รวมอีเมลแอดมิน
 	var adminEmails []string
 	for _, ad := range admins {
 		if ad.Email != nil && *ad.Email != "" {
@@ -326,18 +370,21 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}
 
-	// ล็อก config คร่าว ๆ เผื่อเช็ค (ไม่พิมพ์รหัสผ่าน)
+	// log config คร่าว ๆ
 	log.Printf("[MAIL] host=%s port=%s from=%s toOwner=%t adminCount=%d",
 		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"), os.Getenv("SMTP_FROM"),
 		owner.Email != nil && *owner.Email != "", len(adminEmails),
 	)
 
-	// ส่งเมลแบบไม่บล็อคคำขอ แต่ "ล็อก error เสมอ"
+	// ส่งเมลแบบ async (log error เสมอ)
 	go func() {
 		// ผู้ยื่น
 		if owner.Email != nil && *owner.Email != "" {
-			subj := "ส่งคำร้องสำเร็จ (ระบบทุนตีพิมพ์)"
-			body := fmt.Sprintf(`<p>ระบบได้รับคำร้องของคุณแล้ว</p><p><a href="%s">เปิดดูคำร้อง</a></p>`, teacherURL)
+			subj := "ส่งคำร้องสำเร็จ จากระบบบริหารจัดการทุนวิจัย"
+			body := fmt.Sprintf(
+				`<p>ระบบได้รับคำร้องหมายเลข <strong>%s</strong> ของ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				template.HTMLEscapeString(sub.SubmissionNumber), displayName, base,
+			)
 			if err := config.SendMail([]string{*owner.Email}, subj, body); err != nil {
 				log.Printf("[MAIL][owner=%s] send failed: %v", *owner.Email, err)
 			} else {
@@ -349,8 +396,11 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 
 		// แอดมิน
 		if len(adminEmails) > 0 {
-			subj := "มีคำร้องใหม่เข้าระบบ (ทุนตีพิมพ์)"
-			body := fmt.Sprintf(`<p>มีคำร้องใหม่ กรุณาตรวจสอบ</p><p><a href="%s">เปิดดูรายละเอียด</a></p>`, adminURL)
+			subj := "มีคำร้องใหม่ จากระบบบริหารจัดการทุนวิจัย"
+			body := fmt.Sprintf(
+				`<p>มีคำร้องหมายเลข <strong>%s</strong> จาก <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
+				template.HTMLEscapeString(sub.SubmissionNumber), displayName, base,
+			)
 			if err := config.SendMail(adminEmails, subj, body); err != nil {
 				log.Printf("[MAIL][admin %d recipients] send failed: %v", len(adminEmails), err)
 			} else {
