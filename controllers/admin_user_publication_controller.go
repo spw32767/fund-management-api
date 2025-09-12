@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/services"
 
@@ -97,4 +98,97 @@ func AdminImportScholarPublications(c *gin.Context) {
 			"failed":  failed,
 		},
 	})
+}
+
+// POST /api/v1/admin/user-publications/import/scholar/all
+// Optional: ?user_ids=1,2,3  (CSV subset)
+// Optional: ?limit=50  (max users to process in one call)
+func AdminImportScholarForAll(c *gin.Context) {
+	type U struct {
+		UserID          uint
+		ScholarAuthorID string
+	}
+
+	// Build a base query
+	db := config.DB.Table("users").Select("user_id, scholar_author_id").
+		Where("scholar_author_id IS NOT NULL AND scholar_author_id <> ''")
+
+	// Optional CSV subset
+	if csv := c.Query("user_ids"); csv != "" {
+		ids := strings.Split(csv, ",")
+		db = db.Where("user_id IN ?", ids)
+	}
+	// Optional safety limit
+	if limStr := c.Query("limit"); limStr != "" {
+		if lim, err := strconv.Atoi(limStr); err == nil && lim > 0 {
+			db = db.Limit(lim)
+		}
+	}
+
+	var users []U
+	if err := db.Find(&users).Error; err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	svc := services.NewPublicationService(nil)
+	tot := struct {
+		Users, Fetched, Created, Updated, Failed int
+	}{}
+
+	for _, u := range users {
+		pubs, err := services.FetchScholarOnce(u.ScholarAuthorID)
+		if err != nil {
+			continue
+		}
+		tot.Users++
+		tot.Fetched += len(pubs)
+
+		for _, sp := range pubs {
+			title := sp.Title
+			authorsStr := strings.Join(sp.Authors, ", ")
+			source := "scholar"
+			var journal *string
+			if sp.Venue != nil && *sp.Venue != "" {
+				journal = sp.Venue
+			}
+			var yearPtr *uint16
+			if sp.Year != nil && *sp.Year > 0 {
+				yy := uint16(*sp.Year)
+				yearPtr = &yy
+			}
+			var externalJSON *string
+			if sp.ScholarClusterID != nil && *sp.ScholarClusterID != "" {
+				js := fmt.Sprintf(`{"scholar_cluster_id":"%s"}`, *sp.ScholarClusterID)
+				externalJSON = &js
+			}
+
+			pub := &models.UserPublication{
+				UserID:          u.UserID,
+				Title:           title,
+				Authors:         &authorsStr,
+				Journal:         journal,
+				PublicationType: nil,
+				PublicationDate: nil,
+				PublicationYear: yearPtr,
+				DOI:             sp.DOI,
+				URL:             sp.URL,
+				Source:          &source,
+				ExternalIDs:     externalJSON,
+			}
+
+			created, _, e := svc.Upsert(pub)
+			if e != nil {
+				tot.Failed++
+				continue
+			}
+			if created {
+				tot.Created++
+			} else {
+				tot.Updated++
+			}
+		}
+	}
+
+	c.JSON(200, gin.H{"success": true, "summary": tot})
 }

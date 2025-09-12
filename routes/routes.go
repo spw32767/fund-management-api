@@ -334,6 +334,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
 				// User Publications Import from Scholar
 				admin.POST("/user-publications/import/scholar", controllers.AdminImportScholarPublications)
+				admin.POST("/user-publications/import/scholar/all", controllers.AdminImportScholarForAll)
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
