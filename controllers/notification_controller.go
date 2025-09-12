@@ -353,7 +353,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 	go func() {
 		// ---- ผู้ยื่น (อาจารย์ผู้ส่ง) ----
 		if owner.Email != nil && *owner.Email != "" {
-			subj := "ส่งคำร้องสำเร็จ (ระบบทุนตีพิมพ์)"
+			subj := "ส่งคำร้องสำเร็จ จากระบบบริหารจัดการทุนวิจัย"
 			body := fmt.Sprintf(
 				`<p>ระบบได้รับคำร้อง <strong>%d</strong> ของคุณ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
 				sid, safeName, base,
@@ -369,7 +369,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 
 		// ---- แอดมิน ----
 		if len(adminEmails) > 0 {
-			subj := "มีคำร้องใหม่เข้าระบบ (ทุนตีพิมพ์)"
+			subj := "มีคำร้องใหม่ ในระบบบริหารจัดการทุนวิจัย"
 			body := fmt.Sprintf(
 				`<p>มีคำร้องใหม่ <strong>%d</strong> จากอาจารย์ <strong>%s</strong> แล้ว สามารถตรวจสอบคำร้องได้ที่ <a href="%[3]s">%[3]s</a></p>`,
 				sid, safeName, base,
