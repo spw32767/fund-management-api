@@ -112,6 +112,25 @@ func getUserDashboard(userID int) map[string]interface{} {
 
 	stats["my_applications"] = submissionStats
 
+	// Budget summary metrics
+	var budgetSummary struct {
+		TotalRequested  float64 `json:"total_requested"`
+		TotalApproved   float64 `json:"total_approved"`
+		Remaining       float64 `json:"remaining"`
+		SubmissionCount int64   `json:"submission_count"`
+	}
+
+	budgetSummary.TotalRequested = submissionStats.TotalAmount
+	budgetSummary.TotalApproved = submissionStats.ApprovedAmount
+	budgetSummary.SubmissionCount = submissionStats.Total
+
+	config.DB.Table("user_fund_eligibilities").
+		Where("user_id = ? AND delete_at IS NULL", userID).
+		Select("COALESCE(SUM(remaining_quota),0)").
+		Scan(&budgetSummary.Remaining)
+
+	stats["budget_summary"] = budgetSummary
+
 	// Recent submissions
 	var recentSubmissions []map[string]interface{}
 	config.DB.Table("submissions s").
@@ -141,13 +160,32 @@ func getUserDashboard(userID int) map[string]interface{} {
 	}
 
 	currentYear := time.Now().Format("2006")
-	config.DB.Table("user_fund_eligibilities ufe").
-		Joins("JOIN years y ON ufe.year_id = y.year_id").
-		Where("ufe.user_id = ? AND y.year = ?", userID, currentYear).
-		Select("COALESCE(SUM(ufe.max_allowed_amount),0) AS year_budget, " +
-			"COALESCE(SUM(ufe.max_allowed_amount - ufe.remaining_quota),0) AS used_budget, " +
-			"COALESCE(SUM(ufe.remaining_quota),0) AS remaining_budget").
-		Scan(&budgetUsage)
+	// Approved fund application amounts
+	config.DB.Table("fund_application_details fad").
+		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
+		Joins("JOIN years y ON s.year_id = y.year_id").
+		Where("s.user_id = ? AND y.year = ? AND s.status_id = 2", userID, currentYear).
+		Select("COALESCE(SUM(fad.approved_amount), 0)").
+		Scan(&budgetUsage.UsedBudget)
+
+	// Approved publication reward amounts
+	var rewardUsed float64
+	config.DB.Table("publication_reward_details prd").
+		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
+		Joins("JOIN years y ON s.year_id = y.year_id").
+		Where("s.user_id = ? AND y.year = ? AND s.status_id = 2", userID, currentYear).
+		Select("COALESCE(SUM(prd.reward_approve_amount), 0)").
+		Scan(&rewardUsed)
+	budgetUsage.UsedBudget += rewardUsed
+
+	// Query total budget for the current year
+	config.DB.Table("years").
+		Where("year = ?", currentYear).
+		Select("COALESCE(budget, 0)").
+		Scan(&budgetUsage.YearBudget)
+
+	// Calculate remaining budget
+	budgetUsage.RemainingBudget = budgetUsage.YearBudget - budgetUsage.UsedBudget
 
 	stats["budget_usage"] = budgetUsage
 
