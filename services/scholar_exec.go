@@ -53,6 +53,7 @@ type ScholarAuthorHit struct {
 	Affiliation *string  `json:"affiliation"`
 	Interests   []string `json:"interests"`
 	CitedBy     *int     `json:"citedby"`
+	ProfileURL  *string  `json:"profile_url"`
 }
 
 func SearchScholarAuthors(query string) ([]ScholarAuthorHit, error) {

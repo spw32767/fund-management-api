@@ -192,3 +192,60 @@ func AdminImportScholarForAll(c *gin.Context) {
 
 	c.JSON(200, gin.H{"success": true, "summary": tot})
 }
+
+type AdminUserLite struct {
+	UserID uint   `json:"user_id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+}
+
+// GET /api/v1/admin/users/search?q=smith&limit=10
+func AdminSearchUsers(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing q"})
+		return
+	}
+	limit := 10
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		// ignore parse errors silently
+	}
+
+	type row struct {
+		UserID    uint
+		UserFname *string
+		UserLname *string
+		Email     *string
+	}
+
+	var rows []row
+	like := "%" + q + "%"
+	if err := config.DB.
+		Table("users").
+		Select("user_id, user_fname, user_lname, email").
+		Where("CONCAT(COALESCE(user_fname,''),' ',COALESCE(user_lname,'')) LIKE ? OR email LIKE ?", like, like).
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	out := make([]AdminUserLite, 0, len(rows))
+	for _, r := range rows {
+		fn, ln := "", ""
+		if r.UserFname != nil {
+			fn = *r.UserFname
+		}
+		if r.UserLname != nil {
+			ln = *r.UserLname
+		}
+		name := strings.TrimSpace(fn + " " + ln)
+		email := ""
+		if r.Email != nil {
+			email = *r.Email
+		}
+		out = append(out, AdminUserLite{UserID: r.UserID, Name: name, Email: email})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
+}
