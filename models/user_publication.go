@@ -20,6 +20,8 @@ type UserPublication struct {
 	PublicationYear *uint16    `json:"publication_year,omitempty" gorm:"index:idx_user_year"`
 	DOI             *string    `json:"doi,omitempty"     gorm:"type:varchar(255);uniqueIndex:uniq_doi"`
 	URL             *string    `json:"url,omitempty"     gorm:"type:varchar(512)"`
+	CitedBy         *uint      `json:"cited_by" gorm:"column:cited_by"`
+	CitedByURL      *string    `json:"cited_by_url" gorm:"column:cited_by_url"`
 	Source          *string    `json:"source,omitempty"  gorm:"type:enum('scholar','openalex','orcid','crossref')"`
 	ExternalIDs     *string    `json:"external_ids,omitempty" gorm:"type:longtext"`
 	Fingerprint     *string    `json:"fingerprint,omitempty"  gorm:"type:varchar(64);uniqueIndex:uniq_fingerprint"`
