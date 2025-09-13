@@ -115,6 +115,8 @@ func SetupRoutes(router *gin.Engine) {
 				notifications.PATCH("/:id/read", controllers.MarkNotificationRead)                                       // อ่าน 1 รายการ
 				notifications.POST("/mark-all-read", controllers.MarkAllNotificationsRead)                               // อ่านทั้งหมด
 				notifications.POST("/events/submissions/:submissionId/submitted", controllers.NotifySubmissionSubmitted) // อีเวนต์: ส่งคำร้องสำเร็จ
+				notifications.POST("/events/submissions/:submissionId/approved", controllers.NotifySubmissionApproved)
+				notifications.POST("/events/submissions/:submissionId/rejected", controllers.NotifySubmissionRejected)
 			}
 
 			// Common endpoints (all authenticated users)

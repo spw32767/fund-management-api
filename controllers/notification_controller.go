@@ -538,3 +538,131 @@ func NotifySubmissionApproved(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+// ===== Rejected =====
+
+type notifyRejectedReq struct {
+	Reason string `json:"reason"` // เหตุผลการไม่อนุมัติ
+}
+
+// POST /api/v1/notifications/events/submissions/:submissionId/rejected
+// - บันทึก Notification ให้เจ้าของคำร้อง (สถานะ "ไม่อนุมัติ")
+// - ส่งอีเมลถึงเจ้าของคำร้อง พร้อมเหตุผลการไม่อนุมัติ
+func NotifySubmissionRejected(c *gin.Context) {
+	db := getDB()
+
+	// ต้องเป็นแอดมินเท่านั้น
+	_, ok := getCurrentUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	roleID, _ := getCurrentRoleID(c)
+	if roleID != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	// อ่าน submission id
+	idParam := c.Param("submissionId")
+	sid, err := strconv.Atoi(idParam)
+	if err != nil || sid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid submission id"})
+		return
+	}
+
+	// โหลด submission: owner + submission_number
+	var sub submissionLite
+	if err := db.Select("submission_id, user_id, submission_number").
+		First(&sub, "submission_id = ?", sid).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+		return
+	}
+
+	// โหลดข้อมูลเจ้าของ (email + ชื่อ + position)
+	var owner userLite
+	_ = db.Select("user_id, role_id, email, user_fname, user_lname, position_id").
+		First(&owner, "user_id = ?", sub.UserID).Error
+
+	posName := ""
+	if owner.PositionID != nil {
+		var p positionLite
+		if err := db.Select("position_id, position_name").
+			First(&p, "position_id = ?", *owner.PositionID).Error; err == nil && p.PositionName != nil {
+			posName = *p.PositionName
+		}
+	}
+	displayName := template.HTMLEscapeString(buildThaiDisplayName(owner, posName))
+
+	// payload: เหตุผล
+	var req notifyRejectedReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+
+	// ===== บันทึก Notification =====
+	title := "คำร้องไม่ได้รับการอนุมัติ"
+	msg := fmt.Sprintf("คำร้องหมายเลข %s ของคุณไม่ได้รับการอนุมัติ", sub.SubmissionNumber)
+	if reason != "" {
+		msg += " เนื่องจาก: " + template.HTMLEscapeString(reason)
+	}
+
+	// ใช้ SP เดิม; ถ้า error ค่อย fallback insert ตรง
+	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
+		sub.UserID, title, msg, "danger", sid,
+	).Error; err != nil {
+		n := Notification{
+			UserID:              sub.UserID,
+			Title:               title,
+			Message:             msg,
+			Type:                "danger",
+			RelatedSubmissionID: &sub.SubmissionID,
+			IsRead:              false,
+			CreateAt:            time.Now(),
+		}
+		if e2 := db.Create(&n).Error; e2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": e2.Error()})
+			return
+		}
+	}
+
+	// ===== ส่งอีเมลถึงเจ้าของคำร้อง (best-effort) =====
+	base := os.Getenv("APP_BASE_URL")
+	if base == "" {
+		base = "http://localhost:3000"
+	}
+	link := fmt.Sprintf("%s/teacher/submissions/%d", base, sub.SubmissionID)
+
+	go func() {
+		if owner.Email != nil && *owner.Email != "" {
+			subj := "แจ้งผลคำร้อง: ไม่ได้รับการอนุมัติ"
+			body := fmt.Sprintf(
+				`<p>เรียน %s,</p>
+                 <p>คำร้องหมายเลข <strong>%s</strong> ของคุณ <span style="color:#dc2626;font-weight:600;">ไม่ได้รับการอนุมัติ</span>.</p>
+                 %s
+                 <p>ดูรายละเอียดเพิ่มเติมได้ที่ <a href="%[4]s">%[4]s</a></p>`,
+				displayName,
+				template.HTMLEscapeString(sub.SubmissionNumber),
+				func() string {
+					if reason == "" {
+						return ""
+					}
+					return `<div style="margin:10px 0;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+								<div style="font-weight:600;margin-bottom:6px;">เหตุผลการไม่อนุมัติ</div>
+								<div style="white-space:pre-wrap;">` + template.HTMLEscapeString(reason) + `</div>
+							</div>`
+				}(),
+				link,
+			)
+			if err := config.SendMail([]string{*owner.Email}, subj, body); err != nil {
+				log.Printf("[MAIL][rejected] send failed: %v", err)
+			}
+		} else {
+			log.Printf("[MAIL][rejected] owner email empty (user_id=%d) -> skip", sub.UserID)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
