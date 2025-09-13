@@ -139,7 +139,7 @@ func SetupRoutes(router *gin.Engine) {
 				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
 				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)
-
+				teacher.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 			}
 
 			// Staff-specific endpoints
@@ -335,6 +335,7 @@ func SetupRoutes(router *gin.Engine) {
 				// User Publications Import from Scholar
 				admin.POST("/user-publications/import/scholar", controllers.AdminImportScholarPublications)
 				admin.POST("/user-publications/import/scholar/all", controllers.AdminImportScholarForAll)
+				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")

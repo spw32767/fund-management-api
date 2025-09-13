@@ -3,6 +3,7 @@ package controllers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"fund-management-api/models"
@@ -196,4 +197,19 @@ func parseIntOrDefault(s string, def int) int {
 		return n
 	}
 	return def
+}
+
+// GET /api/v1/teacher/user-publications/scholar/search?q=<name/affiliation>
+func TeacherScholarAuthorSearch(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(400, gin.H{"success": false, "error": "missing q"})
+		return
+	}
+	hits, err := services.SearchScholarAuthors(q)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "data": hits})
 }
