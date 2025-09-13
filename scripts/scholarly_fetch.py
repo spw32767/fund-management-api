@@ -73,6 +73,10 @@ def main():
                 filled.get("num_citations") or filled.get("num_citations_all")
             )
             citedby_url = filled.get("citedby_url")
+            if citedby_url and citedby_url.startswith("/"):
+                citedby_url = f"https://scholar.google.com{citedby_url}"
+
+            # keep your existing fallback from cluster_id too:
             if not citedby_url and cluster_id:
                 citedby_url = f"https://scholar.google.com/scholar?cites={cluster_id}"
 
