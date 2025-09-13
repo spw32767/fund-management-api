@@ -507,8 +507,7 @@ func NotifySubmissionApproved(c *gin.Context) {
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	// ลิงก์ไปหน้ารายละเอียดคำร้องของผู้ยื่น (ปรับ path ให้ตรงกับ FE ของคุณ)
-	link := fmt.Sprintf("%s/teacher/submissions/%d", base, sub.SubmissionID)
+	link := base
 
 	go func() {
 		if owner.Email != nil && *owner.Email != "" {
@@ -633,7 +632,7 @@ func NotifySubmissionRejected(c *gin.Context) {
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	link := fmt.Sprintf("%s/teacher/submissions/%d", base, sub.SubmissionID)
+	link := base
 
 	go func() {
 		if owner.Email != nil && *owner.Email != "" {
