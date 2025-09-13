@@ -610,13 +610,13 @@ func NotifySubmissionRejected(c *gin.Context) {
 
 	// ใช้ SP เดิม; ถ้า error ค่อย fallback insert ตรง
 	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
-		sub.UserID, title, msg, "danger", sid,
+		sub.UserID, title, msg, "error", sid,
 	).Error; err != nil {
 		n := Notification{
 			UserID:              sub.UserID,
 			Title:               title,
 			Message:             msg,
-			Type:                "danger",
+			Type:                "error",
 			RelatedSubmissionID: &sub.SubmissionID,
 			IsRead:              false,
 			CreateAt:            time.Now(),
