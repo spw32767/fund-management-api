@@ -894,7 +894,8 @@ func generateSubmissionNumber(submissionType string) string {
 	defer submissionNumberMutex.Unlock()
 
 	now := time.Now()
-	dateStr := now.Format("20060102")
+	buddhistYear := now.Year() + 543
+	dateStr := fmt.Sprintf("%04d%02d%02d", buddhistYear, int(now.Month()), now.Day())
 
 	var prefix string
 	switch submissionType {
@@ -913,7 +914,7 @@ func generateSubmissionNumber(submissionType string) string {
 	// Try sequential number first (user-friendly)
 	var count int64
 	config.DB.Model(&models.Submission{}).
-		Where("submission_type = ? AND DATE(created_at) = DATE(NOW())", submissionType).
+		Where("submission_type = ? AND YEAR(created_at) = YEAR(NOW())", submissionType).
 		Count(&count)
 
 	// Try up to 10 sequential numbers
