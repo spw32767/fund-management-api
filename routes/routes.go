@@ -140,6 +140,9 @@ func SetupRoutes(router *gin.Engine) {
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
 				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)
 				teacher.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
+
+				// User Innovations
+				teacher.GET("/user-innovations", controllers.GetUserInnovations)
 			}
 
 			// Staff-specific endpoints
