@@ -62,6 +62,12 @@ func AdminImportScholarPublications(c *gin.Context) {
 			externalJSON = &js
 		}
 
+		var citedBy *uint
+		if sp.NumCitations != nil && *sp.NumCitations >= 0 {
+			cb := uint(*sp.NumCitations)
+			citedBy = &cb
+		}
+
 		pub := &models.UserPublication{
 			UserID:          userID,
 			Title:           title,
@@ -72,6 +78,8 @@ func AdminImportScholarPublications(c *gin.Context) {
 			PublicationYear: yearPtr,
 			DOI:             sp.DOI,
 			URL:             sp.URL,
+			CitedBy:         citedBy,
+			CitedByURL:      sp.CitedByURL,
 			Source:          &source,
 			ExternalIDs:     externalJSON,
 			// Fingerprint is auto-computed by model hook if missing
@@ -163,6 +171,12 @@ func AdminImportScholarForAll(c *gin.Context) {
 				externalJSON = &js
 			}
 
+			var citedBy *uint
+			if sp.NumCitations != nil && *sp.NumCitations >= 0 {
+				cb := uint(*sp.NumCitations)
+				citedBy = &cb
+			}
+
 			pub := &models.UserPublication{
 				UserID:          u.UserID,
 				Title:           title,
@@ -173,6 +187,8 @@ func AdminImportScholarForAll(c *gin.Context) {
 				PublicationYear: yearPtr,
 				DOI:             sp.DOI,
 				URL:             sp.URL,
+				CitedBy:         citedBy,
+				CitedByURL:      sp.CitedByURL,
 				Source:          &source,
 				ExternalIDs:     externalJSON,
 			}
