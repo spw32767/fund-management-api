@@ -16,6 +16,8 @@ type ScholarPub struct {
 	URL              *string  `json:"url"`
 	DOI              *string  `json:"doi"`
 	ScholarClusterID *string  `json:"scholar_cluster_id"`
+	NumCitations     *int     `json:"num_citations"`
+	CitedByURL       *string  `json:"citedby_url"`
 }
 
 // Runs: python3 scripts/scholarly_fetch.py <AUTHOR_ID>
