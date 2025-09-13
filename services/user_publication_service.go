@@ -1,7 +1,10 @@
 package services
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +57,28 @@ func (s *PublicationService) ListByUser(userID uint, year *int, limit, offset in
 	return pubs, total, nil
 }
 
+// --- helpers ----------------------------------------------------------------
+
+func normalizeTitle(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	// collapse multiple spaces
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
+func makeFingerprint(title string, year *uint16) string {
+	t := normalizeTitle(title)
+	y := "0"
+	if year != nil && *year > 0 {
+		y = strconv.Itoa(int(*year))
+	}
+	h := sha1.New()
+	h.Write([]byte(t + ":" + y))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // Upsert by (user_id, doi) first; fallback to (user_id, fingerprint).
+// Returns (created?, record, error).
 func (s *PublicationService) Upsert(pub *models.UserPublication) (bool, models.UserPublication, error) {
 	var empty models.UserPublication
 	if pub == nil {
@@ -66,27 +90,26 @@ func (s *PublicationService) Upsert(pub *models.UserPublication) (bool, models.U
 		yy := uint16(pub.PublicationDate.Year())
 		pub.PublicationYear = &yy
 	}
+
 	// Normalize DOI spacing
 	if pub.DOI != nil {
 		d := strings.TrimSpace(*pub.DOI)
 		pub.DOI = &d
 	}
 
+	// Ensure we have a fingerprint if none provided
+	if (pub.Fingerprint == nil || *pub.Fingerprint == "") && pub.Title != "" {
+		fp := makeFingerprint(pub.Title, pub.PublicationYear)
+		pub.Fingerprint = &fp
+	}
+
 	var existing models.UserPublication
 	var found bool
 
-	// Prefer DOI
+	// 1) Prefer DOI
 	if pub.DOI != nil && *pub.DOI != "" {
-		if err := s.db.Where("user_id = ? AND doi = ? AND deleted_at IS NULL", pub.UserID, *pub.DOI).
-			First(&existing).Error; err == nil {
-			found = true
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, empty, err
-		}
-	}
-	// Fallback fingerprint
-	if !found && pub.Fingerprint != nil && *pub.Fingerprint != "" {
-		if err := s.db.Where("user_id = ? AND fingerprint = ? AND deleted_at IS NULL", pub.UserID, *pub.Fingerprint).
+		if err := s.db.Where("user_id = ? AND doi = ? AND deleted_at IS NULL",
+			pub.UserID, *pub.DOI).
 			First(&existing).Error; err == nil {
 			found = true
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -94,6 +117,18 @@ func (s *PublicationService) Upsert(pub *models.UserPublication) (bool, models.U
 		}
 	}
 
+	// 2) Fallback fingerprint
+	if !found && pub.Fingerprint != nil && *pub.Fingerprint != "" {
+		if err := s.db.Where("user_id = ? AND fingerprint = ? AND deleted_at IS NULL",
+			pub.UserID, *pub.Fingerprint).
+			First(&existing).Error; err == nil {
+			found = true
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, empty, err
+		}
+	}
+
+	// 3) Update (match found)
 	if found {
 		updates := map[string]interface{}{
 			"title":            pub.Title,
@@ -102,20 +137,29 @@ func (s *PublicationService) Upsert(pub *models.UserPublication) (bool, models.U
 			"publication_type": pub.PublicationType,
 			"publication_date": pub.PublicationDate,
 			"publication_year": pub.PublicationYear,
-			"doi":              pub.DOI,
+			"doi":              pub.DOI, // if DOI appears later, save it
 			"url":              pub.URL,
 			"source":           pub.Source,
 			"external_ids":     pub.ExternalIDs,
-			"fingerprint":      pub.Fingerprint,
+			"fingerprint":      pub.Fingerprint, // keep current fingerprint
 			"is_verified":      pub.IsVerified,
-			"updated_at":       time.Now(),
+			// Optional new fields (safe even if columns don't exist—remove if not added):
+			"cited_by":     pub.CitedBy,
+			"cited_by_url": pub.CitedByURL,
+			"updated_at":   time.Now(),
 		}
+
 		if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
+			return false, empty, err
+		}
+		// Return the fresh record
+		if err := s.db.First(&existing, existing.ID).Error; err != nil {
 			return false, empty, err
 		}
 		return false, existing, nil
 	}
 
+	// 4) Create new
 	if err := s.db.Create(pub).Error; err != nil {
 		return false, empty, err
 	}
