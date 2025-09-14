@@ -490,7 +490,7 @@ func UploadFile(c *gin.Context) {
 	})
 }
 
-// MoveFileToSubmissionFolder ย้ายไฟล์จาก temp ไปยัง submission folder
+// REPLACE: MoveFileToSubmissionFolder ย้ายไฟล์จาก temp → submission folder และตั้งชื่อไฟล์ให้มีเลขคำร้อง
 func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType string) error {
 	var fileUpload models.FileUpload
 	if err := config.DB.First(&fileUpload, fileID).Error; err != nil {
@@ -507,7 +507,7 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 		return err
 	}
 
-	// Generate new path
+	// Generate base paths
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
 		uploadPath = "./uploads"
@@ -524,16 +524,23 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 		return err
 	}
 
-	// Generate new filename
-	newFilename := utils.GenerateUniqueFilename(submissionFolderPath, fileUpload.OriginalName)
+	// ===== ตั้งชื่อไฟล์ใหม่: <original-name>_<submission-number><ext>
+	orig := fileUpload.OriginalName
+	ext := filepath.Ext(orig)
+	base := strings.TrimSuffix(orig, ext)
+
+	desiredName := fmt.Sprintf("%s_%s%s", base, submission.SubmissionNumber, ext)
+
+	// ให้ utils.GenerateUniqueFilename ช่วยกันชื่อซ้ำ (ส่ง desiredName เข้าไปให้เป็น "ต้นฉบับ")
+	newFilename := utils.GenerateUniqueFilename(submissionFolderPath, desiredName)
 	newPath := filepath.Join(submissionFolderPath, newFilename)
 
-	// Move file
+	// Move file on disk
 	if err := utils.MoveFileToSubmissionFolder(fileUpload.StoredPath, newPath); err != nil {
 		return err
 	}
 
-	// Update database
+	// Update DB path (เก็บ OriginalName ตามเดิมไว้ เพื่อแสดงชื่อไฟล์เดิมใน UI ได้ถ้าต้องการ)
 	fileUpload.StoredPath = newPath
 	fileUpload.UpdateAt = time.Now()
 	return config.DB.Save(&fileUpload).Error
@@ -629,7 +636,7 @@ func GetFile(c *gin.Context) {
 	})
 }
 
-// DownloadFile serves file for download
+// REPLACE: DownloadFile serves file for download (filename includes submission number)
 func DownloadFile(c *gin.Context) {
 	fileID := c.Param("id")
 	userID, _ := c.Get("userID")
@@ -654,8 +661,29 @@ func DownloadFile(c *gin.Context) {
 		return
 	}
 
+	// ===== ประกอบชื่อไฟล์แนบ: <original-name>_<submission-number><ext> (ถ้าหา submission ได้)
+	downloadName := file.OriginalName
+	ext := filepath.Ext(file.OriginalName)
+	base := strings.TrimSuffix(file.OriginalName, ext)
+
+	// หา submission_id ผ่านตาราง submission_documents (ไฟล์นี้ถูกแนบกับ submission ไหน)
+	var doc models.SubmissionDocument
+	if err := config.DB.
+		Where("file_id = ?", file.FileID).
+		Order("created_at ASC").
+		First(&doc).Error; err == nil {
+
+		var sub models.Submission
+		if err := config.DB.
+			Select("submission_id", "submission_number").
+			Where("submission_id = ?", doc.SubmissionID).
+			First(&sub).Error; err == nil && sub.SubmissionNumber != "" {
+			downloadName = fmt.Sprintf("%s_%s%s", base, sub.SubmissionNumber, ext)
+		}
+	}
+
 	// Serve file
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", file.OriginalName))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
 	c.Header("Content-Type", file.MimeType)
 	c.File(file.StoredPath)
 }
@@ -884,18 +912,61 @@ func DetachDocument(c *gin.Context) {
 
 // ===================== HELPER FUNCTIONS =====================
 
+// ดึงปี พ.ศ. (string) จาก system_config.current_year ถ้ามี; ถ้าไม่มี fallback เป็น (ปีค.ศ.+543)
+func getCurrentBEYearStr() string {
+	type row struct {
+		CurrentYear *string
+	}
+	var r row
+	// current_year อาจเป็น string รูปแบบต่าง ๆ จึงสแกนเป็น *string
+	_ = config.DB.Raw(`
+		SELECT current_year
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&r).Error
+
+	if r.CurrentYear != nil {
+		only := onlyDigits(*r.CurrentYear)
+		// พยายามใช้ 4 หลักแรก เช่น "2568", "2568/2569", "ปี 2568" -> "2568"
+		if len(only) >= 4 {
+			return only[:4]
+		}
+	}
+
+	// fallback: ปีปัจจุบันแบบ พ.ศ.
+	return fmt.Sprintf("%04d", time.Now().Year()+543)
+}
+
+// คืนเฉพาะตัวเลขจากสตริง (กันเคส "2568/2569" หรือ "ปี 2568")
+func onlyDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// ===================== HELPER FUNCTIONS =====================
+
 // Global mutex for submission number generation
 var submissionNumberMutex sync.Mutex
 
-// generateSubmissionNumber creates a unique submission number with hybrid approach
+// REPLACE: generateSubmissionNumber creates a unique submission number (prefix-BEYYYYMMDD-RUNNING)
+// - ปีใช้ พ.ศ. จาก system_config.current_year (ถ้าไม่มีค่อย fallback เป็น ปีปัจจุบัน+543)
+// - running number รีเซ็ต "เมื่อปี พ.ศ. เปลี่ยน" (นับรวมทั้งปี ไม่รีเซ็ตรายวัน)
 func generateSubmissionNumber(submissionType string) string {
-	// Use mutex to prevent concurrent access
 	submissionNumberMutex.Lock()
 	defer submissionNumberMutex.Unlock()
 
 	now := time.Now()
-	buddhistYear := now.Year() + 543
-	dateStr := fmt.Sprintf("%04d%02d%02d", buddhistYear, int(now.Month()), now.Day())
+	// ปี พ.ศ. จาก system_config (หรือ fallback)
+	beYear := getCurrentBEYearStr()
+
+	// เดือน/วัน ใช้ของวันนี้
+	dateStr := fmt.Sprintf("%s%02d%02d", beYear, int(now.Month()), now.Day())
 
 	var prefix string
 	switch submissionType {
@@ -911,33 +982,34 @@ func generateSubmissionNumber(submissionType string) string {
 		prefix = "SUB"
 	}
 
-	// Try sequential number first (user-friendly)
+	// นับจำนวน submission ภายใน "ปี พ.ศ. ปัจจุบัน" (ตามเลขใน submission_number)
+	// ตัวอย่าง prefixYear = "PR-2568%" จะ match ทั้งปีนั้น ไม่ขึ้นกับวัน
+	prefixYearLike := fmt.Sprintf("%s-%s%%", prefix, beYear)
+
 	var count int64
 	config.DB.Model(&models.Submission{}).
-		Where("submission_type = ? AND YEAR(created_at) = YEAR(NOW())", submissionType).
+		Where("submission_type = ? AND submission_number LIKE ?", submissionType, prefixYearLike).
 		Count(&count)
 
-	// Try up to 10 sequential numbers
+	// พยายามจองเลขลำดับ + ตรวจซ้ำ
 	for i := int64(1); i <= 10; i++ {
 		potentialNumber := fmt.Sprintf("%s-%s-%04d", prefix, dateStr, count+i)
 
-		var existingCount int64
+		var existing int64
 		config.DB.Model(&models.Submission{}).
 			Where("submission_number = ?", potentialNumber).
-			Count(&existingCount)
+			Count(&existing)
 
-		if existingCount == 0 {
+		if existing == 0 {
 			return potentialNumber
 		}
 	}
 
-	// Fallback to random suffix if sequential fails
-	bytes := make([]byte, 3) // 6 characters hex
+	// กรณีชนพร้อมกันหลายเธรด/หลายเครื่อง (โอกาสน้อย) ค่อย fallback เป็นสุ่ม
+	bytes := make([]byte, 3)
 	rand.Read(bytes)
-	randomSuffix := hex.EncodeToString(bytes)
-
-	// Format: PR-20250730-R-A1B2C3 (R indicates random)
-	return fmt.Sprintf("%s-%s-R-%s", prefix, dateStr, strings.ToUpper(randomSuffix))
+	randomSuffix := strings.ToUpper(hex.EncodeToString(bytes))
+	return fmt.Sprintf("%s-%s-R-%s", prefix, dateStr, randomSuffix)
 }
 
 // isValidFileType checks if file type is allowed
