@@ -1087,6 +1087,10 @@ func AddPublicationDetails(c *gin.Context) {
 		HasUniversityFunding string `json:"has_university_funding"` // "yes", "no"
 		FundingReferences    string `json:"funding_references"`     // หมายเลขอ้างอิงทุน
 		UniversityRankings   string `json:"university_rankings"`    // อันดับมหาวิทยาลัย
+
+		// === Snapshotted announcements (from system_config at submission time) ===
+		MainAnnoucement    *int `json:"main_annoucement"`
+		RewardAnnouncement *int `json:"reward_announcement"`
 	}
 
 	var req PublicationDetailsRequest
@@ -1147,6 +1151,10 @@ func AddPublicationDetails(c *gin.Context) {
 		HasUniversityFunding: req.HasUniversityFunding, // → database: has_university_funding
 		FundingReferences:    &req.FundingReferences,   // → database: funding_references
 		UniversityRankings:   &req.UniversityRankings,  // → database: university_rankings
+
+		// === Snapshotted announcements ===
+		MainAnnoucement:    req.MainAnnoucement,
+		RewardAnnouncement: req.RewardAnnouncement,
 
 		// เพิ่ม timestamp fields
 		CreateAt: now,
