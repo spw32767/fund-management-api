@@ -123,7 +123,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/categories", controllers.GetCategories)
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
-			protected.GET("/system-config/current-year", controllers.GetCurrentYear)
+			protected.GET("/system-config/current-year", controllers.GetSystemConfigCurrentYear)
 			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
 
 			// General submissions listing (all users)
@@ -446,7 +446,7 @@ func SetupRoutes(router *gin.Engine) {
 				systemConfig := admin.Group("/system-config")
 				{
 					systemConfig.GET("", controllers.GetSystemConfigAdmin)
-					systemConfig.PUT("", controllers.UpdateSystemConfig)
+					systemConfig.PUT("", controllers.UpdateSystemConfigWindow)
 				}
 
 				submissionManagement := admin.Group("/submissions")
