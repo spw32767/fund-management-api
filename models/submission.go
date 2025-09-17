@@ -102,8 +102,8 @@ type PublicationRewardDetail struct {
 	UniversityRankings   *string `json:"university_rankings" gorm:"column:university_rankings"`
 
 	// === Snapshotted announcements (FK -> system_config.config_id) ===
-	MainAnnoucement    *int `json:"main_annoucement" gorm:"column:main_annoucement"`       // สะกด annoucement ให้ตรง DB
-	RewardAnnouncement *int `json:"reward_announcement" gorm:"column:reward_announcement"` // ใช้เฉพาะทุนอุดหนุน
+	MainAnnoucement    *int `json:"main_annoucement" gorm:"column:main_annoucement"`
+	RewardAnnouncement *int `json:"reward_announcement" gorm:"column:reward_announcement"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ Admin Management ==========
 	ApprovedAmount  *float64   `json:"approved_amount,omitempty" gorm:"column:approved_amount"`
