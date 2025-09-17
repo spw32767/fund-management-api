@@ -1066,12 +1066,12 @@ func AddPublicationDetails(c *gin.Context) {
 		Indexing        string  `json:"indexing"`
 
 		// === เงินรางวัลและการคำนวณ ===
-		RewardAmount                float64 `json:"publication_reward"`    // บาง FE อาจส่งเป็น reward_amount ให้คงเดิมก่อน
-		RewardApproveAmount         float64 `json:"reward_approve_amount"` // อนุมัติ (ถ้ามี)
+		RewardAmount                float64 `json:"publication_reward"`
+		RewardApproveAmount         float64 `json:"reward_approve_amount"`
 		RevisionFee                 float64 `json:"revision_fee"`
-		RevisionFeeApproveAmount    float64 `json:"revision_fee_approve_amount"` // อนุมัติ (ถ้ามี)
+		RevisionFeeApproveAmount    float64 `json:"revision_fee_approve_amount"`
 		PublicationFee              float64 `json:"publication_fee"`
-		PublicationFeeApproveAmount float64 `json:"publication_fee_approve_amount"` // อนุมัติ (ถ้ามี)
+		PublicationFeeApproveAmount float64 `json:"publication_fee_approve_amount"`
 		ExternalFundingAmount       float64 `json:"external_funding_amount"`
 		TotalAmount                 float64 `json:"total_amount"`
 		TotalApproveAmount          float64 `json:"total_approve_amount"`
@@ -1083,11 +1083,11 @@ func AddPublicationDetails(c *gin.Context) {
 		// === อื่นๆ ===
 		AnnounceReferenceNumber string `json:"announce_reference_number"`
 
-		// === ฟิลด์ใหม่ (ประกาศ) ===
+		// === ฟิลด์ใหม่จาก FE (ไม่บังคับใช้ ใช้เป็น fallback) ===
 		MainAnnoucement    *int `json:"main_annoucement"`
 		RewardAnnouncement *int `json:"reward_announcement"`
 
-		// === ฟิลด์ใหม่ (ทุน) ===
+		// === ฟิลด์อื่น ===
 		HasUniversityFunding string `json:"has_university_funding"` // "yes" | "no"
 		FundingReferences    string `json:"funding_references"`
 		UniversityRankings   string `json:"university_rankings"`
@@ -1099,7 +1099,7 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
-	// ตรวจสอบสิทธิ์และการมีอยู่ของ submission
+	// ตรวจสอบ submission เป็นของ user นี้
 	var submission models.Submission
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).
 		First(&submission).Error; err != nil {
@@ -1107,30 +1107,37 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
-	// แปลงวันที่ตีพิมพ์
+	// แปลงวันตีพิมพ์
 	pubDate, err := time.Parse("2006-01-02", req.PublicationDate)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid publication date format"})
 		return
 	}
 
-	now := time.Now()
-
-	// --- สำคัญ: ล็อก system_config ปัจจุบัน (ค่า config_id) ไปเก็บเป็น snapshot ---
-	var currentCfgID int
-	if row := config.DB.Raw(`
-		SELECT config_id FROM system_config
-		ORDER BY config_id DESC LIMIT 1
-	`).Row(); row != nil {
-		_ = row.Scan(&currentCfgID) // ถ้าสแกนไม่ได้ currentCfgID จะเป็น 0
+	// --- ดึง "เลขประกาศ" ปัจจุบันจาก system_config (snapshot ณ เวลายื่น) ---
+	var ann struct {
+		MainAnnoucement    *int
+		RewardAnnouncement *int
 	}
-	// บังคับใช้ config_id ปัจจุบันเสมอ (สอดคล้องกับ FK: publication_reward_details -> system_config(config_id))
-	mainCfgID := currentCfgID
-	rewardCfgID := currentCfgID
+	if err := config.DB.Raw(`
+		SELECT main_annoucement, reward_announcement
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&ann).Error; err != nil {
+		// ถ้าดึงไม่ได้ ปล่อยให้ใช้ค่าจาก FE เป็น fallback
+		ann.MainAnnoucement = req.MainAnnoucement
+		ann.RewardAnnouncement = req.RewardAnnouncement
+	}
+	// ถ้าดึงได้แต่เป็น NULL ให้ fallbackไปใช้ที่ FE ส่งมา (ถ้ามี)
+	if ann.MainAnnoucement == nil && req.MainAnnoucement != nil {
+		ann.MainAnnoucement = req.MainAnnoucement
+	}
+	if ann.RewardAnnouncement == nil && req.RewardAnnouncement != nil {
+		ann.RewardAnnouncement = req.RewardAnnouncement
+	}
 
-	// ถ้าต้องการอนุญาตให้ FE ส่งมาแล้ว fallback เป็น cfg ปัจจุบัน ให้ใช้แบบนี้แทน:
-	// if req.MainAnnoucement != nil && *req.MainAnnoucement > 0 { mainCfgID = *req.MainAnnoucement }
-	// if req.RewardAnnouncement != nil && *req.RewardAnnouncement > 0 { rewardCfgID = *req.RewardAnnouncement }
+	now := time.Now()
 
 	publicationDetails := models.PublicationRewardDetail{
 		SubmissionID:    submission.SubmissionID,
@@ -1161,9 +1168,9 @@ func AddPublicationDetails(c *gin.Context) {
 
 		AnnounceReferenceNumber: req.AnnounceReferenceNumber,
 
-		// === Snapshotted announcements (FK -> system_config.config_id) ===
-		MainAnnoucement:    &mainCfgID,
-		RewardAnnouncement: &rewardCfgID,
+		// === Snapshotted announcements (announcement_id) ===
+		MainAnnoucement:    ann.MainAnnoucement,
+		RewardAnnouncement: ann.RewardAnnouncement,
 
 		HasUniversityFunding: req.HasUniversityFunding,
 		FundingReferences:    &req.FundingReferences,
