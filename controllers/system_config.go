@@ -10,28 +10,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//
-// ===== Helpers & Payloads =====
-//
+// ===== Helpers =====
 
-// ใช้ตอนอัปเดตค่าจากฝั่งแอดมิน
-type UpdateSystemConfigPayload struct {
-	// หมายเหตุ: เดิมฝั่ง FE ใช้ปีเป็นข้อความได้ ให้ยอมรับเป็น string เพื่อความยืดหยุ่น
-	CurrentYear string  `json:"current_year" binding:"required"`
-	StartDate   *string `json:"start_date"` // อนุญาต null/"" = ไม่มีหน้าต่างเวลา
-	EndDate     *string `json:"end_date"`   // อนุญาต null/""
-}
-
-// parseTimePtr รับ string หลายรูปแบบและแปลงเป็น *time.Time (หรือ nil หากว่าง)
+// parseTimePtr takes a *string (possibly nil/empty) and parses it into *time.Time (or nil)
 func parseTimePtr(s *string) (*time.Time, error) {
 	if s == nil || *s == "" {
 		return nil, nil
 	}
 	layouts := []string{
-		"2006-01-02 15:04:05", // ฟอร์แมตที่ DB มักใช้
-		time.RFC3339,          // ISO เช่น 2025-09-06T23:01:58Z
-		"2006-01-02T15:04:05", // datetime-local (ไม่มีเขตเวลา)
-		"2006-01-02",          // วันล้วน
+		"2006-01-02 15:04:05", // common MySQL DATETIME
+		time.RFC3339,          // ISO8601
+		"2006-01-02T15:04:05", // datetime-local without TZ
+		"2006-01-02",          // date only
 	}
 	var lastErr error
 	for _, layout := range layouts {
@@ -44,7 +34,8 @@ func parseTimePtr(s *string) (*time.Time, error) {
 	return nil, lastErr
 }
 
-// formatPtrTime แปลง *time.Time -> *string ด้วย layout มาตรฐาน (คืน nil หากอินพุต nil)
+// formatPtrTime converts *time.Time to *string with a standard layout ("YYYY-MM-DD HH:mm:ss")
+// returns nil if t is nil
 func formatPtrTime(t *time.Time) *string {
 	if t == nil {
 		return nil
@@ -53,13 +44,28 @@ func formatPtrTime(t *time.Time) *string {
 	return &s
 }
 
-//
-// ===== Public (ไม่ต้องเป็นแอดมิน) =====
-//
+// computeOpen takes start/end pointers and now, and returns (is_open_raw, is_open_effective)
+// is_open_raw: according to window only
+// is_open_effective: same as raw for now (reserved in case of future overrides)
+func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
+	isOpen := true
+	if start != nil && end != nil {
+		isOpen = (now.Equal(*start) || now.After(*start)) && (now.Equal(*end) || now.Before(*end))
+	} else if start != nil && end == nil {
+		isOpen = now.Equal(*start) || now.After(*start)
+	} else if start == nil && end != nil {
+		isOpen = now.Equal(*end) || now.Before(*end)
+	} else {
+		// both nil => treat as open (as used in your prior logs)
+		isOpen = true
+	}
+	return isOpen, isOpen
+}
 
-// GetCurrentYear returns the current year from system configuration
-// GET /api/v1/system-config/current-year
-func GetCurrentYear(c *gin.Context) {
+// ===== Handlers =====
+
+// GetSystemConfigCurrentYear returns only the latest current_year (as string or null)
+func GetSystemConfigCurrentYear(c *gin.Context) {
 	var row struct {
 		CurrentYear sql.NullString
 	}
@@ -75,7 +81,6 @@ func GetCurrentYear(c *gin.Context) {
 
 	var cur interface{}
 	if row.CurrentYear.Valid {
-		// ส่งคืนเป็น string (เพื่อความเข้ากันได้กับ FE ที่อาจแสดงเป็นข้อความ)
 		cur = row.CurrentYear.String
 	} else {
 		cur = nil
@@ -86,18 +91,30 @@ func GetCurrentYear(c *gin.Context) {
 	})
 }
 
-// GetSystemConfigWindow คืนข้อมูลหน้าต่างเวลา + สถานะเปิด/ปิด (effective)
-// GET /api/v1/system-config/window
+// GetSystemConfigWindow returns the window + all new columns (flat JSON)
 func GetSystemConfigWindow(c *gin.Context) {
+	now := time.Now().UTC()
+
 	var row struct {
-		CurrentYear sql.NullString
-		StartDate   sql.NullTime
-		EndDate     sql.NullTime
-		LastUpdated sql.NullTime
+		ConfigID      int
+		SystemVersion sql.NullString
+		CurrentYear   sql.NullString
+		StartDate     sql.NullTime
+		EndDate       sql.NullTime
+		LastUpdated   sql.NullTime
+		UpdatedBy     sql.NullInt64
+
+		MainAnnoucement             sql.NullInt64
+		RewardAnnouncement          sql.NullInt64
+		ActivitySupportAnnouncement sql.NullInt64
+		ConferenceAnnouncement      sql.NullInt64
+		ServiceAnnouncement         sql.NullInt64
 	}
 
 	if err := config.DB.Raw(`
-		SELECT current_year, start_date, end_date, last_updated
+		SELECT
+		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
+		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
@@ -106,72 +123,73 @@ func GetSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
-	// คืนค่าเวลาในรูปแบบ string (หรือ null)
-	var startStr, endStr, lastStr *string
+	// format pointers
+	var startPtr, endPtr, lastPtr *time.Time
 	if row.StartDate.Valid {
-		startStr = formatPtrTime(&row.StartDate.Time)
+		start := row.StartDate.Time.UTC()
+		startPtr = &start
 	}
 	if row.EndDate.Valid {
-		endStr = formatPtrTime(&row.EndDate.Time)
+		end := row.EndDate.Time.UTC()
+		endPtr = &end
 	}
 	if row.LastUpdated.Valid {
-		lastStr = formatPtrTime(&row.LastUpdated.Time)
+		lu := row.LastUpdated.Time.UTC()
+		lastPtr = &lu
 	}
 
-	// คำนวณสถานะเปิด/ปิดแบบ "effective"
-	// นิยาม:
-	// - หากทั้ง start และ end เป็น null => ถือว่า "เปิด" ตามค่าเริ่มต้น (ไม่ล็อกเวลา)
-	// - หากมีแค่ start   => เปิดหาก now >= start
-	// - หากมีแค่ end     => เปิดหาก now <= end
-	// - หากมีทั้งคู่      => เปิดหาก start <= now <= end
-	now := time.Now().UTC()
-	isOpenEffective := true
-	if row.StartDate.Valid || row.EndDate.Valid {
-		isOpenEffective = false
-		if row.StartDate.Valid && row.EndDate.Valid {
-			isOpenEffective = (now.Equal(row.StartDate.Time) || now.After(row.StartDate.Time)) &&
-				(now.Equal(row.EndDate.Time) || now.Before(row.EndDate.Time))
-		} else if row.StartDate.Valid {
-			isOpenEffective = now.Equal(row.StartDate.Time) || now.After(row.StartDate.Time)
-		} else if row.EndDate.Valid {
-			isOpenEffective = now.Equal(row.EndDate.Time) || now.Before(row.EndDate.Time)
+	isOpenRaw, isOpenEff := computeOpen(startPtr, endPtr, time.Now().UTC())
+
+	toIntPtr := func(n sql.NullInt64) *int {
+		if n.Valid {
+			v := int(n.Int64)
+			return &v
 		}
+		return nil
 	}
-
-	// is_open_raw: ให้ตีความแบบกว้างที่สุด (หากไม่มีหน้าต่าง ให้เปิด)
-	isOpenRaw := true
-	if row.StartDate.Valid && row.EndDate.Valid {
-		isOpenRaw = (now.Equal(row.StartDate.Time) || now.After(row.StartDate.Time)) &&
-			(now.Equal(row.EndDate.Time) || now.Before(row.EndDate.Time))
-	} else if row.StartDate.Valid {
-		isOpenRaw = now.Equal(row.StartDate.Time) || now.After(row.StartDate.Time)
-	} else if row.EndDate.Valid {
-		isOpenRaw = now.Equal(row.EndDate.Time) || now.Before(row.EndDate.Time)
-	} // ถ้าทั้งคู่ว่าง คงค่า true
+	var updBy *int
+	if row.UpdatedBy.Valid {
+		v := int(row.UpdatedBy.Int64)
+		updBy = &v
+	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"config_id": row.ConfigID,
+		"system_version": func() *string {
+			if row.SystemVersion.Valid {
+				s := row.SystemVersion.String
+				return &s
+			}
+			return nil
+		}(),
 		"current_year": func() interface{} {
 			if row.CurrentYear.Valid {
 				return row.CurrentYear.String
 			}
 			return nil
 		}(),
-		"start_date":        startStr,
-		"end_date":          endStr,
-		"last_updated":      lastStr,
+		"start_date":   formatPtrTime(startPtr),
+		"end_date":     formatPtrTime(endPtr),
+		"last_updated": formatPtrTime(lastPtr),
+		"updated_by":   updBy,
+
+		// announcements (IDs to system_config.config_id per your schema)
+		"main_annoucement":              toIntPtr(row.MainAnnoucement),
+		"reward_announcement":           toIntPtr(row.RewardAnnouncement),
+		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
+		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
+		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+
 		"is_open_raw":       isOpenRaw,
-		"is_open_effective": isOpenEffective,
+		"is_open_effective": isOpenEff,
 		"now":               now.Format(time.RFC3339Nano),
 	})
 }
 
-//
-// ===== Admin Only =====
-//
-
-// GetSystemConfigAdmin: คืนค่าทั้งแถวล่าสุด (admin ใช้เติมฟอร์ม)
-// GET /api/v1/admin/system-config
+// GetSystemConfigAdmin returns all columns under {success:true, data:{...}}
 func GetSystemConfigAdmin(c *gin.Context) {
+	now := time.Now().UTC()
+
 	var row struct {
 		ConfigID      int            `json:"config_id"`
 		SystemVersion sql.NullString `json:"system_version"`
@@ -180,10 +198,18 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		EndDate       sql.NullTime   `json:"end_date"`
 		LastUpdated   sql.NullTime   `json:"last_updated"`
 		UpdatedBy     sql.NullInt64  `json:"updated_by"`
+
+		MainAnnoucement             sql.NullInt64 `json:"main_annoucement"`
+		RewardAnnouncement          sql.NullInt64 `json:"reward_announcement"`
+		ActivitySupportAnnouncement sql.NullInt64 `json:"activity_support_announcement"`
+		ConferenceAnnouncement      sql.NullInt64 `json:"conference_announcement"`
+		ServiceAnnouncement         sql.NullInt64 `json:"service_announcement"`
 	}
 
 	if err := config.DB.Raw(`
-		SELECT config_id, system_version, current_year, start_date, end_date, last_updated, updated_by
+		SELECT
+		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
+		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
@@ -192,74 +218,87 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		return
 	}
 
-	var startStr, endStr, lastStr, verStr, curStr *string
-	if row.SystemVersion.Valid {
-		s := row.SystemVersion.String
-		verStr = &s
-	}
-	if row.CurrentYear.Valid {
-		s := row.CurrentYear.String
-		curStr = &s
-	}
+	// format pointers
+	var startPtr, endPtr, lastPtr *time.Time
 	if row.StartDate.Valid {
-		startStr = formatPtrTime(&row.StartDate.Time)
+		start := row.StartDate.Time.UTC()
+		startPtr = &start
 	}
 	if row.EndDate.Valid {
-		endStr = formatPtrTime(&row.EndDate.Time)
+		end := row.EndDate.Time.UTC()
+		endPtr = &end
 	}
 	if row.LastUpdated.Valid {
-		lastStr = formatPtrTime(&row.LastUpdated.Time)
+		lu := row.LastUpdated.Time.UTC()
+		lastPtr = &lu
 	}
+	isOpenRaw, isOpenEff := computeOpen(startPtr, endPtr, now)
 
+	toIntPtr := func(n sql.NullInt64) *int {
+		if n.Valid {
+			v := int(n.Int64)
+			return &v
+		}
+		return nil
+	}
 	var updBy *int
 	if row.UpdatedBy.Valid {
 		v := int(row.UpdatedBy.Int64)
 		updBy = &v
 	}
 
+	data := gin.H{
+		"config_id": row.ConfigID,
+		"system_version": func() *string {
+			if row.SystemVersion.Valid {
+				s := row.SystemVersion.String
+				return &s
+			}
+			return nil
+		}(),
+		"current_year": func() interface{} {
+			if row.CurrentYear.Valid {
+				return row.CurrentYear.String
+			}
+			return nil
+		}(),
+		"start_date":   formatPtrTime(startPtr),
+		"end_date":     formatPtrTime(endPtr),
+		"last_updated": formatPtrTime(lastPtr),
+		"updated_by":   updBy,
+
+		"main_annoucement":              toIntPtr(row.MainAnnoucement),
+		"reward_announcement":           toIntPtr(row.RewardAnnouncement),
+		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
+		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
+		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+
+		"is_open_raw":       isOpenRaw,
+		"is_open_effective": isOpenEff,
+		"now":               now.Format(time.RFC3339Nano),
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"config_id":      row.ConfigID,
-			"system_version": verStr,
-			"current_year":   curStr,
-			"start_date":     startStr,
-			"end_date":       endStr,
-			"last_updated":   lastStr,
-			"updated_by":     updBy,
-		},
+		"data":    data,
 	})
 }
 
-// UpdateSystemConfig: อัปเดตค่าล่าสุดของ system_config (current_year, start_date, end_date)
-// PUT /api/v1/admin/system-config
-func UpdateSystemConfig(c *gin.Context) {
-	var p UpdateSystemConfigPayload
+// UpdateSystemConfigWindow upserts current_year / start_date / end_date (admin use)
+type updateWindowPayload struct {
+	CurrentYear *string `json:"current_year"`
+	StartDate   *string `json:"start_date"` // string; we will parse to *time.Time
+	EndDate     *string `json:"end_date"`
+}
+
+// UpdateSystemConfigWindow updates the latest row or inserts a new one
+func UpdateSystemConfigWindow(c *gin.Context) {
+	var p updateWindowPayload
 	if err := c.ShouldBindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid payload"})
 		return
 	}
 
-	// ตรวจตรรกะเวลา (หากกำหนดทั้งคู่)
-	if p.StartDate != nil && p.EndDate != nil && *p.StartDate != "" && *p.EndDate != "" {
-		st, err1 := parseTimePtr(p.StartDate)
-		en, err2 := parseTimePtr(p.EndDate)
-		if err1 == nil && err2 == nil && st != nil && en != nil && st.After(*en) {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "start_date must be before end_date"})
-			return
-		}
-	}
-
-	// หา config_id ล่าสุด
-	var cfgID sql.NullInt64
-	if err := config.DB.Raw(`
-		SELECT config_id FROM system_config ORDER BY config_id DESC LIMIT 1
-	`).Scan(&cfgID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to find latest config"})
-		return
-	}
-
-	// แปลงวันเวลา
 	stPtr, err1 := parseTimePtr(p.StartDate)
 	enPtr, err2 := parseTimePtr(p.EndDate)
 	if err1 != nil || err2 != nil {
@@ -267,7 +306,7 @@ func UpdateSystemConfig(c *gin.Context) {
 		return
 	}
 
-	// ดึง user_id จาก context (หาก middleware auth ใส่ไว้)
+	// Get user_id from context (if auth middleware sets it)
 	var updatedBy *int
 	if v, ok := c.Get("user_id"); ok {
 		if id, ok2 := v.(int); ok2 {
@@ -275,13 +314,24 @@ func UpdateSystemConfig(c *gin.Context) {
 		}
 	}
 
-	// ถ้ายังไม่มีแถวในตารางนี้เลย => insert แถวแรก
-	if !cfgID.Valid || cfgID.Int64 == 0 {
-		ver := "1.0.0" // ตั้งค่าเริ่มต้น หากไม่มีค่าใน DB
+	// Check if a row exists
+	var cfgID sql.NullInt64
+	if err := config.DB.Raw(`
+		SELECT config_id
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Row().Scan(&cfgID); err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
+		return
+	}
+
+	if !cfgID.Valid {
+		// Insert new row
 		if err := config.DB.Exec(`
-			INSERT INTO system_config (system_version, current_year, start_date, end_date, last_updated, updated_by)
-			VALUES (?, ?, ?, ?, NOW(), ?)
-		`, ver, p.CurrentYear, stPtr, enPtr, updatedBy).Error; err != nil {
+			INSERT INTO system_config (current_year, start_date, end_date, last_updated, updated_by)
+			VALUES (?, ?, ?, NOW(), ?)
+		`, p.CurrentYear, stPtr, enPtr, updatedBy).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
 			return
 		}
@@ -289,7 +339,7 @@ func UpdateSystemConfig(c *gin.Context) {
 		return
 	}
 
-	// มีแถวแล้ว => อัปเดตแถวล่าสุด
+	// Update latest row
 	if err := config.DB.Exec(`
 		UPDATE system_config
 		SET current_year = ?, start_date = ?, end_date = ?, last_updated = NOW(), updated_by = ?

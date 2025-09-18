@@ -101,6 +101,10 @@ type PublicationRewardDetail struct {
 	FundingReferences    *string `json:"funding_references" gorm:"column:funding_references"`
 	UniversityRankings   *string `json:"university_rankings" gorm:"column:university_rankings"`
 
+	// === Snapshotted announcements (FK -> system_config.config_id) ===
+	MainAnnoucement    *int `json:"main_annoucement" gorm:"column:main_annoucement"`
+	RewardAnnouncement *int `json:"reward_announcement" gorm:"column:reward_announcement"`
+
 	// ========== เพิ่ม fields ใหม่สำหรับ Admin Management ==========
 	ApprovedAmount  *float64   `json:"approved_amount,omitempty" gorm:"column:approved_amount"`
 	ApprovalComment *string    `json:"approval_comment" gorm:"column:approval_comment"`
