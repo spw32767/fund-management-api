@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -68,6 +69,14 @@ func AdminImportScholarPublications(c *gin.Context) {
 			citedBy = &cb
 		}
 
+		var citationHistory *string
+		if sp.CitesPerYear != nil && len(sp.CitesPerYear) > 0 {
+			if b, err := json.Marshal(sp.CitesPerYear); err == nil {
+				s := string(b)
+				citationHistory = &s
+			}
+		}
+
 		pub := &models.UserPublication{
 			UserID:          userID,
 			Title:           title,
@@ -82,6 +91,7 @@ func AdminImportScholarPublications(c *gin.Context) {
 			CitedByURL:      sp.CitedByURL,
 			Source:          &source,
 			ExternalIDs:     externalJSON,
+			CitationHistory: citationHistory,
 			// Fingerprint is auto-computed by model hook if missing
 		}
 
@@ -177,6 +187,14 @@ func AdminImportScholarForAll(c *gin.Context) {
 				citedBy = &cb
 			}
 
+			var citationHistory *string
+			if sp.CitesPerYear != nil && len(sp.CitesPerYear) > 0 {
+				if b, err := json.Marshal(sp.CitesPerYear); err == nil {
+					s := string(b)
+					citationHistory = &s
+				}
+			}
+
 			pub := &models.UserPublication{
 				UserID:          u.UserID,
 				Title:           title,
@@ -191,6 +209,7 @@ func AdminImportScholarForAll(c *gin.Context) {
 				CitedByURL:      sp.CitedByURL,
 				Source:          &source,
 				ExternalIDs:     externalJSON,
+				CitationHistory: citationHistory,
 			}
 
 			created, _, e := svc.Upsert(pub)

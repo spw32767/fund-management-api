@@ -79,6 +79,10 @@ def main():
             # keep your existing fallback from cluster_id too:
             if not citedby_url and cluster_id:
                 citedby_url = f"https://scholar.google.com/scholar?cites={cluster_id}"
+            
+            per_year = filled.get("cites_per_year") or {}
+            # Ensure keys are strings for JSON consistency
+            per_year = {str(k): int(v) for (k, v) in per_year.items() if isinstance(v, (int, float))}
 
             results.append({
                 "title": bib.get("title") or "",
@@ -90,6 +94,7 @@ def main():
                 "scholar_cluster_id": cluster_id,
                 "num_citations": num_citations,
                 "citedby_url": citedby_url,
+                "cites_per_year": per_year,
             })
         except Exception:
             # If one paper fails to fill/parse, skip and continue

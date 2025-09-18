@@ -22,6 +22,7 @@ type UserPublication struct {
 	URL             *string    `json:"url,omitempty"     gorm:"type:varchar(512)"`
 	CitedBy         *uint      `json:"cited_by" gorm:"column:cited_by"`
 	CitedByURL      *string    `json:"cited_by_url" gorm:"column:cited_by_url"`
+	CitationHistory *string    `json:"citation_history" gorm:"column:citation_history"`
 	Source          *string    `json:"source,omitempty"  gorm:"type:enum('scholar','openalex','orcid','crossref')"`
 	ExternalIDs     *string    `json:"external_ids,omitempty" gorm:"type:longtext"`
 	Fingerprint     *string    `json:"fingerprint,omitempty"  gorm:"type:varchar(64);uniqueIndex:uniq_fingerprint"`

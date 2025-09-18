@@ -144,9 +144,10 @@ func (s *PublicationService) Upsert(pub *models.UserPublication) (bool, models.U
 			"fingerprint":      pub.Fingerprint, // keep current fingerprint
 			"is_verified":      pub.IsVerified,
 			// Optional new fields (safe even if columns don't exist—remove if not added):
-			"cited_by":     pub.CitedBy,
-			"cited_by_url": pub.CitedByURL,
-			"updated_at":   time.Now(),
+			"cited_by":         pub.CitedBy,
+			"cited_by_url":     pub.CitedByURL,
+			"citation_history": pub.CitationHistory,
+			"updated_at":       time.Now(),
 		}
 
 		if err := s.db.Model(&existing).Updates(updates).Error; err != nil {

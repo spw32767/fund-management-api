@@ -9,15 +9,16 @@ import (
 )
 
 type ScholarPub struct {
-	Title            string   `json:"title"`
-	Authors          []string `json:"authors"`
-	Venue            *string  `json:"venue"`
-	Year             *int     `json:"year"`
-	URL              *string  `json:"url"`
-	DOI              *string  `json:"doi"`
-	ScholarClusterID *string  `json:"scholar_cluster_id"`
-	NumCitations     *int     `json:"num_citations"`
-	CitedByURL       *string  `json:"citedby_url"`
+	Title            string         `json:"title"`
+	Authors          []string       `json:"authors"`
+	Venue            *string        `json:"venue"`
+	Year             *int           `json:"year"`
+	URL              *string        `json:"url"`
+	DOI              *string        `json:"doi"`
+	ScholarClusterID *string        `json:"scholar_cluster_id"`
+	NumCitations     *int           `json:"num_citations"`
+	CitedByURL       *string        `json:"citedby_url"`
+	CitesPerYear     map[string]int `json:"cites_per_year"`
 }
 
 // Runs: python3 scripts/scholarly_fetch.py <AUTHOR_ID>

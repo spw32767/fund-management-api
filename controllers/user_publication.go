@@ -86,6 +86,7 @@ func UpsertUserPublication(c *gin.Context) {
 		URL             *string    `json:"url"`
 		CitedBy         *uint      `json:"cited_by"`
 		CitedByURL      *string    `json:"cited_by_url"`
+		CitationHistory *string    `json:"citation_history"`
 		Source          *string    `json:"source"`       // scholar|openalex|orcid|crossref
 		ExternalIDs     *string    `json:"external_ids"` // JSON string
 		IsVerified      *bool      `json:"is_verified"`
@@ -108,6 +109,7 @@ func UpsertUserPublication(c *gin.Context) {
 		URL:             req.URL,
 		CitedBy:         req.CitedBy,
 		CitedByURL:      req.CitedByURL,
+		CitationHistory: req.CitationHistory,
 		Source:          req.Source,
 		ExternalIDs:     req.ExternalIDs,
 		Fingerprint:     req.Fingerprint,
