@@ -34,9 +34,9 @@ def main():
 
     author_id = sys.argv[1].strip()
 
-    # fill indices so we get h-index, i10-index, cites per year, etc.
+    # fill indices and counts so we get h-index, i10-index, cites per year, etc.
     author = scholarly.search_author_id(author_id)
-    author = scholarly.fill(author, sections=["indices", "basics"])
+    author = scholarly.fill(author, sections=["indices", "basics", "counts"])
 
     out = {
       "hindex": _to_int(author.get("hindex")),
