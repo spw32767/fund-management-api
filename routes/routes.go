@@ -92,11 +92,6 @@ func SetupRoutes(router *gin.Engine) {
 			})
 		}
 
-		public.GET("/announcements", controllers.GetAnnouncements)
-		public.GET("/announcements/:id", controllers.GetAnnouncement)
-		public.GET("/announcements/:id/view", controllers.ViewAnnouncementFile)
-		public.GET("/announcements/:id/download", controllers.DownloadAnnouncementFile)
-
 		// Protected routes (require authentication)
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
