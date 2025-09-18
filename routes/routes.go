@@ -92,6 +92,11 @@ func SetupRoutes(router *gin.Engine) {
 			})
 		}
 
+		public.GET("/announcements", controllers.GetAnnouncements)
+		public.GET("/announcements/:id", controllers.GetAnnouncement)
+		public.GET("/announcements/:id/view", controllers.ViewAnnouncementFile)
+		public.GET("/announcements/:id/download", controllers.DownloadAnnouncementFile)
+
 		// Protected routes (require authentication)
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
@@ -304,11 +309,6 @@ func SetupRoutes(router *gin.Engine) {
 			// ===== ANNOUNCEMENTS AND FUND FORMS =====
 			announcements := protected.Group("/announcements")
 			{
-				// Public routes (all authenticated users can access)
-				announcements.GET("", controllers.GetAnnouncements)
-				announcements.GET("/:id", controllers.GetAnnouncement)
-				announcements.GET("/:id/view", controllers.ViewAnnouncementFile)
-				announcements.GET("/:id/download", controllers.DownloadAnnouncementFile)
 
 				// Admin only routes
 				announcements.POST("", middleware.RequireRole(3), controllers.CreateAnnouncement)
