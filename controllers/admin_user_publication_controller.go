@@ -39,6 +39,7 @@ func AdminImportScholarPublications(c *gin.Context) {
 
 	// 2) Upsert into DB
 	svc := services.NewPublicationService(nil)
+	metricsSvc := services.NewUserScholarMetricsService(nil)
 	created, updated, failed := 0, 0, 0
 
 	// 3) Fetch author indices and update users table
@@ -49,6 +50,18 @@ func AdminImportScholarPublications(c *gin.Context) {
 				s := string(b)
 				cpyStr = &s
 			}
+		}
+		if err := metricsSvc.Upsert(&models.UserScholarMetrics{
+			UserID:       int(userID),
+			HIndex:       ai.HIndex,
+			HIndex5Y:     ai.HIndex5Y,
+			I10Index:     ai.I10Index,
+			I10Index5Y:   ai.I10Index5Y,
+			CitedByTotal: ai.CitedByTotal,
+			CitedBy5Y:    ai.CitedBy5Y,
+			CitesPerYear: cpyStr,
+		}); err != nil {
+			fmt.Printf("failed to upsert user_scholar_metrics for user %d: %v\n", userID, err)
 		}
 		_ = config.DB.Table("users").
 			Where("user_id = ?", userID).
@@ -172,6 +185,7 @@ func AdminImportScholarForAll(c *gin.Context) {
 	}
 
 	svc := services.NewPublicationService(nil)
+	metricsSvc := services.NewUserScholarMetricsService(nil)
 	tot := struct {
 		Users, Fetched, Created, Updated, Failed int
 	}{}
@@ -191,6 +205,18 @@ func AdminImportScholarForAll(c *gin.Context) {
 					s := string(b)
 					cpyStr = &s
 				}
+			}
+			if err := metricsSvc.Upsert(&models.UserScholarMetrics{
+				UserID:       int(u.UserID),
+				HIndex:       ai.HIndex,
+				HIndex5Y:     ai.HIndex5Y,
+				I10Index:     ai.I10Index,
+				I10Index5Y:   ai.I10Index5Y,
+				CitedByTotal: ai.CitedByTotal,
+				CitedBy5Y:    ai.CitedBy5Y,
+				CitesPerYear: cpyStr,
+			}); err != nil {
+				fmt.Printf("failed to upsert user_scholar_metrics for user %d: %v\n", u.UserID, err)
 			}
 			_ = config.DB.Table("users").
 				Where("user_id = ?", u.UserID).
