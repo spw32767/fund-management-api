@@ -41,6 +41,28 @@ func AdminImportScholarPublications(c *gin.Context) {
 	svc := services.NewPublicationService(nil)
 	created, updated, failed := 0, 0, 0
 
+	// 3) Fetch author indices and update users table
+	if ai, err := services.FetchScholarAuthorIndices(authorID); err == nil && ai != nil {
+		var cpyStr *string
+		if len(ai.CitesPerYear) > 0 {
+			if b, e := json.Marshal(ai.CitesPerYear); e == nil {
+				s := string(b)
+				cpyStr = &s
+			}
+		}
+		_ = config.DB.Table("users").
+			Where("user_id = ?", userID).
+			Updates(map[string]interface{}{
+				"scholar_hindex":         ai.HIndex,
+				"scholar_hindex5y":       ai.HIndex5Y,
+				"scholar_i10index":       ai.I10Index,
+				"scholar_i10index5y":     ai.I10Index5Y,
+				"scholar_citedby_total":  ai.CitedByTotal,
+				"scholar_citedby_5y":     ai.CitedBy5Y,
+				"scholar_cites_per_year": cpyStr,
+			}).Error
+	}
+
 	for _, sp := range pubs {
 		title := sp.Title
 		authorsStr := strings.Join(sp.Authors, ", ")
@@ -161,6 +183,27 @@ func AdminImportScholarForAll(c *gin.Context) {
 		}
 		tot.Users++
 		tot.Fetched += len(pubs)
+
+		if ai, err := services.FetchScholarAuthorIndices(u.ScholarAuthorID); err == nil && ai != nil {
+			var cpyStr *string
+			if len(ai.CitesPerYear) > 0 {
+				if b, e := json.Marshal(ai.CitesPerYear); e == nil {
+					s := string(b)
+					cpyStr = &s
+				}
+			}
+			_ = config.DB.Table("users").
+				Where("user_id = ?", u.UserID).
+				Updates(map[string]interface{}{
+					"scholar_hindex":         ai.HIndex,
+					"scholar_hindex5y":       ai.HIndex5Y,
+					"scholar_i10index":       ai.I10Index,
+					"scholar_i10index5y":     ai.I10Index5Y,
+					"scholar_citedby_total":  ai.CitedByTotal,
+					"scholar_citedby_5y":     ai.CitedBy5Y,
+					"scholar_cites_per_year": cpyStr,
+				}).Error
+		}
 
 		for _, sp := range pubs {
 			title := sp.Title

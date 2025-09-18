@@ -85,3 +85,40 @@ func SearchScholarAuthors(query string) ([]ScholarAuthorHit, error) {
 	}
 	return hits, nil
 }
+
+type ScholarAuthorIndices struct {
+	HIndex       *int           `json:"hindex"`
+	HIndex5Y     *int           `json:"hindex5y"`
+	I10Index     *int           `json:"i10index"`
+	I10Index5Y   *int           `json:"i10index5y"`
+	CitedByTotal *int           `json:"citedby_total"`
+	CitedBy5Y    *int           `json:"citedby_5y"`
+	CitesPerYear map[string]int `json:"cites_per_year"`
+}
+
+// Runs: python3 scripts/scholar_author_indices.py <AUTHOR_ID>
+func FetchScholarAuthorIndices(authorID string) (*ScholarAuthorIndices, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	py := os.Getenv("VENV_PY")
+	if py == "" {
+		py = "python3"
+	}
+	script := os.Getenv("SCHOLAR_AUTHOR_SCRIPT")
+	if script == "" {
+		script = "scripts/scholar_author_indices.py"
+	}
+
+	cmd := exec.CommandContext(ctx, py, script, authorID)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var ai ScholarAuthorIndices
+	if err := json.Unmarshal(out, &ai); err != nil {
+		return nil, err
+	}
+	return &ai, nil
+}
