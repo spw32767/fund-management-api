@@ -44,8 +44,10 @@ func GetAnnouncements(c *gin.Context) {
 		query = query.Where("status = ?", "active")
 	}
 
-	// Order by creation time (newest first)
-	query = query.Order("create_at DESC")
+	// Order by display_order (NULL ไปท้าย) แล้วค่อย fallback ที่เวลาอัปเดต/เผยแพร่
+	query = query.
+		Order("display_order IS NULL, display_order ASC").
+		Order("COALESCE(published_at, update_at) DESC")
 
 	var announcements []models.Announcement
 	if err := query.Find(&announcements).Error; err != nil {
@@ -164,6 +166,7 @@ func CreateAnnouncement(c *gin.Context) {
 		MimeType:         &contentType,
 		AnnouncementType: req.AnnouncementType,
 		Priority:         utils.DefaultString(req.Priority, "normal"),
+		DisplayOrder:     req.DisplayOrder, // <<-- เพิ่มบรรทัดนี้
 		Status:           utils.DefaultString(req.Status, "active"),
 		PublishedAt:      req.PublishedAt,
 		ExpiredAt:        req.ExpiredAt,
@@ -293,6 +296,9 @@ func UpdateAnnouncement(c *gin.Context) {
 	}
 	if req.Priority != nil {
 		announcement.Priority = *req.Priority
+	}
+	if req.DisplayOrder != nil {
+		announcement.DisplayOrder = req.DisplayOrder
 	}
 	if req.Status != nil {
 		announcement.Status = *req.Status
@@ -490,7 +496,9 @@ func GetFundForms(c *gin.Context) {
 	}
 
 	// Order by creation time (newest first)
-	query = query.Order("create_at DESC")
+	query = query.
+		Order("display_order IS NULL, display_order ASC").
+		Order("update_at DESC")
 
 	var forms []models.FundForm
 	if err := query.Find(&forms).Error; err != nil {
@@ -607,6 +615,7 @@ func CreateFundForm(c *gin.Context) {
 		MimeType:     &contentType,
 		FormType:     req.FormType,
 		FundCategory: req.FundCategory,
+		DisplayOrder: req.DisplayOrder,
 		IsRequired:   req.IsRequired,
 		Status:       utils.DefaultString(req.Status, "active"),
 		CreatedBy:    userID.(int),
@@ -735,6 +744,9 @@ func UpdateFundForm(c *gin.Context) {
 	}
 	if req.FormType != nil {
 		form.FormType = *req.FormType
+	}
+	if req.DisplayOrder != nil {
+		form.DisplayOrder = req.DisplayOrder
 	}
 	if req.FundCategory != nil {
 		form.FundCategory = *req.FundCategory

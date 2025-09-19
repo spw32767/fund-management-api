@@ -8,23 +8,25 @@ import (
 
 // Announcement represents the announcements table
 type Announcement struct {
-	AnnouncementID   int        `gorm:"primaryKey;column:announcement_id" json:"announcement_id"`
-	Title            string     `gorm:"column:title" json:"title"`
-	Description      *string    `gorm:"column:description" json:"description"`
-	FileName         string     `gorm:"column:file_name" json:"file_name"`
-	FilePath         string     `gorm:"column:file_path" json:"file_path"`
-	FileSize         *int64     `gorm:"column:file_size" json:"file_size"`
-	MimeType         *string    `gorm:"column:mime_type" json:"mime_type"`
-	AnnouncementType string     `gorm:"column:announcement_type;type:enum('general','research_fund','promotion_fund');default:'general'" json:"announcement_type"`
-	Priority         string     `gorm:"column:priority;type:enum('normal','high','urgent');default:'normal'" json:"priority"`
-	Status           string     `gorm:"column:status;type:enum('active','inactive');default:'active'" json:"status"`
-	PublishedAt      *time.Time `gorm:"column:published_at" json:"published_at"`
-	ExpiredAt        *time.Time `gorm:"column:expired_at" json:"expired_at"`
-	YearID           *int       `gorm:"column:year_id" json:"year_id"`
-	CreatedBy        int        `gorm:"column:created_by" json:"created_by"`
-	CreateAt         time.Time  `gorm:"column:create_at" json:"create_at"`
-	UpdateAt         time.Time  `gorm:"column:update_at" json:"update_at"`
-	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+	AnnouncementID   int     `gorm:"primaryKey;column:announcement_id" json:"announcement_id"`
+	Title            string  `gorm:"column:title" json:"title"`
+	Description      *string `gorm:"column:description" json:"description"`
+	FileName         string  `gorm:"column:file_name" json:"file_name"`
+	FilePath         string  `gorm:"column:file_path" json:"file_path"`
+	FileSize         *int64  `gorm:"column:file_size" json:"file_size"`
+	MimeType         *string `gorm:"column:mime_type" json:"mime_type"`
+	AnnouncementType string  `gorm:"column:announcement_type;type:enum('general','research_fund','promotion_fund');default:'general'" json:"announcement_type"`
+	Priority         string  `gorm:"column:priority;type:enum('normal','high','urgent');default:'normal'" json:"priority"`
+	// ✨ เพิ่มฟิลด์ลำดับการแสดง
+	DisplayOrder *int       `gorm:"column:display_order" json:"display_order"`
+	Status       string     `gorm:"column:status;type:enum('active','inactive');default:'active'" json:"status"`
+	PublishedAt  *time.Time `gorm:"column:published_at" json:"published_at"`
+	ExpiredAt    *time.Time `gorm:"column:expired_at" json:"expired_at"`
+	YearID       *int       `gorm:"column:year_id" json:"year_id"`
+	CreatedBy    int        `gorm:"column:created_by" json:"created_by"`
+	CreateAt     time.Time  `gorm:"column:create_at" json:"create_at"`
+	UpdateAt     time.Time  `gorm:"column:update_at" json:"update_at"`
+	DeleteAt     *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// Relations
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
@@ -33,15 +35,17 @@ type Announcement struct {
 
 // FundForm represents the fund_forms table
 type FundForm struct {
-	FormID       int        `gorm:"primaryKey;column:form_id" json:"form_id"`
-	Title        string     `gorm:"column:title" json:"title"`
-	Description  *string    `gorm:"column:description" json:"description"`
-	FileName     string     `gorm:"column:file_name" json:"file_name"`
-	FilePath     string     `gorm:"column:file_path" json:"file_path"`
-	FileSize     *int64     `gorm:"column:file_size" json:"file_size"`
-	MimeType     *string    `gorm:"column:mime_type" json:"mime_type"`
-	FormType     string     `gorm:"column:form_type;type:enum('application','report','evaluation','guidelines','other');default:'application'" json:"form_type"`
-	FundCategory string     `gorm:"column:fund_category;type:enum('research_fund','promotion_fund','both');default:'both'" json:"fund_category"`
+	FormID       int     `gorm:"primaryKey;column:form_id" json:"form_id"`
+	Title        string  `gorm:"column:title" json:"title"`
+	Description  *string `gorm:"column:description" json:"description"`
+	FileName     string  `gorm:"column:file_name" json:"file_name"`
+	FilePath     string  `gorm:"column:file_path" json:"file_path"`
+	FileSize     *int64  `gorm:"column:file_size" json:"file_size"`
+	MimeType     *string `gorm:"column:mime_type" json:"mime_type"`
+	FormType     string  `gorm:"column:form_type;type:enum('application','report','evaluation','guidelines','other');default:'application'" json:"form_type"`
+	FundCategory string  `gorm:"column:fund_category;type:enum('research_fund','promotion_fund','both');default:'both'" json:"fund_category"`
+	// ✨ เพิ่มฟิลด์ลำดับการแสดง
+	DisplayOrder *int       `gorm:"column:display_order" json:"display_order"`
 	IsRequired   bool       `gorm:"column:is_required;default:0" json:"is_required"`
 	Status       string     `gorm:"column:status;type:enum('active','inactive','archived');default:'active'" json:"status"`
 	YearID       *int       `gorm:"column:year_id" json:"year_id"`
@@ -254,46 +258,52 @@ func (f *FundForm) GetFileSizeReadable() string {
 
 // AnnouncementCreateRequest for creating announcements
 type AnnouncementCreateRequest struct {
-	Title            string     `json:"title" binding:"required"`
-	Description      *string    `json:"description"`
-	AnnouncementType string     `json:"announcement_type" binding:"required,oneof=general research_fund promotion_fund"`
-	Priority         string     `json:"priority" binding:"oneof=normal high urgent"`
-	Status           string     `json:"status" binding:"oneof=active inactive"`
-	PublishedAt      *time.Time `json:"published_at"`
-	ExpiredAt        *time.Time `json:"expired_at"`
+	Title            string  `json:"title" binding:"required"`
+	Description      *string `json:"description"`
+	AnnouncementType string  `json:"announcement_type" binding:"required,oneof=general research_fund promotion_fund"`
+	Priority         string  `json:"priority" binding:"oneof=normal high urgent"`
+	// ✨ รับลำดับ (optional)
+	DisplayOrder *int       `json:"display_order"`
+	Status       string     `json:"status" binding:"oneof=active inactive"`
+	PublishedAt  *time.Time `json:"published_at"`
+	ExpiredAt    *time.Time `json:"expired_at"`
 }
 
-// AnnouncementUpdateRequest for updating announcements
 type AnnouncementUpdateRequest struct {
-	Title            *string    `json:"title"`
-	Description      *string    `json:"description"`
-	AnnouncementType *string    `json:"announcement_type" binding:"omitempty,oneof=general research_fund promotion_fund"`
-	Priority         *string    `json:"priority" binding:"omitempty,oneof=normal high urgent"`
-	Status           *string    `json:"status" binding:"omitempty,oneof=active inactive"`
-	PublishedAt      *time.Time `json:"published_at"`
-	ExpiredAt        *time.Time `json:"expired_at"`
+	Title            *string `json:"title"`
+	Description      *string `json:"description"`
+	AnnouncementType *string `json:"announcement_type" binding:"omitempty,oneof=general research_fund promotion_fund"`
+	Priority         *string `json:"priority" binding:"omitempty,oneof=normal high urgent"`
+	// ✨ อัปเดตลำดับ (optional)
+	DisplayOrder *int       `json:"display_order"`
+	Status       *string    `json:"status" binding:"omitempty,oneof=active inactive"`
+	PublishedAt  *time.Time `json:"published_at"`
+	ExpiredAt    *time.Time `json:"expired_at"`
 }
 
 // FundFormCreateRequest for creating fund forms
 type FundFormCreateRequest struct {
-	Title         string     `json:"title" binding:"required"`
-	Description   *string    `json:"description"`
-	FormType      string     `json:"form_type" binding:"required,oneof=application report evaluation guidelines other"`
-	FundCategory  string     `json:"fund_category" binding:"required,oneof=research_fund promotion_fund both"`
-	Version       string     `json:"version"`
+	Title        string  `json:"title" binding:"required"`
+	Description  *string `json:"description"`
+	FormType     string  `json:"form_type" binding:"required,oneof=application report evaluation guidelines other"`
+	FundCategory string  `json:"fund_category" binding:"required,oneof=research_fund promotion_fund both"`
+	Version      string  `json:"version"`
+	// ✨ รับลำดับ (optional)
+	DisplayOrder  *int       `json:"display_order"`
 	IsRequired    bool       `json:"is_required"`
 	Status        string     `json:"status" binding:"oneof=active inactive archived"`
 	EffectiveDate *time.Time `json:"effective_date"`
 	ExpiryDate    *time.Time `json:"expiry_date"`
 }
 
-// FundFormUpdateRequest for updating fund forms
 type FundFormUpdateRequest struct {
-	Title         *string    `json:"title"`
-	Description   *string    `json:"description"`
-	FormType      *string    `json:"form_type" binding:"omitempty,oneof=application report evaluation guidelines other"`
-	FundCategory  *string    `json:"fund_category" binding:"omitempty,oneof=research_fund promotion_fund both"`
-	Version       *string    `json:"version"`
+	Title        *string `json:"title"`
+	Description  *string `json:"description"`
+	FormType     *string `json:"form_type" binding:"omitempty,oneof=application report evaluation guidelines other"`
+	FundCategory *string `json:"fund_category" binding:"omitempty,oneof=research_fund promotion_fund both"`
+	Version      *string `json:"version"`
+	// ✨ อัปเดตลำดับ (optional)
+	DisplayOrder  *int       `json:"display_order"`
 	IsRequired    *bool      `json:"is_required"`
 	Status        *string    `json:"status" binding:"omitempty,oneof=active inactive archived"`
 	EffectiveDate *time.Time `json:"effective_date"`
@@ -302,61 +312,64 @@ type FundFormUpdateRequest struct {
 
 // AnnouncementResponse for API responses
 type AnnouncementResponse struct {
-	AnnouncementID       int        `json:"announcement_id"`
-	Title                string     `json:"title"`
-	Description          *string    `json:"description"`
-	FileName             string     `json:"file_name"`
-	FilePath             string     `json:"file_path"`
-	FileSize             *int64     `json:"file_size"`
-	FileSizeReadable     string     `json:"file_size_readable"`
-	MimeType             *string    `json:"mime_type"`
-	AnnouncementType     string     `json:"announcement_type"`
-	AnnouncementTypeName string     `json:"announcement_type_name"`
-	Priority             string     `json:"priority"`
-	PriorityName         string     `json:"priority_name"`
-	Status               string     `json:"status"`
-	StatusName           string     `json:"status_name"`
-	PublishedAt          *time.Time `json:"published_at"`
-	ExpiredAt            *time.Time `json:"expired_at"`
-	IsExpired            bool       `json:"is_expired"`
-	IsActive             bool       `json:"is_active"`
-	YearID               *int       `json:"year_id"`
-	Year                 *string    `json:"year"`
-	CreatedBy            int        `json:"created_by"`
-	CreatorName          string     `json:"creator_name,omitempty"`
-	CreateAt             time.Time  `json:"create_at"`
-	UpdateAt             time.Time  `json:"update_at"`
+	AnnouncementID       int     `json:"announcement_id"`
+	Title                string  `json:"title"`
+	Description          *string `json:"description"`
+	FileName             string  `json:"file_name"`
+	FilePath             string  `json:"file_path"`
+	FileSize             *int64  `json:"file_size"`
+	FileSizeReadable     string  `json:"file_size_readable"`
+	MimeType             *string `json:"mime_type"`
+	AnnouncementType     string  `json:"announcement_type"`
+	AnnouncementTypeName string  `json:"announcement_type_name"`
+	Priority             string  `json:"priority"`
+	PriorityName         string  `json:"priority_name"`
+	// ✨ แสดงลำดับ
+	DisplayOrder *int       `json:"display_order"`
+	Status       string     `json:"status"`
+	StatusName   string     `json:"status_name"`
+	PublishedAt  *time.Time `json:"published_at"`
+	ExpiredAt    *time.Time `json:"expired_at"`
+	IsExpired    bool       `json:"is_expired"`
+	IsActive     bool       `json:"is_active"`
+	YearID       *int       `json:"year_id"`
+	Year         *string    `json:"year"`
+	CreatedBy    int        `json:"created_by"`
+	CreatorName  string     `json:"creator_name,omitempty"`
+	CreateAt     time.Time  `json:"create_at"`
+	UpdateAt     time.Time  `json:"update_at"`
 }
 
-// FundFormResponse for API responses
 type FundFormResponse struct {
-	FormID           int        `json:"form_id"`
-	Title            string     `json:"title"`
-	Description      *string    `json:"description"`
-	FileName         string     `json:"file_name"`
-	FilePath         string     `json:"file_path"`
-	FileSize         *int64     `json:"file_size"`
-	FileSizeReadable string     `json:"file_size_readable"`
-	MimeType         *string    `json:"mime_type"`
-	FormType         string     `json:"form_type"`
-	FormTypeName     string     `json:"form_type_name"`
-	FundCategory     string     `json:"fund_category"`
-	FundCategoryName string     `json:"fund_category_name"`
-	Version          string     `json:"version"`
-	IsRequired       bool       `json:"is_required"`
-	Status           string     `json:"status"`
-	StatusName       string     `json:"status_name"`
-	EffectiveDate    *time.Time `json:"effective_date"`
-	ExpiryDate       *time.Time `json:"expiry_date"`
-	IsExpired        bool       `json:"is_expired"`
-	IsActive         bool       `json:"is_active"`
-	DownloadCount    int        `json:"download_count"`
-	YearID           *int       `json:"year_id"`
-	Year             *string    `json:"year"`
-	CreatedBy        int        `json:"created_by"`
-	CreatorName      string     `json:"creator_name,omitempty"`
-	CreateAt         time.Time  `json:"create_at"`
-	UpdateAt         time.Time  `json:"update_at"`
+	FormID           int     `json:"form_id"`
+	Title            string  `json:"title"`
+	Description      *string `json:"description"`
+	FileName         string  `json:"file_name"`
+	FilePath         string  `json:"file_path"`
+	FileSize         *int64  `json:"file_size"`
+	FileSizeReadable string  `json:"file_size_readable"`
+	MimeType         *string `json:"mime_type"`
+	FormType         string  `json:"form_type"`
+	FormTypeName     string  `json:"form_type_name"`
+	FundCategory     string  `json:"fund_category"`
+	FundCategoryName string  `json:"fund_category_name"`
+	// ✨ แสดงลำดับ
+	DisplayOrder  *int       `json:"display_order"`
+	Version       string     `json:"version"`
+	IsRequired    bool       `json:"is_required"`
+	Status        string     `json:"status"`
+	StatusName    string     `json:"status_name"`
+	EffectiveDate *time.Time `json:"effective_date"`
+	ExpiryDate    *time.Time `json:"expiry_date"`
+	IsExpired     bool       `json:"is_expired"`
+	IsActive      bool       `json:"is_active"`
+	DownloadCount int        `json:"download_count"`
+	YearID        *int       `json:"year_id"`
+	Year          *string    `json:"year"`
+	CreatedBy     int        `json:"created_by"`
+	CreatorName   string     `json:"creator_name,omitempty"`
+	CreateAt      time.Time  `json:"create_at"`
+	UpdateAt      time.Time  `json:"update_at"`
 }
 
 // ===== Conversion methods =====
@@ -376,16 +389,18 @@ func (a *Announcement) ToResponse() AnnouncementResponse {
 		AnnouncementTypeName: a.GetAnnouncementTypeName(),
 		Priority:             a.Priority,
 		PriorityName:         a.GetPriorityName(),
-		Status:               a.Status,
-		StatusName:           a.GetStatusName(),
-		PublishedAt:          a.PublishedAt,
-		ExpiredAt:            a.ExpiredAt,
-		IsExpired:            a.IsExpired(),
-		IsActive:             a.IsActive(),
-		YearID:               a.YearID,
-		CreatedBy:            a.CreatedBy,
-		CreateAt:             a.CreateAt,
-		UpdateAt:             a.UpdateAt,
+		// ✨ map ค่าลำดับ
+		DisplayOrder: a.DisplayOrder,
+		Status:       a.Status,
+		StatusName:   a.GetStatusName(),
+		PublishedAt:  a.PublishedAt,
+		ExpiredAt:    a.ExpiredAt,
+		IsExpired:    a.IsExpired(),
+		IsActive:     a.IsActive(),
+		YearID:       a.YearID,
+		CreatedBy:    a.CreatedBy,
+		CreateAt:     a.CreateAt,
+		UpdateAt:     a.UpdateAt,
 	}
 
 	// Add creator name if loaded
@@ -416,10 +431,12 @@ func (f *FundForm) ToResponse() FundFormResponse {
 		FormTypeName:     f.GetFormTypeName(),
 		FundCategory:     f.FundCategory,
 		FundCategoryName: f.GetFundCategoryName(),
+		DisplayOrder:     f.DisplayOrder, // ✓ comma
+		Version:          "",             // ✓ comma
 		IsRequired:       f.IsRequired,
 		Status:           f.Status,
 		StatusName:       f.GetStatusName(),
-		IsActive:         f.IsActive(),
+		IsExpired:        !f.IsActive(), // ✓ ใช้ !x แทน x == false และมี comma
 		YearID:           f.YearID,
 		CreatedBy:        f.CreatedBy,
 		CreateAt:         f.CreateAt,
