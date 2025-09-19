@@ -90,61 +90,60 @@ func GetAnnouncement(c *gin.Context) {
 
 // CreateAnnouncement - สร้างประกาศ (Admin only)
 func CreateAnnouncement(c *gin.Context) {
-	// --- 1) ตรวจสิทธิ์ ---
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+	// 1) ตรวจสิทธิ์
+	roleID, ok := c.Get("roleID")
+	if !ok || roleID.(int) != 3 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
 	userID, _ := c.Get("userID")
 
-	// --- 2) Bind meta (ลอง ShouldBind ก่อน ถ้าไม่เข้าให้ fallback อ่านจาก PostForm) ---
+	// 2) Bind + Merge PostForm (เสมอ)
 	var req models.AnnouncementCreateRequest
-	if err := c.ShouldBind(&req); err != nil {
-		// Fallback อ่านจาก form fields (multipart)
-		title := strings.TrimSpace(c.PostForm("title"))
-		if title != "" {
-			req.Title = title
+	_ = c.ShouldBind(&req) // ไม่สนใจว่าจะ error หรือไม่ เพราะจะ merge ทับจาก PostForm ต่อ
+
+	pf := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
+
+	if v := pf("title"); v != "" {
+		req.Title = v
+	}
+	if v := c.PostForm("description"); v != "" {
+		req.Description = &v
+	}
+	if v := pf("announcement_type"); v != "" {
+		req.AnnouncementType = v
+	}
+	if v := pf("priority"); v != "" {
+		req.Priority = v
+	}
+	if v := pf("status"); v != "" {
+		req.Status = v
+	}
+	if v := pf("announcement_reference_number"); v != "" {
+		req.AnnouncementReferenceNumber = &v
+	}
+	if v := pf("year_id"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			req.YearID = &iv
 		}
-		if v := c.PostForm("description"); v != "" {
-			req.Description = &v
+	}
+	if v := pf("display_order"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			req.DisplayOrder = &iv
 		}
-		if v := c.PostForm("announcement_type"); v != "" {
-			req.AnnouncementType = v
+	}
+	if v := pf("published_at"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			req.PublishedAt = &t
 		}
-		if v := c.PostForm("priority"); v != "" {
-			req.Priority = v
-		}
-		if v := c.PostForm("status"); v != "" {
-			req.Status = v
-		}
-		if v := c.PostForm("announcement_reference_number"); v != "" {
-			req.AnnouncementReferenceNumber = &v
-		}
-		if v := c.PostForm("year_id"); v != "" {
-			if iv, err := strconv.Atoi(v); err == nil {
-				req.YearID = &iv
-			}
-		}
-		if v := c.PostForm("display_order"); v != "" {
-			if iv, err := strconv.Atoi(v); err == nil {
-				req.DisplayOrder = &iv
-			}
-		}
-		// เวลา (RFC3339)
-		if v := c.PostForm("published_at"); v != "" {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				req.PublishedAt = &t
-			}
-		}
-		if v := c.PostForm("expired_at"); v != "" {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				req.ExpiredAt = &t
-			}
+	}
+	if v := pf("expired_at"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			req.ExpiredAt = &t
 		}
 	}
 
-	// --- 3) Validate ค่า minimum เอง (กันกรณี tag ไม่ทำงานเพราะเราฟอลล์แบ็ก) ---
+	// 3) Validate minimal
 	if strings.TrimSpace(req.Title) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
 		return
@@ -153,13 +152,9 @@ func CreateAnnouncement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "announcement_type is required"})
 		return
 	}
-	// ให้รองรับค่าตามตารางจริง (เพิ่มประเภทที่คุณใช้จริง)
 	allowedTypes := map[string]bool{
-		"general":            true,
-		"research_fund":      true,
-		"promotion_fund":     true,
-		"fund_application":   true,
-		"publication_reward": true,
+		"general": true, "research_fund": true, "promotion_fund": true,
+		"fund_application": true, "publication_reward": true,
 	}
 	if !allowedTypes[req.AnnouncementType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid announcement_type"})
@@ -167,22 +162,18 @@ func CreateAnnouncement(c *gin.Context) {
 	}
 	if req.Priority == "" {
 		req.Priority = "normal"
-	} else {
-		if req.Priority != "normal" && req.Priority != "high" && req.Priority != "urgent" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid priority"})
-			return
-		}
+	} else if req.Priority != "normal" && req.Priority != "high" && req.Priority != "urgent" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid priority"})
+		return
 	}
 	if req.Status == "" {
 		req.Status = "active"
-	} else {
-		if req.Status != "active" && req.Status != "inactive" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
-			return
-		}
+	} else if req.Status != "active" && req.Status != "inactive" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
+		return
 	}
 
-	// --- 4) รับไฟล์ (บังคับต้องมี) ---
+	// 4) รับไฟล์ (บังคับ)
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File is required"})
@@ -190,7 +181,6 @@ func CreateAnnouncement(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// ตรวจชนิด/ขนาด (ตามที่คุณอนุญาต)
 	allowedCT := map[string]bool{
 		"application/pdf": true,
 	}
@@ -199,12 +189,12 @@ func CreateAnnouncement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
 		return
 	}
-	if header.Size > 20*1024*1024 { // 20MB ตามนโยบายที่คุณต้องการ
+	if header.Size > 20*1024*1024 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File size exceeds 20MB limit"})
 		return
 	}
 
-	// --- 5) สร้างโฟลเดอร์ + เซฟไฟล์ ---
+	// 5) เซฟไฟล์
 	uploadDir := fmt.Sprintf("uploads/announcements/%d/%02d", time.Now().Year(), time.Now().Month())
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
@@ -212,10 +202,7 @@ func CreateAnnouncement(c *gin.Context) {
 	}
 	ext := filepath.Ext(header.Filename)
 	timestamp := time.Now().Format("20060102_150405")
-
-	// ใช้ title ปัจจุบันทำชื่อไฟล์
-	safeTitle := utils.SanitizeFilename(req.Title)
-	filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
+	filename := fmt.Sprintf("%s_%s%s", utils.SanitizeFilename(req.Title), timestamp, ext)
 	filePath := filepath.Join(uploadDir, filename)
 
 	if err := c.SaveUploadedFile(header, filePath); err != nil {
@@ -223,43 +210,35 @@ func CreateAnnouncement(c *gin.Context) {
 		return
 	}
 
-	// --- 6) เขียน DB ---
+	// 6) เขียน DB
 	now := time.Now()
 	announcement := models.Announcement{
-		Title:            req.Title,
-		Description:      req.Description,
-		FileName:         header.Filename,
-		FilePath:         filePath,
-		FileSize:         &header.Size,
-		MimeType:         &ct,
-		AnnouncementType: req.AnnouncementType,
-		Priority:         req.Priority,
-		DisplayOrder:     req.DisplayOrder,
-		Status:           req.Status,
-		PublishedAt:      req.PublishedAt,
-		ExpiredAt:        req.ExpiredAt,
-		YearID:           req.YearID,
-		// มีคอลัมน์นี้ในตารางประกาศตาม dump ของคุณ
+		Title:                       req.Title,
+		Description:                 req.Description,
+		FileName:                    header.Filename,
+		FilePath:                    filePath,
+		FileSize:                    &header.Size,
+		MimeType:                    &ct,
+		AnnouncementType:            req.AnnouncementType,
+		Priority:                    req.Priority,
+		DisplayOrder:                req.DisplayOrder,
+		Status:                      req.Status,
+		PublishedAt:                 req.PublishedAt,
+		ExpiredAt:                   req.ExpiredAt,
+		YearID:                      req.YearID,
 		AnnouncementReferenceNumber: req.AnnouncementReferenceNumber,
-
-		CreatedBy: userID.(int),
-		CreateAt:  now,
-		UpdateAt:  now,
+		CreatedBy:                   userID.(int),
+		CreateAt:                    now,
+		UpdateAt:                    now,
 	}
-
 	if err := config.DB.Create(&announcement).Error; err != nil {
-		_ = os.Remove(filePath) // rollback file
+		_ = os.Remove(filePath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create announcement"})
 		return
 	}
 
 	config.DB.Preload("Creator").Preload("Year").First(&announcement, announcement.AnnouncementID)
-
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"message": "Announcement created successfully",
-		"data":    announcement.ToResponse(),
-	})
+	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Announcement created successfully", "data": announcement.ToResponse()})
 }
 
 // UpdateAnnouncement - แก้ไขประกาศ (Admin only)
@@ -601,59 +580,56 @@ func GetFundForm(c *gin.Context) {
 }
 
 // CreateFundForm - สร้างแบบฟอร์มใหม่ (Admin only)
-// CreateFundForm - สร้างแบบฟอร์มการขอทุน (Admin only)
 func CreateFundForm(c *gin.Context) {
-	// --- 1) ตรวจสิทธิ์ ---
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+	// 1) ตรวจสิทธิ์
+	roleID, ok := c.Get("roleID")
+	if !ok || roleID.(int) != 3 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
 	userID, _ := c.Get("userID")
 
-	// --- 2) Bind meta (ลอง ShouldBind ก่อน ถ้าไม่เข้าให้ fallback อ่านจาก PostForm) ---
+	// 2) Bind + Merge PostForm (เสมอ)
 	var req models.FundFormCreateRequest
-	if err := c.ShouldBind(&req); err != nil {
-		title := strings.TrimSpace(c.PostForm("title"))
-		if title != "" {
-			req.Title = title
+	_ = c.ShouldBind(&req)
+
+	pf := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
+
+	if v := pf("title"); v != "" {
+		req.Title = v
+	}
+	if v := c.PostForm("description"); v != "" {
+		req.Description = &v
+	}
+	if v := pf("form_type"); v != "" {
+		req.FormType = v
+	}
+	if v := pf("fund_category"); v != "" {
+		req.FundCategory = v
+	}
+	if v := pf("is_required"); v != "" {
+		b := v == "1" || strings.EqualFold(v, "true")
+		req.IsRequired = &b
+	}
+	if v := pf("display_order"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			req.DisplayOrder = &iv
 		}
-		if v := c.PostForm("description"); v != "" {
-			req.Description = &v
-		}
-		if v := c.PostForm("form_type"); v != "" {
-			req.FormType = v
-		}
-		if v := c.PostForm("fund_category"); v != "" {
-			req.FundCategory = v
-		}
-		if v := c.PostForm("is_required"); v != "" {
-			// รองรับ "true/false/1/0"
-			b := v == "1" || strings.EqualFold(v, "true")
-			req.IsRequired = &b
-		}
-		if v := c.PostForm("display_order"); v != "" {
-			if iv, err := strconv.Atoi(v); err == nil {
-				req.DisplayOrder = &iv
-			}
-		}
-		if v := c.PostForm("status"); v != "" {
-			req.Status = v
-		}
-		if v := c.PostForm("year_id"); v != "" {
-			if iv, err := strconv.Atoi(v); err == nil {
-				req.YearID = &iv
-			}
+	}
+	if v := pf("status"); v != "" {
+		req.Status = v
+	}
+	if v := pf("year_id"); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil {
+			req.YearID = &iv
 		}
 	}
 
-	// --- 3) Validate ตามสคีมาจริง ---
+	// 3) Validate ตามสคีมาจริง
 	if strings.TrimSpace(req.Title) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
 		return
 	}
-
-	// default/validate form_type
 	if req.FormType == "" {
 		req.FormType = "application"
 	} else {
@@ -665,8 +641,6 @@ func CreateFundForm(c *gin.Context) {
 			return
 		}
 	}
-
-	// default/validate fund_category
 	if req.FundCategory == "" {
 		req.FundCategory = "both"
 	} else {
@@ -678,18 +652,14 @@ func CreateFundForm(c *gin.Context) {
 			return
 		}
 	}
-
-	// default/validate status
 	if req.Status == "" {
 		req.Status = "active"
-	} else {
-		if req.Status != "active" && req.Status != "inactive" && req.Status != "archived" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
-			return
-		}
+	} else if req.Status != "active" && req.Status != "inactive" && req.Status != "archived" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
+		return
 	}
 
-	// --- 4) รับไฟล์ (บังคับต้องมี) ---
+	// 4) รับไฟล์ (บังคับ)
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File is required"})
@@ -697,7 +667,6 @@ func CreateFundForm(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// ตรวจชนิด/ขนาด (อนุญาตเอกสารยอดนิยม)
 	allowedCT := map[string]bool{
 		"application/pdf":    true,
 		"application/msword": true,
@@ -715,18 +684,16 @@ func CreateFundForm(c *gin.Context) {
 		return
 	}
 
-	// --- 5) เซฟไฟล์ลงโฟลเดอร์ตามหมวดหมู่ ---
+	// 5) เซฟไฟล์
 	fcat := req.FundCategory
 	uploadDir := fmt.Sprintf("uploads/fund_forms/%s", fcat)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
 		return
 	}
-
 	ext := filepath.Ext(header.Filename)
 	timestamp := time.Now().Format("20060102_150405")
-	safeTitle := utils.SanitizeFilename(req.Title)
-	filename := fmt.Sprintf("%s_%s%s", safeTitle, timestamp, ext)
+	filename := fmt.Sprintf("%s_%s%s", utils.SanitizeFilename(req.Title), timestamp, ext)
 	filePath := filepath.Join(uploadDir, filename)
 
 	if err := c.SaveUploadedFile(header, filePath); err != nil {
@@ -734,42 +701,34 @@ func CreateFundForm(c *gin.Context) {
 		return
 	}
 
-	// --- 6) เขียน DB ---
+	// 6) เขียน DB
 	now := time.Now()
 	form := models.FundForm{
-		Title:        req.Title,
-		Description:  req.Description,
-		FileName:     header.Filename,
-		FilePath:     filePath,
-		FileSize:     &header.Size,
-		MimeType:     &ct,
-		FormType:     req.FormType,
-		FundCategory: req.FundCategory,
-
-		IsRequired:   req.IsRequired,   // *bool ตรงกับ model
-		DisplayOrder: req.DisplayOrder, // *int
-		Status:       req.Status,
-		YearID:       req.YearID, // *int
-
+		Title:         req.Title,
+		Description:   req.Description,
+		FileName:      header.Filename,
+		FilePath:      filePath,
+		FileSize:      &header.Size,
+		MimeType:      &ct,
+		FormType:      req.FormType,
+		FundCategory:  req.FundCategory,
+		IsRequired:    req.IsRequired,
+		DisplayOrder:  req.DisplayOrder,
+		Status:        req.Status,
+		YearID:        req.YearID,
 		DownloadCount: 0,
 		CreatedBy:     userID.(int),
 		CreateAt:      now,
 		UpdateAt:      now,
 	}
-
 	if err := config.DB.Create(&form).Error; err != nil {
-		_ = os.Remove(filePath) // rollback ไฟล์
+		_ = os.Remove(filePath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create fund form"})
 		return
 	}
 
 	config.DB.Preload("Creator").Preload("Year").First(&form, form.FormID)
-
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"message": "Fund form created successfully",
-		"data":    form.ToResponse(),
-	})
+	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Fund form created successfully", "data": form.ToResponse()})
 }
 
 // UpdateFundForm - แก้ไขแบบฟอร์ม (Admin only)
