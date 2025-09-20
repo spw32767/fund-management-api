@@ -304,3 +304,185 @@ func ApproveSubmission(c *gin.Context) {
 	c.Params = gin.Params{gin.Param{Key: "id", Value: idStr}}
 	GetSubmissionDetails(c)
 }
+
+// ---------------------------
+// PATCH /api/v1/admin/submissions/:id/publication-reward/approval-amounts
+// ---------------------------
+// ใช้สำหรับแก้ "จำนวนเงินอนุมัติ" ของ Publication Reward เฉย ๆ (ไม่เปลี่ยนสถานะ)
+// เสร็จแล้ว re-query รายละเอียดส่งกลับเหมือนเดิม
+func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	var req struct {
+		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
+		RevisionFeeApproveAmount    *float64 `json:"revision_fee_approve_amount"`
+		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
+		TotalApproveAmount          *float64 `json:"total_approve_amount"`
+		ApprovalComment             string   `json:"approval_comment"` // หากมีใช้งานอยู่
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// โหลด submission + detail
+	var sub models.Submission
+	if err := tx.Preload("PublicationRewardDetail").
+		Where("submission_id = ? AND deleted_at IS NULL", id).
+		First(&sub).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	if sub.SubmissionType != "publication_reward" {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only publication_reward submissions are supported"})
+		return
+	}
+
+	// มี/ไม่มี record ก็อัปเดตแบบ WHERE submission_id
+	updates := map[string]interface{}{}
+	if req.RewardApproveAmount != nil {
+		updates["reward_approve_amount"] = *req.RewardApproveAmount
+	}
+	if req.RevisionFeeApproveAmount != nil {
+		updates["revision_fee_approve_amount"] = *req.RevisionFeeApproveAmount
+	}
+	if req.PublicationFeeApproveAmount != nil {
+		updates["publication_fee_approve_amount"] = *req.PublicationFeeApproveAmount
+	}
+	if req.TotalApproveAmount != nil {
+		updates["total_approve_amount"] = *req.TotalApproveAmount
+	}
+	// ถ้าไม่มีอะไรให้อัปเดต
+	if len(updates) == 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		return
+	}
+
+	// ensure row exists
+	var d models.PublicationRewardDetail
+	if err := tx.Where("submission_id = ?", id).First(&d).Error; err != nil {
+		// ถ้าไม่เจอให้สร้าง shell
+		d.SubmissionID = id // NOTE: ใช้ int ให้ตรง type model
+		if err := tx.Create(&d).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare reward detail"})
+			return
+		}
+	}
+
+	if err := tx.Model(&models.PublicationRewardDetail{}).
+		Where("submission_id = ?", id).
+		Updates(updates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update approval amounts"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Commit failed"})
+		return
+	}
+
+	// ส่งรายละเอียดล่าสุดกลับ
+	c.Params = gin.Params{gin.Param{Key: "id", Value: idStr}}
+	GetSubmissionDetails(c)
+}
+
+// ---------------------------
+// POST /api/v1/admin/submissions/:id/reject
+// ---------------------------
+// เปลี่ยนสถานะเป็น "ปฏิเสธ" (สมมติ status_id = 3)
+// - เคลียร์ announce_reference_number ใน submission (กันโชว์ผิด)
+// - เคลียร์เลขใน detail ไว้ด้วย (เพื่อความสอดคล้องกับ GetSubmissionDetails)
+// เสร็จแล้ว re-query รายละเอียดส่งกลับ
+func RejectSubmission(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"` // เผื่อ routes เดิมส่งมา แต่ไม่บังคับใช้ใน model
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var sub models.Submission
+	if err := tx.Preload("PublicationRewardDetail").
+		Where("submission_id = ? AND deleted_at IS NULL", id).
+		First(&sub).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	// อนุญาต reject เฉพาะจากสถานะรอดำเนินการ/ให้แก้ไข (1/4); ถ้าอนุมัติแล้ว (2) ก็ไม่ให้ reject
+	if sub.StatusID == 2 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Approved submission cannot be rejected"})
+		return
+	}
+
+	// เปลี่ยนสถานะเป็นปฏิเสธ (3)
+	sub.StatusID = 3
+	// เคลียร์ข้อมูลอนุมัติที่อาจหลงเหลือ
+	sub.ApprovedAt = nil
+	sub.ApprovedBy = nil
+	sub.AnnounceReferenceNumber = ""
+
+	if err := tx.Save(&sub).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject submission"})
+		return
+	}
+
+	// ถ้าเป็น publication_reward: เคลียร์เลขอ้างอิงใน detail ด้วย (กันเผลอโชว์)
+	if sub.SubmissionType == "publication_reward" {
+		if err := tx.Model(&models.PublicationRewardDetail{}).
+			Where("submission_id = ?", id).
+			Updates(map[string]interface{}{
+				"announce_reference_number": "",
+				"approved_by":               nil,
+				"approved_at":               nil,
+			}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update reward detail on reject"})
+			return
+		}
+	}
+
+	// ถ้ามีการบันทึกเหตุผลการ reject ในระบบเดิม สามารถเพิ่ม table/log ได้ที่นี่ (ข้ามไว้เพื่อความเข้ากันได้)
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Commit failed"})
+		return
+	}
+
+	// ส่งรายละเอียดล่าสุดกลับ
+	c.Params = gin.Params{gin.Param{Key: "id", Value: idStr}}
+	GetSubmissionDetails(c)
+}
