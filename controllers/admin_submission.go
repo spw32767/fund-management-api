@@ -15,8 +15,7 @@ import (
 // ==============================
 // Keep: GetSubmissionDetails (as in your latest file)
 // ==============================
-
-// GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
+// GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด (ใส่ announce_reference_number บน submission)
 func GetSubmissionDetails(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 
@@ -61,24 +60,44 @@ func GetSubmissionDetails(c *gin.Context) {
 		Preload("File").
 		Find(&documents)
 
+	// ถ้าเป็น publication_reward และยังไม่อนุมัติ ให้ไม่ส่งเลขอ้างอิงประกาศใน detail
+	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
+		if submission.StatusID != 2 {
+			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
+		} else {
+			// กรณีอนุมัติแล้ว: ถ้า submission ยังไม่มี announce_reference_number
+			// แต่ detail มี ให้ sync ขึ้นไปเพื่อความสอดคล้อง (ผลเฉพาะ response)
+			if strings.TrimSpace(submission.AnnounceReferenceNumber) == "" &&
+				submission.PublicationRewardDetail.AnnounceReferenceNumber != "" {
+				submission.AnnounceReferenceNumber = submission.PublicationRewardDetail.AnnounceReferenceNumber
+			}
+		}
+	}
+	if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
+		if submission.StatusID != 2 {
+			submission.FundApplicationDetail.AnnounceReferenceNumber = ""
+		}
+	}
+
 	// สร้าง response structure
 	response := gin.H{
 		"submission": gin.H{
-			"submission_id":         submission.SubmissionID,
-			"submission_number":     submission.SubmissionNumber,
-			"submission_type":       submission.SubmissionType,
-			"user_id":               submission.UserID,
-			"year_id":               submission.YearID,
-			"category_id":           submission.CategoryID,
-			"subcategory_id":        submission.SubcategoryID,
-			"subcategory_budget_id": submission.SubcategoryBudgetID,
-			"status_id":             submission.StatusID,
-			"submitted_at":          submission.SubmittedAt,
-			"created_at":            submission.CreatedAt,
-			"updated_at":            submission.UpdatedAt,
-			"user":                  submission.User,
-			"year":                  submission.Year,
-			"status":                submission.Status,
+			"submission_id":             submission.SubmissionID,
+			"submission_number":         submission.SubmissionNumber,
+			"submission_type":           submission.SubmissionType,
+			"user_id":                   submission.UserID,
+			"year_id":                   submission.YearID,
+			"category_id":               submission.CategoryID,
+			"subcategory_id":            submission.SubcategoryID,
+			"subcategory_budget_id":     submission.SubcategoryBudgetID,
+			"status_id":                 submission.StatusID,
+			"submitted_at":              submission.SubmittedAt,
+			"created_at":                submission.CreatedAt,
+			"updated_at":                submission.UpdatedAt,
+			"announce_reference_number": submission.AnnounceReferenceNumber, // << NEW: ส่งบน submission ให้ฝั่งแอดมินอ่านได้เหมือนฝั่ง user
+			"user":                      submission.User,
+			"year":                      submission.Year,
+			"status":                    submission.Status,
 		},
 		"details":          nil,
 		"submission_users": []gin.H{},
@@ -87,17 +106,11 @@ func GetSubmissionDetails(c *gin.Context) {
 
 	// เพิ่มรายละเอียดตาม submission type
 	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
-		if submission.StatusID != 2 {
-			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
-		}
 		response["details"] = gin.H{
 			"type": "publication_reward",
-			"data": submission.PublicationRewardDetail,
+			"data": submission.PublicationRewardDetail, // มี main_annoucement / reward_announcement / approved_at/by อยู่ในนี้
 		}
 	} else if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
-		if submission.StatusID != 2 {
-			submission.FundApplicationDetail.AnnounceReferenceNumber = ""
-		}
 		response["details"] = gin.H{
 			"type": "fund_application",
 			"data": submission.FundApplicationDetail,
@@ -234,6 +247,7 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 // ==============================
 
 // ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน และบันทึกเลขประกาศ
+// ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน และบันทึกเลขประกาศ
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -293,6 +307,13 @@ func ApproveSubmission(c *gin.Context) {
 		submission.ApprovedBy = &uid
 	}
 	submission.ApprovedAt = &now
+
+	// เขียน announce_reference_number ลงที่ submissions ด้วย (ให้ frontend อ่านได้เสมอ)
+	trimAnn := strings.TrimSpace(req.AnnounceReferenceNumber)
+	if trimAnn != "" {
+		submission.AnnounceReferenceNumber = trimAnn
+	}
+
 	if err := tx.Save(&submission).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
@@ -333,8 +354,15 @@ func ApproveSubmission(c *gin.Context) {
 				detail.PublicationFeeApproveAmount
 		}
 
-		// Save announce reference number
-		detail.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
+		// Save announce reference number (detail)
+		detail.AnnounceReferenceNumber = trimAnn
+
+		// NEW: เซ็ตผู้อนุมัติและเวลาอนุมัติใน detail ให้สอดคล้องกับ submission
+		if uid, ok := userID.(int); ok {
+			detail.ApprovedBy = &uid
+		}
+		detail.ApprovedAt = &now
+		detail.UpdateAt = now
 
 		if detail.DetailID == 0 {
 			if err := tx.Create(&detail).Error; err != nil {
