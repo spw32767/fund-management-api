@@ -287,8 +287,15 @@ func GetSystemConfigAdmin(c *gin.Context) {
 // UpdateSystemConfigWindow upserts current_year / start_date / end_date (admin use)
 type updateWindowPayload struct {
 	CurrentYear *string `json:"current_year"`
-	StartDate   *string `json:"start_date"` // string; we will parse to *time.Time
+	StartDate   *string `json:"start_date"` // string; parse -> *time.Time
 	EndDate     *string `json:"end_date"`
+
+	// 5 ฟิลด์ประกาศ (nullable int)
+	MainAnnoucement             *int `json:"main_annoucement"`              // DB: main_annoucement
+	RewardAnnouncement          *int `json:"reward_announcement"`           // DB: reward_announcement
+	ActivitySupportAnnouncement *int `json:"activity_support_announcement"` // DB: activity_support_announcement
+	ConferenceAnnouncement      *int `json:"conference_announcement"`       // DB: conference_announcement
+	ServiceAnnouncement         *int `json:"service_announcement"`          // DB: service_announcement
 }
 
 // UpdateSystemConfigWindow updates the latest row or inserts a new one
@@ -327,11 +334,17 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	}
 
 	if !cfgID.Valid {
-		// Insert new row
+		// Insert new row (รวม 5 ฟิลด์ประกาศ)
 		if err := config.DB.Exec(`
-			INSERT INTO system_config (current_year, start_date, end_date, last_updated, updated_by)
-			VALUES (?, ?, ?, NOW(), ?)
-		`, p.CurrentYear, stPtr, enPtr, updatedBy).Error; err != nil {
+			INSERT INTO system_config (
+				current_year, start_date, end_date, last_updated, updated_by,
+				main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement
+			)
+			VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)
+		`,
+			p.CurrentYear, stPtr, enPtr, updatedBy,
+			p.MainAnnoucement, p.RewardAnnouncement, p.ActivitySupportAnnouncement, p.ConferenceAnnouncement, p.ServiceAnnouncement,
+		).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
 			return
 		}
@@ -339,12 +352,17 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
-	// Update latest row
+	// Update latest row (รวม 5 ฟิลด์ประกาศ)
 	if err := config.DB.Exec(`
 		UPDATE system_config
-		SET current_year = ?, start_date = ?, end_date = ?, last_updated = NOW(), updated_by = ?
+		SET current_year = ?, start_date = ?, end_date = ?, last_updated = NOW(), updated_by = ?,
+		    main_annoucement = ?, reward_announcement = ?, activity_support_announcement = ?, conference_announcement = ?, service_announcement = ?
 		WHERE config_id = ?
-	`, p.CurrentYear, stPtr, enPtr, updatedBy, int(cfgID.Int64)).Error; err != nil {
+	`,
+		p.CurrentYear, stPtr, enPtr, updatedBy,
+		p.MainAnnoucement, p.RewardAnnouncement, p.ActivitySupportAnnouncement, p.ConferenceAnnouncement, p.ServiceAnnouncement,
+		int(cfgID.Int64),
+	).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
 		return
 	}
