@@ -341,6 +341,7 @@ func SetupRoutes(router *gin.Engine) {
 				// User Publications Import from Scholar
 				admin.POST("/user-publications/import/scholar", controllers.AdminImportScholarPublications)
 				admin.POST("/user-publications/import/scholar/all", controllers.AdminImportScholarForAll)
+				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
 

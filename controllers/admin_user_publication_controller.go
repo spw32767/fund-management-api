@@ -1,13 +1,13 @@
 package controllers
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"fund-management-api/config"
+	"fund-management-api/models"
 	"fund-management-api/services"
 
 	"github.com/gin-gonic/gin"
@@ -30,9 +30,7 @@ func AdminImportScholarPublications(c *gin.Context) {
 	userID := uint(id64)
 
 	job := services.NewScholarImportJobService(nil)
-	ctx := context.WithoutCancel(c.Request.Context())
-
-	summary, err := job.RunForUser(ctx, &services.ScholarImportUserInput{
+	summary, err := job.RunForUser(c.Request.Context(), &services.ScholarImportUserInput{
 		UserID:   userID,
 		AuthorID: authorID,
 	})
@@ -79,9 +77,7 @@ func AdminImportScholarForAll(c *gin.Context) {
 	}
 
 	job := services.NewScholarImportJobService(nil)
-	ctx := context.WithoutCancel(c.Request.Context())
-
-	summary, err := job.RunForAll(ctx, &services.ScholarImportAllInput{
+	summary, err := job.RunForAll(c.Request.Context(), &services.ScholarImportAllInput{
 		UserIDs:       userIDs,
 		Limit:         limit,
 		TriggerSource: "admin_api",
@@ -155,4 +151,51 @@ func AdminSearchUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
+}
+
+// GET /api/v1/admin/user-publications/import/scholar/runs
+func AdminListScholarImportRuns(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	var total int64
+	if err := config.DB.Model(&models.ScholarImportRun{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var runs []models.ScholarImportRun
+	offset := (page - 1) * perPage
+	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	totalPages := 0
+	if perPage > 0 {
+		totalPages = int((total + int64(perPage) - 1) / int64(perPage))
+	}
+
+	hasNext := int64(page*perPage) < total
+	hasPrev := page > 1
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    runs,
+		"pagination": gin.H{
+			"current_page": page,
+			"per_page":     perPage,
+			"total_count":  total,
+			"total_pages":  totalPages,
+			"has_next":     hasNext,
+			"has_prev":     hasPrev,
+		},
+	})
 }
