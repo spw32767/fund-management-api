@@ -6,6 +6,7 @@ import (
 	"fund-management-api/models"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -78,30 +79,60 @@ func GetRewardConfigAdmin(c *gin.Context) {
 
 // GetRewardConfigLookup returns specific max amount for calculation
 func GetRewardConfigLookup(c *gin.Context) {
-	year := c.Query("year")
-	quartile := c.Query("quartile")
+	year := strings.TrimSpace(c.Query("year"))
+	quartile := strings.TrimSpace(c.Query("quartile"))
 
 	// Validate required parameters
 	if year == "" || quartile == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Missing required parameters: year, type, quartile",
+			"error": "Missing required parameters: year, quartile",
 		})
 		return
 	}
 
-	var rewardConfig models.RewardConfig
-	if err := config.DB.Where("year = ? AND journal_quartile = ? AND is_active = ? AND delete_at IS NULL",
-		year, quartile, true).First(&rewardConfig).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Configuration not found for the specified parameters",
+	// 1) พยายามหา "แถวที่ active"
+	var active models.RewardConfig
+	err := config.DB.
+		Where("year = ? AND journal_quartile = ? AND is_active = ? AND delete_at IS NULL",
+			year, quartile, true).
+		First(&active).Error
+
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"found":      true,
+			"is_active":  true,
+			"max_amount": active.MaxAmount,
+			"condition":  active.ConditionDescription,
 		})
 		return
 	}
 
+	// 2) ไม่เจอ active → เช็คว่ามีแถว (แต่ inactive) หรือไม่มีเลย
+	var any models.RewardConfig
+	err2 := config.DB.
+		Where("year = ? AND journal_quartile = ? AND delete_at IS NULL", year, quartile).
+		First(&any).Error
+
+	// คืน 200 เสมอ เพื่อ "กลืน" เคส inactive/ไม่มีค่า ให้ FE ปิดช่องเองจากค่า null
+	if err2 == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"found":      true,
+			"is_active":  any.IsActive, // คาดว่า false
+			"max_amount": nil,          // ไม่มีเพดานใช้งานได้
+			"condition":  any.ConditionDescription,
+		})
+		return
+	}
+
+	// 3) ไม่มี record เลย → คืน 200 พร้อม found=false
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
-		"max_amount": rewardConfig.MaxAmount,
-		"condition":  rewardConfig.ConditionDescription,
+		"found":      false,
+		"is_active":  false,
+		"max_amount": nil,
+		"condition":  nil,
 	})
 }
 
