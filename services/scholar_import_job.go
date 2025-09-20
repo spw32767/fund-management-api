@@ -299,8 +299,10 @@ func (s *ScholarImportJobService) acquireLock(ctx context.Context, lockName stri
 		return nil, nil
 	}
 
+	lockCtx := persistentContext(ctx)
+
 	var ok int
-	if err := s.db.WithContext(ctx).Raw("SELECT GET_LOCK(?, 0)", lockName).Scan(&ok).Error; err != nil {
+	if err := s.db.WithContext(lockCtx).Raw("SELECT GET_LOCK(?, 0)", lockName).Scan(&ok).Error; err != nil {
 		return nil, err
 	}
 	if ok != 1 {
@@ -309,11 +311,21 @@ func (s *ScholarImportJobService) acquireLock(ctx context.Context, lockName stri
 
 	return func() error {
 		var released int
-		if err := s.db.WithContext(ctx).Raw("SELECT RELEASE_LOCK(?)", lockName).Scan(&released).Error; err != nil {
+		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", lockName).Scan(&released).Error; err != nil {
 			return err
+		}
+		if released != 1 {
+			return fmt.Errorf("release lock %q returned %d", lockName, released)
 		}
 		return nil
 	}, nil
+}
+
+func persistentContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 // ScholarScriptError indicates the Python script failed to return data.

@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -29,7 +30,9 @@ func AdminImportScholarPublications(c *gin.Context) {
 	userID := uint(id64)
 
 	job := services.NewScholarImportJobService(nil)
-	summary, err := job.RunForUser(c.Request.Context(), &services.ScholarImportUserInput{
+	ctx := context.WithoutCancel(c.Request.Context())
+
+	summary, err := job.RunForUser(ctx, &services.ScholarImportUserInput{
 		UserID:   userID,
 		AuthorID: authorID,
 	})
@@ -76,7 +79,9 @@ func AdminImportScholarForAll(c *gin.Context) {
 	}
 
 	job := services.NewScholarImportJobService(nil)
-	summary, err := job.RunForAll(c.Request.Context(), &services.ScholarImportAllInput{
+	ctx := context.WithoutCancel(c.Request.Context())
+
+	summary, err := job.RunForAll(ctx, &services.ScholarImportAllInput{
 		UserIDs:       userIDs,
 		Limit:         limit,
 		TriggerSource: "admin_api",
