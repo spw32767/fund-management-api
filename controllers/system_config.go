@@ -2,15 +2,70 @@ package controllers
 
 import (
 	"database/sql"
-	"net/http"
-	"time"
-
+	"fmt"
 	"fund-management-api/config"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 // ===== Helpers =====
+// ใช้ layout พื้นฐานที่มักเจอบนเว็บ
+const (
+	layoutRFC3339      = time.RFC3339          // e.g. 2025-09-20T10:15:00Z / +07:00
+	layoutLocalNoSec   = "2006-01-02T15:04"    // e.g. 2025-09-20T10:15
+	layoutLocalWithSec = "2006-01-02T15:04:05" // เผื่อกรณีมีวินาที
+)
+
+// รับค่าจาก frontend -> แปลงเป็น *time.Time(UTC)
+// รองรับ:
+//   - RFC3339 ที่มีโซนเวลา (Z หรือ +07:00)
+//   - สตริง local ไม่ระบุโซน เช่น "YYYY-MM-DDTHH:mm" (ตีความเป็น Asia/Bangkok แล้ว .UTC())
+func parseIncomingToUTC(s *string) (*time.Time, error) {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(*s)
+
+	// 1) พยายาม parse แบบ RFC3339 ก่อน (รองรับ Z หรือ +07:00)
+	if t, err := time.Parse(layoutRFC3339, raw); err == nil {
+		utc := t.UTC()
+		return &utc, nil
+	}
+
+	// 2) ถ้าไม่ใช่ RFC3339 ให้ตีความว่าเป็น local Bangkok
+	loc, _ := time.LoadLocation("Asia/Bangkok")
+
+	// ลองแบบไม่มีวินาที
+	if t, err := time.ParseInLocation(layoutLocalNoSec, raw, loc); err == nil {
+		utc := t.UTC()
+		return &utc, nil
+	}
+	// ลองแบบมีวินาที
+	if t, err := time.ParseInLocation(layoutLocalWithSec, raw, loc); err == nil {
+		utc := t.UTC()
+		return &utc, nil
+	}
+
+	// เผื่อกรณีบางเบราเซอร์ส่ง millisec
+	if tt, err := time.ParseInLocation("2006-01-02T15:04:05.000", raw, loc); err == nil {
+		utc := tt.UTC()
+		return &utc, nil
+	}
+
+	return nil, fmt.Errorf("invalid datetime: %s", raw)
+}
+
+// แปลง *time.Time -> *string (RFC3339 แบบ UTC "Z") สำหรับส่งออก
+func toRFC3339UTC(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.UTC().Format(time.RFC3339)
+	return &s
+}
 
 // parseTimePtr takes a *string (possibly nil/empty) and parses it into *time.Time (or nil)
 func parseTimePtr(s *string) (*time.Time, error) {
@@ -287,15 +342,14 @@ func GetSystemConfigAdmin(c *gin.Context) {
 // UpdateSystemConfigWindow upserts current_year / start_date / end_date (admin use)
 type updateWindowPayload struct {
 	CurrentYear *string `json:"current_year"`
-	StartDate   *string `json:"start_date"` // string; parse -> *time.Time
+	StartDate   *string `json:"start_date"` // อาจเป็น RFC3339(+07:00/Z) หรือ local "YYYY-MM-DDTHH:mm"
 	EndDate     *string `json:"end_date"`
 
-	// 5 ฟิลด์ประกาศ (nullable int)
-	MainAnnoucement             *int `json:"main_annoucement"`              // DB: main_annoucement
-	RewardAnnouncement          *int `json:"reward_announcement"`           // DB: reward_announcement
-	ActivitySupportAnnouncement *int `json:"activity_support_announcement"` // DB: activity_support_announcement
-	ConferenceAnnouncement      *int `json:"conference_announcement"`       // DB: conference_announcement
-	ServiceAnnouncement         *int `json:"service_announcement"`          // DB: service_announcement
+	MainAnnoucement             *int `json:"main_annoucement"`
+	RewardAnnouncement          *int `json:"reward_announcement"`
+	ActivitySupportAnnouncement *int `json:"activity_support_announcement"`
+	ConferenceAnnouncement      *int `json:"conference_announcement"`
+	ServiceAnnouncement         *int `json:"service_announcement"`
 }
 
 // UpdateSystemConfigWindow updates the latest row or inserts a new one
@@ -306,8 +360,8 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
-	stPtr, err1 := parseTimePtr(p.StartDate)
-	enPtr, err2 := parseTimePtr(p.EndDate)
+	stUTC, err1 := parseIncomingToUTC(p.StartDate)
+	enUTC, err2 := parseIncomingToUTC(p.EndDate)
 	if err1 != nil || err2 != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid date format"})
 		return
@@ -342,7 +396,7 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 			)
 			VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)
 		`,
-			p.CurrentYear, stPtr, enPtr, updatedBy,
+			p.CurrentYear, stUTC, enUTC, updatedBy,
 			p.MainAnnoucement, p.RewardAnnouncement, p.ActivitySupportAnnouncement, p.ConferenceAnnouncement, p.ServiceAnnouncement,
 		).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
@@ -359,7 +413,7 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		    main_annoucement = ?, reward_announcement = ?, activity_support_announcement = ?, conference_announcement = ?, service_announcement = ?
 		WHERE config_id = ?
 	`,
-		p.CurrentYear, stPtr, enPtr, updatedBy,
+		p.CurrentYear, stUTC, enUTC, updatedBy,
 		p.MainAnnoucement, p.RewardAnnouncement, p.ActivitySupportAnnouncement, p.ConferenceAnnouncement, p.ServiceAnnouncement,
 		int(cfgID.Int64),
 	).Error; err != nil {
