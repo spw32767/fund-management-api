@@ -153,6 +153,7 @@ func SetupRoutes(router *gin.Engine) {
 				// ใช้ function เดียวกัน
 				staff.GET("/subcategories", controllers.GetSubcategoryForRole)
 				staff.GET("/submissions", controllers.GetStaffSubmissions) // Staff ดู submissions ของตัวเอง
+				staff.GET("/dashboard/stats", controllers.GetDashboardStats)
 			}
 
 			// Fund Applications
