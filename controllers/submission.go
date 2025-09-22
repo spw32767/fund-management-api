@@ -1077,8 +1077,10 @@ func AddPublicationDetails(c *gin.Context) {
 		TotalApproveAmount          float64 `json:"total_approve_amount"`
 
 		// === ข้อมูลผู้แต่ง ===
-		AuthorCount int    `json:"author_count"`
-		AuthorType  string `json:"author_status"` // FE เดิมส่งเป็น author_status
+		AuthorCount    int    `json:"author_count"`
+		AuthorType     string `json:"author_status"` // FE เดิมส่งเป็น author_status
+		AuthorNameList string `json:"author_name_list"`
+		Signature      string `json:"signature"`
 
 		// === อื่นๆ ===
 		AnnounceReferenceNumber string `json:"announce_reference_number"`
@@ -1139,6 +1141,18 @@ func AddPublicationDetails(c *gin.Context) {
 
 	now := time.Now()
 
+	trimmedAuthorNameList := strings.TrimSpace(req.AuthorNameList)
+	var authorNameListPtr *string
+	if trimmedAuthorNameList != "" {
+		authorNameListPtr = &trimmedAuthorNameList
+	}
+
+	trimmedSignature := strings.TrimSpace(req.Signature)
+	var signaturePtr *string
+	if trimmedSignature != "" {
+		signaturePtr = &trimmedSignature
+	}
+
 	publicationDetails := models.PublicationRewardDetail{
 		SubmissionID:    submission.SubmissionID,
 		PaperTitle:      req.PaperTitle,
@@ -1163,8 +1177,10 @@ func AddPublicationDetails(c *gin.Context) {
 		TotalAmount:                 req.TotalAmount,
 		TotalApproveAmount:          req.TotalApproveAmount,
 
-		AuthorCount: req.AuthorCount,
-		AuthorType:  req.AuthorType,
+		AuthorCount:    req.AuthorCount,
+		AuthorType:     req.AuthorType,
+		AuthorNameList: authorNameListPtr,
+		Signature:      signaturePtr,
 
 		AnnounceReferenceNumber: req.AnnounceReferenceNumber,
 
