@@ -5,17 +5,18 @@ import (
 )
 
 type User struct {
-	UserID     int        `gorm:"primaryKey;column:user_id" json:"user_id"`
-	UserFname  string     `gorm:"column:user_fname" json:"user_fname"`
-	UserLname  string     `gorm:"column:user_lname" json:"user_lname"`
-	Gender     string     `gorm:"column:gender" json:"gender"`
-	Email      string     `gorm:"column:email;unique" json:"email"`
-	Password   string     `gorm:"column:password" json:"-"`
-	RoleID     int        `gorm:"column:role_id" json:"role_id"`
-	PositionID int        `gorm:"column:position_id" json:"position_id"`
-	CreateAt   *time.Time `gorm:"column:create_at" json:"create_at"`
-	UpdateAt   *time.Time `gorm:"column:update_at" json:"update_at"`
-	DeleteAt   *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+	UserID          int        `gorm:"primaryKey;column:user_id" json:"user_id"`
+	UserFname       string     `gorm:"column:user_fname" json:"user_fname"`
+	UserLname       string     `gorm:"column:user_lname" json:"user_lname"`
+	Gender          string     `gorm:"column:gender" json:"gender"`
+	Email           string     `gorm:"column:email;unique" json:"email"`
+	ScholarAuthorID *string    `gorm:"column:scholar_author_id" json:"scholar_author_id,omitempty"`
+	Password        string     `gorm:"column:password" json:"-"`
+	RoleID          int        `gorm:"column:role_id" json:"role_id"`
+	PositionID      int        `gorm:"column:position_id" json:"position_id"`
+	CreateAt        *time.Time `gorm:"column:create_at" json:"create_at"`
+	UpdateAt        *time.Time `gorm:"column:update_at" json:"update_at"`
+	DeleteAt        *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// Relations
 	Role     Role     `gorm:"foreignKey:RoleID" json:"role,omitempty"`

@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -11,7 +12,10 @@ import (
 	"fund-management-api/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+var scholarAuthorIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{10,}$`)
 
 // POST /api/v1/admin/user-publications/import/scholar?user_id=123&author_id=W2k2JXwAAAAJ
 func AdminImportScholarPublications(c *gin.Context) {
@@ -97,9 +101,14 @@ func AdminImportScholarForAll(c *gin.Context) {
 }
 
 type AdminUserLite struct {
-	UserID uint   `json:"user_id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
+	UserID          uint    `json:"user_id"`
+	Name            string  `json:"name"`
+	Email           string  `json:"email"`
+	ScholarAuthorID *string `json:"scholar_author_id,omitempty"`
+}
+
+type setScholarAuthorIDRequest struct {
+	AuthorID string `json:"author_id"`
 }
 
 // GET /api/v1/admin/users/search?q=smith&limit=10
@@ -115,17 +124,18 @@ func AdminSearchUsers(c *gin.Context) {
 	}
 
 	type row struct {
-		UserID    uint
-		UserFname *string
-		UserLname *string
-		Email     *string
+		UserID          uint
+		UserFname       *string
+		UserLname       *string
+		Email           *string
+		ScholarAuthorID *string
 	}
 
 	var rows []row
 	like := "%" + q + "%"
 	if err := config.DB.
 		Table("users").
-		Select("user_id, user_fname, user_lname, email").
+		Select("user_id, user_fname, user_lname, email, scholar_author_id").
 		Where("CONCAT(COALESCE(user_fname,''),' ',COALESCE(user_lname,'')) LIKE ? OR email LIKE ?", like, like).
 		Limit(limit).
 		Find(&rows).Error; err != nil {
@@ -147,10 +157,72 @@ func AdminSearchUsers(c *gin.Context) {
 		if r.Email != nil {
 			email = *r.Email
 		}
-		out = append(out, AdminUserLite{UserID: r.UserID, Name: name, Email: email})
+		out = append(out, AdminUserLite{UserID: r.UserID, Name: name, Email: email, ScholarAuthorID: r.ScholarAuthorID})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
+}
+
+// POST /api/v1/admin/users/:id/scholar-author
+func AdminSetUserScholarAuthorID(c *gin.Context) {
+	uid := strings.TrimSpace(c.Param("id"))
+	if uid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing user_id"})
+		return
+	}
+
+	id64, err := strconv.ParseUint(uid, 10, 64)
+	if err != nil || id64 == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user_id"})
+		return
+	}
+
+	var payload setScholarAuthorIDRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request body"})
+		return
+	}
+
+	authorID := strings.TrimSpace(payload.AuthorID)
+	if authorID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing author_id"})
+		return
+	}
+
+	normalized := authorID
+	if strings.HasPrefix(normalized, "_") {
+		normalized = strings.TrimPrefix(normalized, "_")
+	} else {
+		authorID = "_" + normalized
+	}
+
+	if !scholarAuthorIDPattern.MatchString(normalized) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid author_id"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.Where("user_id = ?", uint(id64)).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := config.DB.Model(&user).Update("scholar_author_id", authorID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"user_id":           user.UserID,
+			"scholar_author_id": authorID,
+		},
+	})
 }
 
 // GET /api/v1/admin/user-publications/import/scholar/runs

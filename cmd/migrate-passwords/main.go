@@ -176,6 +176,15 @@ func addSampleUsers() error {
 			RoleID:     2, // staff
 			PositionID: 3, // พนักงานธุรการ
 		},
+		{
+			Email:      "depthead@cpkku.ac.th",
+			Password:   "Head123!",
+			FirstName:  "หัวหน้า",
+			LastName:   "สาขา",
+			Gender:     "female",
+			RoleID:     4, // department head
+			PositionID: 3, // พนักงานธุรการ
+		},
 	}
 
 	successCount := 0

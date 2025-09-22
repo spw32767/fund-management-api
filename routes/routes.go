@@ -344,6 +344,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
+				admin.POST("/users/:id/scholar-author", controllers.AdminSetUserScholarAuthorID)
 
 				admin.GET("/approval-records/totals", controllers.GetApprovalTotals)
 				admin.GET("/approval-records", controllers.GetApprovalRecords)
