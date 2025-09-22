@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -1141,62 +1142,97 @@ func AddPublicationDetails(c *gin.Context) {
 
 	now := time.Now()
 
-	trimmedAuthorNameList := strings.TrimSpace(req.AuthorNameList)
-	var authorNameListPtr *string
-	if trimmedAuthorNameList != "" {
-		authorNameListPtr = &trimmedAuthorNameList
+	authorNameList := strings.TrimSpace(req.AuthorNameList)
+	signature := strings.TrimSpace(req.Signature)
+	if authorNameList == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "author_name_list is required"})
+		return
+	}
+	if signature == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "signature is required"})
+		return
 	}
 
-	trimmedSignature := strings.TrimSpace(req.Signature)
-	var signaturePtr *string
-	if trimmedSignature != "" {
-		signaturePtr = &trimmedSignature
+	toNullableString := func(value string) *string {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return nil
+		}
+		return &trimmed
 	}
 
-	publicationDetails := models.PublicationRewardDetail{
-		SubmissionID:    submission.SubmissionID,
-		PaperTitle:      req.PaperTitle,
-		JournalName:     req.JournalName,
-		PublicationDate: pubDate,
-		PublicationType: req.PublicationType,
-		Quartile:        req.Quartile,
-		ImpactFactor:    req.ImpactFactor,
-		DOI:             req.DOI,
-		URL:             req.URL,
-		PageNumbers:     req.PageNumbers,
-		VolumeIssue:     req.VolumeIssue,
-		Indexing:        req.Indexing,
-
-		RewardAmount:                req.RewardAmount,
-		RewardApproveAmount:         req.RewardApproveAmount,
-		RevisionFee:                 req.RevisionFee,
-		RevisionFeeApproveAmount:    req.RevisionFeeApproveAmount,
-		PublicationFee:              req.PublicationFee,
-		PublicationFeeApproveAmount: req.PublicationFeeApproveAmount,
-		ExternalFundingAmount:       req.ExternalFundingAmount,
-		TotalAmount:                 req.TotalAmount,
-		TotalApproveAmount:          req.TotalApproveAmount,
-
-		AuthorCount:    req.AuthorCount,
-		AuthorType:     req.AuthorType,
-		AuthorNameList: authorNameListPtr,
-		Signature:      signaturePtr,
-
-		AnnounceReferenceNumber: req.AnnounceReferenceNumber,
-
-		// === Snapshotted announcements (announcement_id) ===
-		MainAnnoucement:    ann.MainAnnoucement,
-		RewardAnnouncement: ann.RewardAnnouncement,
-
-		HasUniversityFunding: req.HasUniversityFunding,
-		FundingReferences:    &req.FundingReferences,
-		UniversityRankings:   &req.UniversityRankings,
-
-		CreateAt: now,
-		UpdateAt: now,
+	hasUniversityFunding := strings.TrimSpace(req.HasUniversityFunding)
+	if hasUniversityFunding == "" {
+		hasUniversityFunding = "no"
 	}
 
-	if err := config.DB.Create(&publicationDetails).Error; err != nil {
+	fundingReferences := toNullableString(req.FundingReferences)
+	universityRankings := toNullableString(req.UniversityRankings)
+	announceRef := strings.TrimSpace(req.AnnounceReferenceNumber)
+	authorType := strings.TrimSpace(req.AuthorType)
+
+	var existing models.PublicationRewardDetail
+	if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(&existing).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch publication details"})
+			return
+		}
+	}
+
+	detail := existing
+	if detail.DetailID == 0 {
+		detail.SubmissionID = submission.SubmissionID
+	}
+
+	detail.SubmissionID = submission.SubmissionID
+	detail.PaperTitle = req.PaperTitle
+	detail.JournalName = req.JournalName
+	detail.PublicationDate = pubDate
+	detail.PublicationType = req.PublicationType
+	detail.Quartile = req.Quartile
+	detail.ImpactFactor = req.ImpactFactor
+	detail.DOI = req.DOI
+	detail.URL = req.URL
+	detail.PageNumbers = req.PageNumbers
+	detail.VolumeIssue = req.VolumeIssue
+	detail.Indexing = req.Indexing
+
+	detail.RewardAmount = req.RewardAmount
+	detail.RewardApproveAmount = req.RewardApproveAmount
+	detail.RevisionFee = req.RevisionFee
+	detail.RevisionFeeApproveAmount = req.RevisionFeeApproveAmount
+	detail.PublicationFee = req.PublicationFee
+	detail.PublicationFeeApproveAmount = req.PublicationFeeApproveAmount
+	detail.ExternalFundingAmount = req.ExternalFundingAmount
+	detail.TotalAmount = req.TotalAmount
+	detail.TotalApproveAmount = req.TotalApproveAmount
+
+	detail.AuthorCount = req.AuthorCount
+	detail.AuthorType = authorType
+	detail.AuthorNameList = authorNameList
+	detail.Signature = signature
+
+	detail.AnnounceReferenceNumber = announceRef
+	detail.MainAnnoucement = ann.MainAnnoucement
+	detail.RewardAnnouncement = ann.RewardAnnouncement
+
+	detail.HasUniversityFunding = hasUniversityFunding
+	detail.FundingReferences = fundingReferences
+	detail.UniversityRankings = universityRankings
+
+	if detail.CreateAt.IsZero() {
+		detail.CreateAt = now
+	}
+	detail.UpdateAt = now
+
+	var saveErr error
+	if detail.DetailID == 0 {
+		saveErr = config.DB.Create(&detail).Error
+	} else {
+		saveErr = config.DB.Save(&detail).Error
+	}
+
+	if saveErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save publication details"})
 		return
 	}
@@ -1204,7 +1240,7 @@ func AddPublicationDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Publication details saved successfully",
-		"details": publicationDetails,
+		"details": detail,
 	})
 }
 

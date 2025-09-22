@@ -91,10 +91,10 @@ type PublicationRewardDetail struct {
 	TotalApproveAmount          float64 `gorm:"column:total_approve_amount" json:"total_approve_amount"`       // จำนวนเงินจริงที่วิทยาลัยจ่ายให้ (หลังจากได้รับการอนุมัติ)
 
 	// === ข้อมูลผู้แต่ง ===
-	AuthorCount    int     `gorm:"column:author_count" json:"author_count"`
-	AuthorType     string  `gorm:"column:author_type;type:enum('first_author','corresponding_author','coauthor')" json:"author_type"` // เปลี่ยนจาก author_status
-	AuthorNameList *string `gorm:"column:author_name_list" json:"author_name_list,omitempty"`
-	Signature      *string `gorm:"column:signature" json:"signature,omitempty"`
+	AuthorCount    int    `gorm:"column:author_count" json:"author_count"`
+	AuthorType     string `gorm:"column:author_type;type:enum('first_author','corresponding_author','coauthor')" json:"author_type"` // เปลี่ยนจาก author_status
+	AuthorNameList string `gorm:"column:author_name_list" json:"author_name_list"`
+	Signature      string `gorm:"column:signature" json:"signature"`
 
 	// === อื่นๆ ===
 	AnnounceReferenceNumber string `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
