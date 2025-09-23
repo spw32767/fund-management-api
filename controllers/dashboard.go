@@ -3,6 +3,7 @@ package controllers
 import (
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 	"net/http"
 	"time"
 
@@ -64,6 +65,33 @@ func getUserDashboard(userID int) map[string]interface{} {
 		ApprovedAmount float64 `json:"total_approved"`
 	}
 
+	pendingStatusIDs := make([]int, 0, 2)
+	if pendingID, err := utils.GetStatusIDByCode(utils.StatusCodePending); err == nil && pendingID > 0 {
+		pendingStatusIDs = append(pendingStatusIDs, pendingID)
+	}
+	if deptPendingID, err := utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending); err == nil && deptPendingID > 0 {
+		pendingStatusIDs = append(pendingStatusIDs, deptPendingID)
+	}
+	if len(pendingStatusIDs) == 0 {
+		pendingStatusIDs = []int{-1}
+	}
+
+	approvedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeApproved)
+	if err != nil {
+		approvedStatusID = -1
+	}
+
+	rejectedStatusIDs := make([]int, 0, 2)
+	if rejectedID, err := utils.GetStatusIDByCode(utils.StatusCodeRejected); err == nil && rejectedID > 0 {
+		rejectedStatusIDs = append(rejectedStatusIDs, rejectedID)
+	}
+	if deptRejectedID, err := utils.GetStatusIDByCode(utils.StatusCodeDeptHeadNotRecommended); err == nil && deptRejectedID > 0 {
+		rejectedStatusIDs = append(rejectedStatusIDs, deptRejectedID)
+	}
+	if len(rejectedStatusIDs) == 0 {
+		rejectedStatusIDs = []int{-1}
+	}
+
 	// Total submissions
 	config.DB.Table("submissions").
 		Where("user_id = ? AND submission_type IN ? AND deleted_at IS NULL",
@@ -72,18 +100,20 @@ func getUserDashboard(userID int) map[string]interface{} {
 
 	// By status
 	config.DB.Table("submissions").
-		Where("user_id = ? AND submission_type IN ? AND status_id = 1 AND deleted_at IS NULL",
-			userID, []string{"fund_application", "publication_reward"}).
+		Where("user_id = ? AND submission_type IN ? AND status_id IN ? AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}, pendingStatusIDs).
 		Count(&submissionStats.Pending)
 
-	config.DB.Table("submissions").
-		Where("user_id = ? AND submission_type IN ? AND status_id = 2 AND deleted_at IS NULL",
-			userID, []string{"fund_application", "publication_reward"}).
-		Count(&submissionStats.Approved)
+	if approvedStatusID > 0 {
+		config.DB.Table("submissions").
+			Where("user_id = ? AND submission_type IN ? AND status_id = ? AND deleted_at IS NULL",
+				userID, []string{"fund_application", "publication_reward"}, approvedStatusID).
+			Count(&submissionStats.Approved)
+	}
 
 	config.DB.Table("submissions").
-		Where("user_id = ? AND submission_type IN ? AND status_id = 3 AND deleted_at IS NULL",
-			userID, []string{"fund_application", "publication_reward"}).
+		Where("user_id = ? AND submission_type IN ? AND status_id IN ? AND deleted_at IS NULL",
+			userID, []string{"fund_application", "publication_reward"}, rejectedStatusIDs).
 		Count(&submissionStats.Rejected)
 
 	// Total requested and approved amounts
@@ -94,7 +124,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 	config.DB.Table("fund_application_details fad").
 		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
 		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
-		Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = 2 THEN fad.approved_amount ELSE 0 END),0) AS approved").
+		Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN fad.approved_amount ELSE 0 END),0) AS approved", approvedStatusID).
 		Scan(&fundAmounts)
 
 	var rewardAmounts struct {
@@ -104,7 +134,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 	config.DB.Table("publication_reward_details prd").
 		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
 		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
-		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = 2 THEN prd.reward_approve_amount ELSE 0 END),0) AS approved").
+		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN prd.reward_approve_amount ELSE 0 END),0) AS approved", approvedStatusID).
 		Scan(&rewardAmounts)
 
 	submissionStats.TotalAmount = fundAmounts.Requested + rewardAmounts.Requested

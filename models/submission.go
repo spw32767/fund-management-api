@@ -191,11 +191,11 @@ func (SubmissionDocument) TableName() string {
 
 // Helper methods for Submission
 func (s *Submission) IsEditable() bool {
-	return s.StatusID == 1 && s.SubmittedAt == nil // Only draft status and not submitted
+	return s.SubmittedAt == nil
 }
 
 func (s *Submission) CanBeSubmitted() bool {
-	return s.StatusID == 1 && s.SubmittedAt == nil
+	return s.SubmittedAt == nil
 }
 
 func (s *Submission) IsSubmitted() bool {
