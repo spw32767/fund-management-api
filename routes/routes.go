@@ -156,6 +156,8 @@ func SetupRoutes(router *gin.Engine) {
 				staff.GET("/dashboard/stats", controllers.GetDashboardStats)
 			}
 
+			protected.GET("/submissions/:id/details", controllers.GetSubmissionDetailsShared)
+
 			deptHead := protected.Group("/dept-head")
 			deptHead.Use(middleware.RequireRole(4))
 			{
@@ -163,6 +165,7 @@ func SetupRoutes(router *gin.Engine) {
 				{
 					review.GET("/submissions", controllers.GetDeptHeadReviewSubmissions)
 					review.POST("/:id/decision", controllers.DeptHeadDecision)
+
 				}
 			}
 
