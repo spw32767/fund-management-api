@@ -156,6 +156,16 @@ func SetupRoutes(router *gin.Engine) {
 				staff.GET("/dashboard/stats", controllers.GetDashboardStats)
 			}
 
+			deptHead := protected.Group("/dept-head")
+			deptHead.Use(middleware.RequireRole(4))
+			{
+				review := deptHead.Group("/review")
+				{
+					review.GET("/submissions", controllers.GetDeptHeadReviewSubmissions)
+					review.POST("/:id/decision", controllers.DeptHeadDecision)
+				}
+			}
+
 			// Fund Applications
 			applications := protected.Group("/applications")
 			{
