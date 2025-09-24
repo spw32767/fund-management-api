@@ -54,8 +54,13 @@ func GetDeptHeadReviewSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL").
 		Where("status_id = ?", statusID)
 
-	if err := query.Order("submitted_at DESC NULLS LAST, updated_at DESC").Find(&submissions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
+	if err := query.
+		Order("(submitted_at IS NULL) ASC").
+		Order("submitted_at DESC").
+		Order("(updated_at IS NULL) ASC").
+		Order("updated_at DESC").
+		Find(&submissions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submissions"})
 		return
 	}
 
