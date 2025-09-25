@@ -294,19 +294,28 @@ func GetDeptHeadSubmission(c *gin.Context) {
 		return
 	}
 
+	// บังคับ content-type ให้แน่ใจว่าเป็น JSON
+	c.Header("Content-Type", "application/json; charset=utf-8")
+
 	submissionID, err := strconv.Atoi(c.Param("id"))
 	if err != nil || submissionID <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid submission ID"})
 		return
 	}
 
 	resp, err := deptHeadBuildResponseFunc(config.DB, submissionID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Submission not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to load submission"})
+		return
+	}
+
+	if resp == nil {
+		// กัน edge case ไม่ให้คืน body ว่าง
+		c.JSON(http.StatusOK, gin.H{"success": true, "submission": gin.H{}})
 		return
 	}
 
