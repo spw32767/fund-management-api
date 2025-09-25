@@ -39,7 +39,6 @@ func SetupRoutes(router *gin.Engine) {
 			RegisterFileRoutes(public)   // สำหรับ GET /files, DELETE /files/:name
 
 			public.GET("/years", controllers.GetActiveYears)
-			public.POST("/publication-summary", controllers.GeneratePublicationSummary)
 
 			// Authentication
 			public.POST("/login", controllers.Login)
