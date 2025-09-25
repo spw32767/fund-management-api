@@ -258,6 +258,7 @@ func SetupRoutes(router *gin.Engine) {
 				// List and view (teachers can see their own, admin can see all)
 				publications.GET("", controllers.GetPublicationRewards)
 				publications.GET("/:id", controllers.GetPublicationReward)
+				publications.POST("/preview", controllers.PreviewPublicationReward)
 
 				// Only teachers can create/update/delete
 				publications.POST("", middleware.RequireRole(1), controllers.CreatePublicationReward)
