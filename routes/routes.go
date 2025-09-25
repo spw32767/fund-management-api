@@ -156,19 +156,6 @@ func SetupRoutes(router *gin.Engine) {
 				staff.GET("/dashboard/stats", controllers.GetDashboardStats)
 			}
 
-			protected.GET("/submissions/:id/details", controllers.GetSubmissionDetailsShared)
-
-			deptHead := protected.Group("/dept-head")
-			deptHead.Use(middleware.RequireRole(4))
-			{
-				review := deptHead.Group("/review")
-				{
-					review.GET("/submissions", controllers.GetDeptHeadReviewSubmissions)
-					review.POST("/:id/decision", controllers.DeptHeadDecision)
-
-				}
-			}
-
 			// Fund Applications
 			applications := protected.Group("/applications")
 			{
@@ -191,6 +178,7 @@ func SetupRoutes(router *gin.Engine) {
 				// Basic CRUD
 				submissions.POST("", controllers.CreateSubmission)
 				submissions.GET("/:id", controllers.GetSubmission)
+				submissions.GET("/:id/details", controllers.GetSubmissionDetails)
 				submissions.PUT("/:id", controllers.UpdateSubmission)
 				submissions.DELETE("/:id", controllers.DeleteSubmission)
 
