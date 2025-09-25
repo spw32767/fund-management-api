@@ -203,6 +203,12 @@ func GetSubmission(c *gin.Context) {
 // CreateSubmission creates a new submission
 func CreateSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
+	roleID := 0
+	if roleVal, exists := c.Get("roleID"); exists {
+		if cast, ok := roleVal.(int); ok {
+			roleID = cast
+		}
+	}
 
 	type CreateSubmissionRequest struct {
 		SubmissionType      string `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward', ...
@@ -210,6 +216,7 @@ func CreateSubmission(c *gin.Context) {
 		CategoryID          *int   `json:"category_id"`           // <-- ใหม่
 		SubcategoryID       *int   `json:"subcategory_id"`        // <-- ใหม่
 		SubcategoryBudgetID *int   `json:"subcategory_budget_id"` // <-- ใหม่
+		StatusID            *int   `json:"status_id"`
 	}
 
 	var req CreateSubmissionRequest
@@ -239,6 +246,12 @@ func CreateSubmission(c *gin.Context) {
 		return
 	}
 
+	statusID, err := determineInitialStatusID(req.SubmissionType, req.StatusID, roleID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Create submission
 	now := time.Now()
 	submission := models.Submission{
@@ -246,7 +259,7 @@ func CreateSubmission(c *gin.Context) {
 		SubmissionNumber: generateSubmissionNumber(req.SubmissionType),
 		UserID:           userID.(int),
 		YearID:           req.YearID,
-		StatusID:         1,
+		StatusID:         statusID,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -273,6 +286,23 @@ func CreateSubmission(c *gin.Context) {
 		"message":    "Submission created successfully",
 		"submission": submission,
 	})
+}
+
+func determineInitialStatusID(submissionType string, requestedStatusID *int, roleID int) (int, error) {
+	if requestedStatusID != nil && roleID == 3 {
+		status, err := utils.GetApplicationStatusByID(*requestedStatusID)
+		if err != nil {
+			return 0, err
+		}
+		return status.ApplicationStatusID, nil
+	}
+
+	switch submissionType {
+	case "publication_reward":
+		return utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending)
+	default:
+		return utils.GetStatusIDByCode(utils.StatusCodePending)
+	}
 }
 
 // UpdateSubmission updates a submission (only if editable)
@@ -829,35 +859,21 @@ func AttachDocument(c *gin.Context) {
 // GetSubmissionDocuments returns documents attached to a submission
 func GetSubmissionDocuments(c *gin.Context) {
 	submissionID := c.Param("id")
-
-	userIDVal, _ := c.Get("userID")
-	roleIDVal, _ := c.Get("roleID")
-
-	userID, _ := userIDVal.(int)
-	roleID, _ := roleIDVal.(int)
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
 
 	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID != 3 && roleID != 4 { // Not admin or dept head
+	if roleID.(int) != 3 { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
 	if err := query.First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
-	}
-
-	if roleID != 3 && roleID != 4 && submission.UserID != userID {
-		var count int64
-		if err := config.DB.Model(&models.SubmissionUser{}).
-			Where("submission_id = ? AND user_id = ?", submission.SubmissionID, userID).
-			Count(&count).Error; err != nil || count == 0 {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
 	}
 
 	// Get documents
