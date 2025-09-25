@@ -151,6 +151,36 @@ type SubmissionDocument struct {
 	Verifier     *User        `gorm:"foreignKey:VerifiedBy" json:"verifier,omitempty"`
 }
 
+// SubmissionReview represents reviewer decisions for a submission (e.g. dept head review)
+type SubmissionReview struct {
+	ReviewID      int        `gorm:"primaryKey;column:review_id" json:"review_id"`
+	SubmissionID  int        `gorm:"column:submission_id" json:"submission_id"`
+	ReviewerID    int        `gorm:"column:reviewer_id" json:"reviewer_id"`
+	ReviewRound   int        `gorm:"column:review_round" json:"review_round"`
+	ReviewStatus  string     `gorm:"column:review_status" json:"review_status"`
+	Comments      *string    `gorm:"column:comments" json:"comments,omitempty"`
+	InternalNotes *string    `gorm:"column:internal_notes" json:"internal_notes,omitempty"`
+	ReviewedAt    *time.Time `gorm:"column:reviewed_at" json:"reviewed_at"`
+
+	// Relations
+	Reviewer *User `gorm:"foreignKey:ReviewerID" json:"reviewer,omitempty"`
+}
+
+// SubmissionStatusHistory captures status transitions for auditing purposes
+type SubmissionStatusHistory struct {
+	HistoryID    int       `gorm:"primaryKey;column:history_id" json:"history_id"`
+	SubmissionID int       `gorm:"column:submission_id" json:"submission_id"`
+	OldStatusID  *int      `gorm:"column:old_status_id" json:"old_status_id,omitempty"`
+	NewStatusID  int       `gorm:"column:new_status_id" json:"new_status_id"`
+	ChangedBy    int       `gorm:"column:changed_by" json:"changed_by"`
+	Reason       *string   `gorm:"column:reason" json:"reason,omitempty"`
+	Notes        *string   `gorm:"column:notes" json:"notes,omitempty"`
+	CreatedAt    time.Time `gorm:"column:created_at" json:"created_at"`
+
+	// Relations
+	ChangedByUser *User `gorm:"foreignKey:ChangedBy" json:"changed_by_user,omitempty"`
+}
+
 // SubmissionUser represents co-authors and collaborators in submissions
 type SubmissionUser struct {
 	ID           int       `gorm:"primaryKey;column:id" json:"id"`
@@ -189,13 +219,21 @@ func (SubmissionDocument) TableName() string {
 	return "submission_documents"
 }
 
+func (SubmissionReview) TableName() string {
+	return "submission_reviews"
+}
+
+func (SubmissionStatusHistory) TableName() string {
+	return "submission_status_history"
+}
+
 // Helper methods for Submission
 func (s *Submission) IsEditable() bool {
-	return s.SubmittedAt == nil
+	return s.StatusID == 1 && s.SubmittedAt == nil // Only draft status and not submitted
 }
 
 func (s *Submission) CanBeSubmitted() bool {
-	return s.SubmittedAt == nil
+	return s.StatusID == 1 && s.SubmittedAt == nil
 }
 
 func (s *Submission) IsSubmitted() bool {
