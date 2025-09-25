@@ -81,10 +81,21 @@ func GetDeptHeadSubmissions(c *gin.Context) {
 		limit = 100
 	}
 
-	statusParam := c.DefaultQuery("status", deptHeadStatusReviewing)
-	status, err := deptHeadFindStatusByCodeFunc(statusParam)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status"})
+	// ใช้ตัวเลขล้วน: ถ้าไม่ส่งมา ให้ default = 6 (อยู่ระหว่างการพิจารณาจากหัวหน้าสาขา)
+	statusID := 6
+	if v := strings.TrimSpace(c.Query("status_id")); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil || parsed <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status_id"})
+			return
+		}
+		statusID = parsed
+	}
+
+	// ตรวจว่ามี status_id นี้จริงในตาราง application_status
+	var status models.ApplicationStatus
+	if err := config.DB.First(&status, statusID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status_id"})
 		return
 	}
 
@@ -97,7 +108,7 @@ func GetDeptHeadSubmissions(c *gin.Context) {
 		Preload("Category").
 		Preload("Subcategory").
 		Where("deleted_at IS NULL").
-		Where("status_id = ?", status.ApplicationStatusID)
+		Where("status_id = ?", statusID)
 
 	if submissionType != "" {
 		query = query.Where("submission_type = ?", submissionType)
@@ -110,7 +121,8 @@ func GetDeptHeadSubmissions(c *gin.Context) {
 	}
 
 	var submissions []models.Submission
-	if err := query.Order("COALESCE(submitted_at, created_at) DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
+	if err := query.Order("COALESCE(submitted_at, created_at) DESC").
+		Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
