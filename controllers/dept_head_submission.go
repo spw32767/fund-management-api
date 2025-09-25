@@ -294,28 +294,55 @@ func GetDeptHeadSubmission(c *gin.Context) {
 		return
 	}
 
-	// บังคับ content-type ให้แน่ใจว่าเป็น JSON
-	c.Header("Content-Type", "application/json; charset=utf-8")
-
-	submissionID, err := strconv.Atoi(c.Param("id"))
-	if err != nil || submissionID <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid submission ID"})
+	param := strings.TrimSpace(c.Param("id"))
+	if param == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
 		return
 	}
 
-	resp, err := deptHeadBuildResponseFunc(config.DB, submissionID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Submission not found"})
+	// 1) พยายามตีความเป็นตัวเลขก่อน
+	var submissionID int
+	if v, err := strconv.Atoi(param); err == nil && v > 0 {
+		submissionID = v
+		// ลอง build response ด้วย submission_id
+		if resp, err := deptHeadBuildResponseFunc(config.DB, submissionID); err == nil {
+			resp["success"] = true
+			c.JSON(http.StatusOK, resp)
+			return
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to load submission"})
+	}
+
+	// 2) ถ้าไม่เจอหรือ param ไม่ใช่ตัวเลข ให้ลองหาโดย submission_number
+	db := config.DB
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not configured"})
 		return
 	}
 
-	if resp == nil {
-		// กัน edge case ไม่ให้คืน body ว่าง
-		c.JSON(http.StatusOK, gin.H{"success": true, "submission": gin.H{}})
+	var s models.Submission
+	if err := db.
+		Where("submission_number = ? AND deleted_at IS NULL", param).
+		Select("submission_id").
+		First(&s).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
+		return
+	}
+
+	// เจอจากเลขคำร้อง → สร้าง response แบบเดียวกัน
+	resp, err := deptHeadBuildResponseFunc(config.DB, int(s.SubmissionID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
 		return
 	}
 
