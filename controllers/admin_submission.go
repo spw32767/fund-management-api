@@ -4,6 +4,7 @@ package controllers
 import (
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,12 +20,6 @@ import (
 // GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
 func GetSubmissionDetails(c *gin.Context) {
 	submissionID := c.Param("id")
-
-	roleIDVal, _ := c.Get("roleID")
-	userIDVal, _ := c.Get("userID")
-
-	roleID, _ := roleIDVal.(int)
-	userID, _ := userIDVal.(int)
 
 	// Validate submissionID
 	if submissionID == "" {
@@ -48,19 +43,6 @@ func GetSubmissionDetails(c *gin.Context) {
 	if err := query.First(&submission, submissionID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
-	}
-
-	if roleID != 3 && roleID != 4 {
-		isOwner := submission.UserID == userID
-		if !isOwner {
-			var count int64
-			if err := config.DB.Model(&models.SubmissionUser{}).
-				Where("submission_id = ? AND user_id = ?", submission.SubmissionID, userID).
-				Count(&count).Error; err != nil || count == 0 {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-				return
-			}
-		}
 	}
 
 	// ดึง submission users (co-authors)
@@ -105,27 +87,12 @@ func GetSubmissionDetails(c *gin.Context) {
 
 	// เพิ่มรายละเอียดตาม submission type
 	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
-		detail := *submission.PublicationRewardDetail
-
 		if submission.StatusID != 2 {
-			detail.AnnounceReferenceNumber = ""
+			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
 		}
-
-		if roleID == 4 {
-			detail.RewardApproveAmount = 0
-			detail.RevisionFeeApproveAmount = 0
-			detail.PublicationFeeApproveAmount = 0
-			detail.TotalApproveAmount = 0
-			if detail.ApprovedAmount != nil {
-				zero := 0.0
-				detail.ApprovedAmount = &zero
-			}
-			detail.AnnounceReferenceNumber = ""
-		}
-
 		response["details"] = gin.H{
 			"type": "publication_reward",
-			"data": detail,
+			"data": submission.PublicationRewardDetail,
 		}
 	} else if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
 		if submission.StatusID != 2 {
@@ -311,10 +278,21 @@ func ApproveSubmission(c *gin.Context) {
 		return
 	}
 
-	// Validate status (1=pending, 4=revision requested)
-	if submission.StatusID != 1 && submission.StatusID != 4 {
+	allowedForApproval, err := utils.StatusMatchesCodes(
+		submission.StatusID,
+		utils.StatusCodePending,
+		utils.StatusCodeDraft,
+		utils.StatusCodeDeptHeadPending,
+		utils.StatusCodeDeptHeadRecommended,
+	)
+	if err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or revision-requested submissions can be approved"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
+		return
+	}
+	if !allowedForApproval {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only submissions awaiting review can be approved"})
 		return
 	}
 
@@ -440,10 +418,22 @@ func RejectSubmission(c *gin.Context) {
 		return
 	}
 
-	// Only pending (1) or revision-requested (4) can be rejected
-	if submission.StatusID != 1 && submission.StatusID != 4 {
+	allowedForRejection, err := utils.StatusMatchesCodes(
+		submission.StatusID,
+		utils.StatusCodePending,
+		utils.StatusCodeDraft,
+		utils.StatusCodeDeptHeadPending,
+		utils.StatusCodeDeptHeadRecommended,
+		utils.StatusCodeDeptHeadNotRecommended,
+	)
+	if err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending or revision-requested submissions can be rejected"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
+		return
+	}
+	if !allowedForRejection {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only submissions awaiting review can be rejected"})
 		return
 	}
 
