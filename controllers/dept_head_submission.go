@@ -294,40 +294,64 @@ func GetDeptHeadSubmission(c *gin.Context) {
 		return
 	}
 
-	param := strings.TrimSpace(c.Param("id"))
-	if param == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+	raw := strings.TrimSpace(c.Param("id"))
+	if raw == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission id"})
 		return
 	}
 
-	// 1) พยายามตีความเป็นตัวเลขก่อน
-	var submissionID int
-	if v, err := strconv.Atoi(param); err == nil && v > 0 {
-		submissionID = v
-		// ลอง build response ด้วย submission_id
-		if resp, err := deptHeadBuildResponseFunc(config.DB, submissionID); err == nil {
-			resp["success"] = true
-			c.JSON(http.StatusOK, resp)
-			return
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
-			return
-		}
-	}
+	// 1) พยายามตีความเป็นตัวเลข submission_id ก่อน
+	var submission *models.Submission
+	var err error
 
-	// 2) ถ้าไม่เจอหรือ param ไม่ใช่ตัวเลข ให้ลองหาโดย submission_number
 	db := config.DB
 	if db == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not configured"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB not initialized"})
 		return
 	}
 
-	var s models.Submission
-	if err := db.
-		Where("submission_number = ? AND deleted_at IS NULL", param).
-		Select("submission_id").
-		First(&s).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// helper: โหลดพร้อม preload ความสัมพันธ์ที่หน้า details ต้องใช้
+	loadWithPreload := func(q *gorm.DB) (*models.Submission, error) {
+		var s models.Submission
+		q = q.
+			Preload("User").
+			Preload("Category").
+			Preload("Subcategory").
+			Preload("PublicationRewardDetail").
+			Preload("FundApplicationDetail").
+			Preload("Documents").
+			Preload("Reviews").
+			Preload("StatusHistory")
+		if err := q.First(&s).Error; err != nil {
+			return nil, err
+		}
+		return &s, nil
+	}
+
+	// try by numeric id
+	if id, convErr := strconv.Atoi(raw); convErr == nil && id > 0 {
+		if s, e := loadWithPreload(db.Model(&models.Submission{}).Where("submission_id = ?", id)); e == nil {
+			submission = s
+		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
+			err = e
+		}
+	}
+
+	// ถ้ายังไม่เจอ ลองหาโดย submission_number (= “เลขที่คำร้อง”)
+	if submission == nil && err == nil {
+		// ตัดช่องว่าง และลองทั้งแบบตรงตัวหรือ upper
+		if s, e := loadWithPreload(
+			db.Model(&models.Submission{}).
+				Where("submission_number = ? OR UPPER(submission_number) = UPPER(?)", raw, raw),
+		); e == nil {
+			submission = s
+		} else {
+			err = e
+		}
+	}
+
+	if submission == nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || err == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 			return
 		}
@@ -335,14 +359,14 @@ func GetDeptHeadSubmission(c *gin.Context) {
 		return
 	}
 
-	// เจอจากเลขคำร้อง → สร้าง response แบบเดียวกัน
-	resp, err := deptHeadBuildResponseFunc(config.DB, int(s.SubmissionID))
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
+	// สร้าง response ให้คล้าย admin details
+	resp, buildErr := deptHeadBuildResponseFunc(db, int(submission.SubmissionID))
+	if buildErr != nil {
+		// fallback: อย่างน้อยส่ง submission กลับไปก่อน
+		c.JSON(http.StatusOK, gin.H{
+			"submission": submission,
+			"success":    true,
+		})
 		return
 	}
 
@@ -538,17 +562,6 @@ func DeptHeadApproveSubmission(c *gin.Context) {
 	}
 	comment := strings.TrimSpace(req.Comment)
 
-	reviewingStatus, err := deptHeadFindStatusByCodeFunc(deptHeadStatusReviewing)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Reviewing status not configured"})
-		return
-	}
-	approvedStatus, err := deptHeadFindStatusByCodeFunc(deptHeadStatusApproved)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Approved status not configured"})
-		return
-	}
-
 	reviewerID := c.GetInt("userID")
 
 	tx := deptHeadBeginTxFunc()
@@ -564,10 +577,11 @@ func DeptHeadApproveSubmission(c *gin.Context) {
 		}
 	}()
 
-	submission, err := deptHeadLoadSubmissionFunc(tx, submissionID)
-	if err != nil {
+	// โหลดคำร้อง
+	submission, loadErr := deptHeadLoadSubmissionFunc(tx, submissionID)
+	if loadErr != nil {
 		rollback()
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(loadErr, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 			return
 		}
@@ -575,13 +589,12 @@ func DeptHeadApproveSubmission(c *gin.Context) {
 		return
 	}
 
-	if submission.StatusID != reviewingStatus.ApplicationStatusID {
-		rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not awaiting dept head review"})
-		return
-	}
+	// ✅ ตามที่ผู้ใช้ขอ: อนุมัติแล้วสถานะต้องเป็น 1 = "อยู่ระหว่างการพิจารณา" (เพื่อส่งต่อให้แอดมิน)
+	const NEXT_STATUS_AFTER_DEPT_APPROVE = 1
 
-	if err := deptHeadRecordDecisionFunc(tx, submission, approvedStatus.ApplicationStatusID, reviewerID, "approved", comment, c.ClientIP()); err != nil {
+	if err := deptHeadRecordDecisionFunc(
+		tx, submission, NEXT_STATUS_AFTER_DEPT_APPROVE, reviewerID, "approved", comment, c.ClientIP(),
+	); err != nil {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
 		return
@@ -592,14 +605,15 @@ func DeptHeadApproveSubmission(c *gin.Context) {
 		return
 	}
 
+	// แจ้งเตือนผู้ยื่น
 	deptHeadNotifyDecisionFunc(*submission, "approved", comment)
 
-	resp, err := deptHeadBuildResponseFunc(config.DB, submissionID)
-	if err != nil {
+	// ส่งกลับรายละเอียดล่าสุด
+	resp, buildErr := deptHeadBuildResponseFunc(config.DB, submissionID)
+	if buildErr != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Submission approved"})
 		return
 	}
-
 	resp["success"] = true
 	resp["message"] = "Submission approved"
 	c.JSON(http.StatusOK, resp)
@@ -624,17 +638,6 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 	comment := strings.TrimSpace(req.Comment)
 
-	reviewingStatus, err := deptHeadFindStatusByCodeFunc(deptHeadStatusReviewing)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Reviewing status not configured"})
-		return
-	}
-	rejectedStatus, err := deptHeadFindStatusByCodeFunc(deptHeadStatusRejected)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Rejected status not configured"})
-		return
-	}
-
 	reviewerID := c.GetInt("userID")
 
 	tx := deptHeadBeginTxFunc()
@@ -650,10 +653,10 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		}
 	}()
 
-	submission, err := deptHeadLoadSubmissionFunc(tx, submissionID)
-	if err != nil {
+	submission, loadErr := deptHeadLoadSubmissionFunc(tx, submissionID)
+	if loadErr != nil {
 		rollback()
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(loadErr, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 			return
 		}
@@ -661,13 +664,12 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
-	if submission.StatusID != reviewingStatus.ApplicationStatusID {
-		rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not awaiting dept head review"})
-		return
-	}
+	// ✅ ตามที่ผู้ใช้ขอ: ปฏิเสธแล้วสถานะต้องเป็น 8 = "ไม่เห็นควรพิจารณา"
+	const STATUS_REJECTED_BY_DEPTHEAD = 8
 
-	if err := deptHeadRecordDecisionFunc(tx, submission, rejectedStatus.ApplicationStatusID, reviewerID, "rejected", comment, c.ClientIP()); err != nil {
+	if err := deptHeadRecordDecisionFunc(
+		tx, submission, STATUS_REJECTED_BY_DEPTHEAD, reviewerID, "rejected", comment, c.ClientIP(),
+	); err != nil {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
 		return
@@ -680,12 +682,11 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 
 	deptHeadNotifyDecisionFunc(*submission, "rejected", comment)
 
-	resp, err := deptHeadBuildResponseFunc(config.DB, submissionID)
-	if err != nil {
+	resp, buildErr := deptHeadBuildResponseFunc(config.DB, submissionID)
+	if buildErr != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Submission rejected"})
 		return
 	}
-
 	resp["success"] = true
 	resp["message"] = "Submission rejected"
 	c.JSON(http.StatusOK, resp)
