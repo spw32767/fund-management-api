@@ -808,30 +808,14 @@ func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string
 		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
 	}
 
-	outputPDF := filepath.Join(tmpDir, "publication_reward_preview.pdf")
-	if _, err := os.Stat(outputPDF); errors.Is(err, os.ErrNotExist) {
-		globMatches, globErr := filepath.Glob(filepath.Join(tmpDir, "publication_reward_preview*.pdf"))
-		if globErr == nil {
-			for _, match := range globMatches {
-				if info, statErr := os.Stat(match); statErr == nil && !info.IsDir() {
-					outputPDF = match
-					break
-				}
+	outputPDF, err := waitForPreviewPDF(tmpDir, "publication_reward_preview")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if names, listErr := readPreviewDirectory(tmpDir); listErr == nil {
+				return nil, fmt.Errorf("failed to read generated pdf: %w (dir contents: %s)", err, strings.Join(names, ", "))
 			}
 		}
-
-		if _, statErr := os.Stat(outputPDF); statErr != nil {
-			entries, readDirErr := os.ReadDir(tmpDir)
-			if readDirErr == nil {
-				names := make([]string, 0, len(entries))
-				for _, entry := range entries {
-					names = append(names, entry.Name())
-				}
-				return nil, fmt.Errorf("failed to read generated pdf: %w (dir contents: %s)", statErr, strings.Join(names, ", "))
-			}
-
-			return nil, fmt.Errorf("failed to read generated pdf: %w", statErr)
-		}
+		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
 	}
 
 	data, err := os.ReadFile(outputPDF)
@@ -840,6 +824,87 @@ func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string
 	}
 
 	return data, nil
+}
+
+const (
+	previewPDFWaitTimeout  = 10 * time.Second
+	previewPDFPollInterval = 200 * time.Millisecond
+)
+
+func waitForPreviewPDF(dir, baseName string) (string, error) {
+	deadline := time.Now().Add(previewPDFWaitTimeout)
+	var lastErr error
+
+	for {
+		path, err := locatePreviewPDF(dir, baseName)
+		if err == nil {
+			return path, nil
+		}
+
+		if errors.Is(err, os.ErrNotExist) {
+			lastErr = err
+		} else if err != nil {
+			return "", err
+		}
+
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return "", lastErr
+			}
+			return "", os.ErrNotExist
+		}
+
+		time.Sleep(previewPDFPollInterval)
+	}
+}
+
+func locatePreviewPDF(dir, baseName string) (string, error) {
+	primary := filepath.Join(dir, baseName+".pdf")
+	if info, err := os.Stat(primary); err == nil {
+		if info.IsDir() {
+			return "", fmt.Errorf("generated pdf path is a directory: %s", primary)
+		}
+		return primary, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	pattern := filepath.Join(dir, baseName+"*.pdf")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return "", err
+	}
+
+	for _, match := range matches {
+		info, statErr := os.Stat(match)
+		if statErr == nil {
+			if info.IsDir() {
+				continue
+			}
+			return match, nil
+		}
+
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return "", statErr
+		}
+	}
+
+	return "", os.ErrNotExist
+}
+
+func readPreviewDirectory(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+
+	return names, nil
 }
 
 func lookupLibreOfficeBinary() (string, error) {
