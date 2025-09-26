@@ -93,8 +93,8 @@ type PublicationRewardPreviewExternal struct {
 
 // PreviewPublicationReward generates a Publication Reward preview PDF from a DOCX template.
 func PreviewPublicationReward(c *gin.Context) {
-	contentType := c.GetHeader("Content-Type")
-	if strings.HasPrefix(contentType, "multipart/form-data") {
+	contentType := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Type")))
+	if strings.Contains(contentType, "multipart/form-data") {
 		handlePublicationRewardPreviewForm(c)
 		return
 	}
