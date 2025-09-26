@@ -16,9 +16,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -854,6 +856,7 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
 			content := string(data)
+			content = normalizeDocxPlaceholders(content, replacements)
 			for placeholder, value := range replacements {
 				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
 			}
@@ -906,6 +909,63 @@ var xmlReplacer = strings.NewReplacer(
 
 func xmlEscape(value string) string {
 	return xmlReplacer.Replace(value)
+}
+
+var (
+	placeholderRegexCache sync.Map
+	proofErrTagPattern    = regexp.MustCompile(`<w:proofErr[^>]*/>`)
+)
+
+func normalizeDocxPlaceholders(content string, replacements map[string]string) string {
+	if len(replacements) == 0 {
+		return content
+	}
+
+	content = proofErrTagPattern.ReplaceAllString(content, "")
+
+	keys := make([]string, 0, len(replacements))
+	for placeholder := range replacements {
+		keys = append(keys, placeholder)
+	}
+	sort.Strings(keys)
+
+	for _, placeholder := range keys {
+		re := placeholderRegexFor(placeholder)
+		content = re.ReplaceAllString(content, placeholder)
+	}
+
+	return content
+}
+
+func placeholderRegexFor(placeholder string) *regexp.Regexp {
+	if cached, ok := placeholderRegexCache.Load(placeholder); ok {
+		return cached.(*regexp.Regexp)
+	}
+
+	key := strings.TrimSpace(placeholder)
+	if len(key) < 4 {
+		re := regexp.MustCompile(regexp.QuoteMeta(placeholder))
+		placeholderRegexCache.Store(placeholder, re)
+		return re
+	}
+
+	inner := strings.TrimPrefix(key, "{{")
+	inner = strings.TrimSuffix(inner, "}}")
+
+	var builder strings.Builder
+	gap := `(?:\s|<[^>]+>)*`
+
+	builder.WriteString(`\{\{`)
+	builder.WriteString(gap)
+	for _, r := range inner {
+		builder.WriteString(regexp.QuoteMeta(string(r)))
+		builder.WriteString(gap)
+	}
+	builder.WriteString(`\}\}`)
+
+	re := regexp.MustCompile(builder.String())
+	placeholderRegexCache.Store(placeholder, re)
+	return re
 }
 
 func formatThaiYear(t time.Time) string {
