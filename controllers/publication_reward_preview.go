@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"fund-management-api/config"
@@ -92,36 +91,6 @@ type PublicationRewardPreviewAttachment struct {
 type PublicationRewardPreviewExternal struct {
 	FundName string `json:"fund_name"`
 	Amount   string `json:"amount"`
-}
-
-// convertDocxToPDF runs LibreOffice headless and ensures we get a PDF path or an error with details.
-func convertDocxToPDF(loBinary, docxPath, outDir string) (string, error) {
-	cmd := exec.Command(loBinary,
-		"--headless",
-		"--nologo",
-		"--nodefault",
-		"--nolockcheck",
-		"--norestore",
-		"--convert-to", "pdf",
-		"--outdir", outDir,
-		docxPath,
-	)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("libreoffice failed: %v; stderr: %s", err, strings.TrimSpace(stderr.String()))
-	}
-
-	// Expect same basename but .pdf in outDir
-	base := strings.TrimSuffix(filepath.Base(docxPath), filepath.Ext(docxPath)) + ".pdf"
-	pdfPath := filepath.Join(outDir, base)
-	if _, err := os.Stat(pdfPath); err != nil {
-		return "", fmt.Errorf("pdf not created: %v; stdout: %s; stderr: %s",
-			err, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
-	}
-	return pdfPath, nil
 }
 
 // PreviewPublicationReward generates a Publication Reward preview PDF from a DOCX template.
@@ -809,124 +778,43 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
-// --- helper: replace inside <w:t> and keep styles; supports \n as <w:br/> ---
-func replacePlaceholdersInWText(xmlBytes []byte, repl map[string]string) []byte {
-	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
-	var out bytes.Buffer
-	enc := xml.NewEncoder(&out)
-
-	inWText := false
-
-	// Small helper: write <w:br/>
-	writeBr := func() {
-		_ = enc.EncodeToken(xml.StartElement{Name: xml.Name{Space: "w", Local: "br"}})
-		_ = enc.EncodeToken(xml.EndElement{Name: xml.Name{Space: "w", Local: "br"}})
-	}
-
-	for {
-		tok, err := dec.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			// If we can’t parse, don’t risk corrupting the part
-			return xmlBytes
-		}
-
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
-				inWText = true
-			}
-			if err := enc.EncodeToken(t); err != nil {
-				return xmlBytes
-			}
-		case xml.EndElement:
-			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
-				inWText = false
-			}
-			if err := enc.EncodeToken(t); err != nil {
-				return xmlBytes
-			}
-		case xml.CharData:
-			if !inWText {
-				if err := enc.EncodeToken(t); err != nil {
-					return xmlBytes
-				}
-				continue
-			}
-			// Only text inside <w:t>
-			s := string(t)
-			// exact placeholder replacements
-			for ph, v := range repl {
-				if strings.Contains(s, ph) {
-					s = strings.ReplaceAll(s, ph, v)
-				}
-			}
-			// Handle explicit newlines as <w:br/> (Word-friendly)
-			if strings.Contains(s, "\n") {
-				lines := strings.Split(s, "\n")
-				// Write first line as text
-				if err := enc.EncodeToken(xml.CharData([]byte(lines[0]))); err != nil {
-					return xmlBytes
-				}
-				// For each subsequent line: <w:br/><w:t>line</w:t> is not allowed here,
-				// but inside the same <w:t> we can insert <w:br/> tokens between text nodes.
-				for i := 1; i < len(lines); i++ {
-					writeBr()
-					if err := enc.EncodeToken(xml.CharData([]byte(lines[i]))); err != nil {
-						return xmlBytes
-					}
-				}
-				continue
-			}
-			if err := enc.EncodeToken(xml.CharData([]byte(s))); err != nil {
-				return xmlBytes
-			}
-		default:
-			if err := enc.EncodeToken(t); err != nil {
-				return xmlBytes
-			}
-		}
-	}
-	if err := enc.Flush(); err != nil {
-		return xmlBytes
-	}
-	return out.Bytes()
-}
-
 func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
+	templatePath := filepath.Join("templates", "publication_reward_template.docx")
+	if _, err := os.Stat(templatePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("template file not found")
+		}
+		return nil, fmt.Errorf("failed to access template: %w", err)
+	}
+
 	tmpDir, err := os.MkdirTemp("", "publication-preview-")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %v", err)
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	docxPath := filepath.Join(tmpDir, "publication_reward_preview.docx")
-
-	// Write DOCX with replacements
-	if err := fillDocxTemplate("templates/publication_reward_template.docx", docxPath, replacements); err != nil {
-		return nil, fmt.Errorf("failed to fill template: %v", err)
+	outputDocx := filepath.Join(tmpDir, "publication_reward_preview.docx")
+	if err := fillDocxTemplate(templatePath, outputDocx, replacements); err != nil {
+		return nil, err
 	}
 
-	// Which binary to use (allow override via env LIBREOFFICE)
-	lo := os.Getenv("LIBREOFFICE")
-	if lo == "" {
-		lo = "soffice"
-	}
-
-	// Convert DOCX → PDF
-	pdfPath, err := convertDocxToPDF(lo, docxPath, tmpDir)
+	converter, err := lookupLibreOfficeBinary()
 	if err != nil {
-		return nil, fmt.Errorf("DOCX to PDF conversion failed: %v", err)
+		return nil, err
 	}
 
-	// Read back PDF bytes
-	pdfBytes, err := os.ReadFile(pdfPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read generated pdf: %v", err)
+	cmd := exec.Command(converter, "--headless", "--convert-to", "pdf", "--outdir", tmpDir, outputDocx)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
 	}
-	return pdfBytes, nil
+
+	outputPDF := filepath.Join(tmpDir, "publication_reward_preview.pdf")
+	data, err := os.ReadFile(outputPDF)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
+	}
+
+	return data, nil
 }
 
 func lookupLibreOfficeBinary() (string, error) {
@@ -937,199 +825,6 @@ func lookupLibreOfficeBinary() (string, error) {
 		return path, nil
 	}
 	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH")
-}
-
-// replacePlaceholdersRobust replaces {{...}} even when Word splits tokens across runs.
-// It merges the placeholder span into the first run (preserving its style) and clears the rest.
-func replacePlaceholdersRobust(xmlBytes []byte, repl map[string]string) []byte {
-	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
-	var out bytes.Buffer
-	enc := xml.NewEncoder(&out)
-
-	type runText struct {
-		startEl xml.StartElement // <w:t ...>
-		text    string           // text inside this w:t (raw)
-		endEl   xml.EndElement   // </w:t>
-		// We also keep any tokens between runs so we can re-emit them
-		preTokens  []xml.Token
-		postTokens []xml.Token
-	}
-
-	// We will buffer tokens so we can look back across adjacent <w:t> runs.
-	var bufTokens []xml.Token
-	flush := func() {
-		for _, tk := range bufTokens {
-			_ = enc.EncodeToken(tk)
-		}
-		bufTokens = bufTokens[:0]
-	}
-
-	// Helpers to know we’re in <w:t>
-	inWText := false
-
-	// Sliding window of recent runs to detect split placeholders
-	var runs []runText
-
-	// Regex for a full placeholder
-	phRe := regexp.MustCompile(`\{\{[a-zA-Z0-9_]+\}\}`)
-
-	// Emit runs back out (used after we maybe modify one)
-	emitRuns := func(rs []runText) {
-		for _, r := range rs {
-			// preTokens (usually </w:r> <w:r> etc.)
-			for _, tk := range r.preTokens {
-				_ = enc.EncodeToken(tk)
-			}
-			// <w:t>
-			_ = enc.EncodeToken(r.startEl)
-			// text
-			if r.text != "" {
-				_ = enc.EncodeToken(xml.CharData([]byte(r.text)))
-			}
-			// </w:t>
-			_ = enc.EncodeToken(r.endEl)
-			// postTokens
-			for _, tk := range r.postTokens {
-				_ = enc.EncodeToken(tk)
-			}
-		}
-	}
-
-	// Try to join consecutive runs’ text and replace placeholders across them.
-	tryReplaceAcrossRuns := func() bool {
-		if len(runs) == 0 {
-			return false
-		}
-		// Join all run texts
-		joined := ""
-		for _, r := range runs {
-			joined += r.text
-		}
-		// For each placeholder we know
-		changed := false
-		for ph, v := range repl {
-			if !strings.Contains(joined, ph) {
-				continue
-			}
-			changed = true
-			joined = strings.ReplaceAll(joined, ph, v)
-		}
-		if !changed {
-			return false
-		}
-		// If changed, we’ll put the entire joined text back into the FIRST run,
-		// and blank the others (to keep structure/styles of the first run).
-		runs[0].text = joined
-		for i := 1; i < len(runs); i++ {
-			runs[i].text = ""
-		}
-		return true
-	}
-
-	// Stream parse
-	for {
-		tok, err := dec.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			// On parse failure, fall back to original bytes
-			return xmlBytes
-		}
-
-		switch t := tok.(type) {
-		case xml.StartElement:
-			// Record tokens so we can rebuild if needed
-			if inWText {
-				// inside <w:t>, just pass through
-				bufTokens = append(bufTokens, t)
-				continue
-			}
-			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
-				inWText = true
-				// start a new run
-				runs = append(runs, runText{startEl: t})
-				continue
-			}
-			// if we’re between runs, we may be crossing run boundaries (</w:r><w:r> etc.)
-			// capture these boundary tokens so we can re-emit around runs later
-			if len(runs) > 0 && !inWText {
-				runs[len(runs)-1].postTokens = append(runs[len(runs)-1].postTokens, t)
-			} else {
-				bufTokens = append(bufTokens, t)
-			}
-
-		case xml.EndElement:
-			if inWText && t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
-				// close current run’s text
-				inWText = false
-				runs[len(runs)-1].endEl = t
-
-				// If the current run text contains a full placeholder already, we may replace now,
-				// but the real win is to consider multi-run spans below after we see what’s next.
-				// If the text itself contains any "{{" or "}}", we hold off until we see boundaries.
-
-				// Look-ahead logic: when we hit a boundary that is NOT part of adjacent w:t,
-				// or when the buffered boundary clearly ends a placeholder, we try replacement.
-				// Here we don’t know yet—so just continue and the next tokens decide.
-				continue
-			}
-
-			if len(runs) > 0 && !inWText {
-				// We’re between runs; record boundary token
-				runs[len(runs)-1].postTokens = append(runs[len(runs)-1].postTokens, t)
-
-				// Heuristic: if we are closing a paragraph or a run container, try replacement now.
-				name := t.Name.Local
-				if name == "r" || name == "p" || name == "tr" {
-					// Try replace across collected runs
-					_ = tryReplaceAcrossRuns()
-					// Emit everything so far
-					flush()
-					emitRuns(runs)
-					runs = runs[:0]
-				}
-			} else {
-				bufTokens = append(bufTokens, t)
-			}
-
-		case xml.CharData:
-			if inWText {
-				// accumulate text for the current run
-				txt := string([]byte(t))
-				// We only replace single-run placeholders here if present and not cross-run
-				// (multi-run case handled by tryReplaceAcrossRuns).
-				if phRe.MatchString(txt) {
-					for ph, v := range repl {
-						txt = strings.ReplaceAll(txt, ph, v)
-					}
-				}
-				runs[len(runs)-1].text += txt
-			} else {
-				bufTokens = append(bufTokens, t)
-			}
-
-		default:
-			if len(runs) > 0 && !inWText {
-				runs[len(runs)-1].postTokens = append(runs[len(runs)-1].postTokens, t)
-			} else {
-				bufTokens = append(bufTokens, t)
-			}
-		}
-	}
-
-	// Final flush: replace across any leftover runs and emit
-	if len(runs) > 0 {
-		_ = tryReplaceAcrossRuns()
-		flush()
-		emitRuns(runs)
-		runs = runs[:0]
-	} else {
-		flush()
-	}
-
-	_ = enc.Flush()
-	return out.Bytes()
 }
 
 func fillDocxTemplate(templatePath, outputPath string, replacements map[string]string) error {
@@ -1159,9 +854,13 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 			return fmt.Errorf("failed to read template entry: %w", err)
 		}
 
-		// Only touch Wordprocessing XML parts; leave rels/[Content_Types].xml alone.
-		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") && strings.HasPrefix(file.Name, "word/") {
-			data = replacePlaceholdersRobust(data, replacements)
+		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
+			content := string(data)
+			content = normalizeDocxPlaceholders(content, replacements)
+			for placeholder, value := range replacements {
+				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
+			}
+			data = []byte(content)
 		}
 
 		header := file.FileHeader
