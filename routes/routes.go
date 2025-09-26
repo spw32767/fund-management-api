@@ -126,6 +126,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/system-config/current-year", controllers.GetSystemConfigCurrentYear)
 			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
 
+			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
 			// General submissions listing (all users)
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
 			protected.GET("/submissions/search", controllers.SearchSubmissions) // ค้นหา submissions
@@ -299,13 +300,6 @@ func SetupRoutes(router *gin.Engine) {
 				}
 			}
 
-			// Legacy/compatibility route for publication summary preview
-			publicationSummary := protected.Group("/publication-summary")
-			{
-				// POST /api/v1/publication-summary/preview (alias of publication reward preview)
-				publicationSummary.POST("/preview", controllers.PreviewPublicationReward)
-			}
-
 			rewardConfig := v1.Group("/reward-config")
 			rewardConfig.Use(middleware.AuthMiddleware())
 			{
@@ -469,11 +463,12 @@ func SetupRoutes(router *gin.Engine) {
 					systemConfig.GET("", controllers.GetSystemConfigAdmin)
 					systemConfig.PUT("", controllers.UpdateSystemConfigWindow)
 					systemConfig.PATCH("/announcements/:slot", controllers.UpdateSystemConfigAnnouncement)
+					systemConfig.GET("/dept-head/history", controllers.ListDeptHeadHistory)
+					systemConfig.POST("/dept-head/assign", controllers.AssignDeptHead)
 				}
 
 				submissionManagement := admin.Group("/submissions")
 				{
-
 					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
 
