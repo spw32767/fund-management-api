@@ -858,7 +858,20 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
 			for placeholder, value := range replacements {
-				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
+				formatted := formatDocxValue(value)
+				normalizedTarget := fmt.Sprintf("<w:t xml:space=\"preserve\">%s</w:t>", placeholder)
+				if strings.Contains(content, normalizedTarget) {
+					content = strings.ReplaceAll(content, normalizedTarget, formatted)
+					continue
+				}
+
+				legacyTarget := fmt.Sprintf("<w:t>%s</w:t>", placeholder)
+				if strings.Contains(content, legacyTarget) {
+					content = strings.ReplaceAll(content, legacyTarget, formatted)
+					continue
+				}
+
+				content = strings.ReplaceAll(content, placeholder, formatted)
 			}
 			data = []byte(content)
 		}
@@ -883,20 +896,26 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 }
 
 func formatDocxValue(value string) string {
-	if value == "" {
-		return ""
-	}
-
 	parts := strings.Split(value, "\n")
 	for i, part := range parts {
 		parts[i] = xmlEscape(part)
 	}
 
-	if len(parts) == 1 {
-		return parts[0]
+	var builder strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			builder.WriteString("<w:br/>")
+		}
+		builder.WriteString("<w:t xml:space=\"preserve\">")
+		builder.WriteString(part)
+		builder.WriteString("</w:t>")
 	}
 
-	return strings.Join(parts, "</w:t><w:br/><w:t xml:space=\"preserve\">")
+	if builder.Len() == 0 {
+		builder.WriteString("<w:t xml:space=\"preserve\"></w:t>")
+	}
+
+	return builder.String()
 }
 
 var xmlReplacer = strings.NewReplacer(
@@ -931,10 +950,75 @@ func normalizeDocxPlaceholders(content string, replacements map[string]string) s
 
 	for _, placeholder := range keys {
 		re := placeholderRegexFor(placeholder)
-		content = re.ReplaceAllString(content, placeholder)
+		content = re.ReplaceAllStringFunc(content, func(match string) string {
+			return collapsePlaceholderRun(match, placeholder)
+		})
 	}
 
 	return content
+}
+
+func collapsePlaceholderRun(match, placeholder string) string {
+	firstRunIdx := strings.Index(match, "<w:r")
+	if firstRunIdx == -1 {
+		return placeholder
+	}
+
+	prefix := match[:firstRunIdx]
+
+	runOpenEnd := strings.Index(match[firstRunIdx:], ">")
+	if runOpenEnd == -1 {
+		return placeholder
+	}
+	runOpenEnd += firstRunIdx
+	runOpen := match[firstRunIdx : runOpenEnd+1]
+
+	tIdx := strings.Index(match[runOpenEnd+1:], "<w:t")
+	if tIdx == -1 {
+		return prefix + runOpen + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
+	}
+	tIdx += runOpenEnd + 1
+
+	between := match[runOpenEnd+1 : tIdx]
+
+	tOpenEnd := strings.Index(match[tIdx:], ">")
+	if tOpenEnd == -1 {
+		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
+	}
+	tOpenEnd += tIdx
+
+	tClose := strings.Index(match[tOpenEnd+1:], "</w:t>")
+	if tClose == -1 {
+		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
+	}
+	tClose += tOpenEnd + 1
+
+	rClose := strings.Index(match[tClose+len("</w:t>"):], "</w:r>")
+	if rClose == -1 {
+		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
+	}
+	rClose += tClose + len("</w:t>")
+
+	runInnerSuffix := match[tClose+len("</w:t>") : rClose]
+	runClose := match[rClose : rClose+len("</w:r>")]
+
+	trailing := match[rClose+len("</w:r>"):]
+	if strings.TrimSpace(trailing) != "" {
+		trailing = ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString(prefix)
+	builder.WriteString(runOpen)
+	builder.WriteString(between)
+	builder.WriteString(`<w:t xml:space="preserve">`)
+	builder.WriteString(placeholder)
+	builder.WriteString(`</w:t>`)
+	builder.WriteString(runInnerSuffix)
+	builder.WriteString(runClose)
+	builder.WriteString(trailing)
+
+	return builder.String()
 }
 
 func placeholderRegexFor(placeholder string) *regexp.Regexp {
