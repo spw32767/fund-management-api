@@ -23,7 +23,7 @@ const deployToken = "secret-deploy" // <- set your own strong value
 const (
 	repoDir     = "/root/fundproject/fund-management-api"
 	buildDir    = "/root/fundproject/fund-management-api/cmd/api"
-	outputBin   = "/root/fundproject/fund-api"
+	outputBin   = "/root/fundproject/fund-management-api/fund-api"
 	serviceName = "fund-api"
 
 	gitBin       = "/usr/bin/git"
