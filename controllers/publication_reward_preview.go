@@ -94,6 +94,36 @@ type PublicationRewardPreviewExternal struct {
 	Amount   string `json:"amount"`
 }
 
+// convertDocxToPDF runs LibreOffice headless and ensures we get a PDF path or an error with details.
+func convertDocxToPDF(loBinary, docxPath, outDir string) (string, error) {
+	cmd := exec.Command(loBinary,
+		"--headless",
+		"--nologo",
+		"--nodefault",
+		"--nolockcheck",
+		"--norestore",
+		"--convert-to", "pdf",
+		"--outdir", outDir,
+		docxPath,
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("libreoffice failed: %v; stderr: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	// Expect same basename but .pdf in outDir
+	base := strings.TrimSuffix(filepath.Base(docxPath), filepath.Ext(docxPath)) + ".pdf"
+	pdfPath := filepath.Join(outDir, base)
+	if _, err := os.Stat(pdfPath); err != nil {
+		return "", fmt.Errorf("pdf not created: %v; stdout: %s; stderr: %s",
+			err, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
+	}
+	return pdfPath, nil
+}
+
 // PreviewPublicationReward generates a Publication Reward preview PDF from a DOCX template.
 func PreviewPublicationReward(c *gin.Context) {
 	contentType := c.GetHeader("Content-Type")
@@ -779,14 +809,19 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
-// replacePlaceholdersInWText preserves styles by replacing inside <w:t> nodes only.
-func replacePlaceholdersInWText(xmlBytes []byte, replacements map[string]string) []byte {
+// --- helper: replace inside <w:t> and keep styles; supports \n as <w:br/> ---
+func replacePlaceholdersInWText(xmlBytes []byte, repl map[string]string) []byte {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
 	var out bytes.Buffer
 	enc := xml.NewEncoder(&out)
-	enc.Indent("", "")
 
 	inWText := false
+
+	// Small helper: write <w:br/>
+	writeBr := func() {
+		_ = enc.EncodeToken(xml.StartElement{Name: xml.Name{Space: "w", Local: "br"}})
+		_ = enc.EncodeToken(xml.EndElement{Name: xml.Name{Space: "w", Local: "br"}})
+	}
 
 	for {
 		tok, err := dec.Token()
@@ -794,7 +829,8 @@ func replacePlaceholdersInWText(xmlBytes []byte, replacements map[string]string)
 			break
 		}
 		if err != nil {
-			return xmlBytes // fallback if parse fails
+			// If we can’t parse, don’t risk corrupting the part
+			return xmlBytes
 		}
 
 		switch t := tok.(type) {
@@ -802,67 +838,95 @@ func replacePlaceholdersInWText(xmlBytes []byte, replacements map[string]string)
 			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
 				inWText = true
 			}
-			enc.EncodeToken(t)
+			if err := enc.EncodeToken(t); err != nil {
+				return xmlBytes
+			}
 		case xml.EndElement:
 			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
 				inWText = false
 			}
-			enc.EncodeToken(t)
+			if err := enc.EncodeToken(t); err != nil {
+				return xmlBytes
+			}
 		case xml.CharData:
-			if inWText {
-				s := string(t)
-				for ph, v := range replacements {
+			if !inWText {
+				if err := enc.EncodeToken(t); err != nil {
+					return xmlBytes
+				}
+				continue
+			}
+			// Only text inside <w:t>
+			s := string(t)
+			// exact placeholder replacements
+			for ph, v := range repl {
+				if strings.Contains(s, ph) {
 					s = strings.ReplaceAll(s, ph, v)
 				}
-				enc.EncodeToken(xml.CharData([]byte(s)))
-			} else {
-				enc.EncodeToken(t)
+			}
+			// Handle explicit newlines as <w:br/> (Word-friendly)
+			if strings.Contains(s, "\n") {
+				lines := strings.Split(s, "\n")
+				// Write first line as text
+				if err := enc.EncodeToken(xml.CharData([]byte(lines[0]))); err != nil {
+					return xmlBytes
+				}
+				// For each subsequent line: <w:br/><w:t>line</w:t> is not allowed here,
+				// but inside the same <w:t> we can insert <w:br/> tokens between text nodes.
+				for i := 1; i < len(lines); i++ {
+					writeBr()
+					if err := enc.EncodeToken(xml.CharData([]byte(lines[i]))); err != nil {
+						return xmlBytes
+					}
+				}
+				continue
+			}
+			if err := enc.EncodeToken(xml.CharData([]byte(s))); err != nil {
+				return xmlBytes
 			}
 		default:
-			enc.EncodeToken(t)
+			if err := enc.EncodeToken(t); err != nil {
+				return xmlBytes
+			}
 		}
 	}
-	enc.Flush()
+	if err := enc.Flush(); err != nil {
+		return xmlBytes
+	}
 	return out.Bytes()
 }
 
 func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
-	templatePath := filepath.Join("templates", "publication_reward_template.docx")
-	if _, err := os.Stat(templatePath); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("template file not found")
-		}
-		return nil, fmt.Errorf("failed to access template: %w", err)
-	}
-
 	tmpDir, err := os.MkdirTemp("", "publication-preview-")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+		return nil, fmt.Errorf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	outputDocx := filepath.Join(tmpDir, "publication_reward_preview.docx")
-	if err := fillDocxTemplate(templatePath, outputDocx, replacements); err != nil {
-		return nil, err
+	docxPath := filepath.Join(tmpDir, "publication_reward_preview.docx")
+
+	// Write DOCX with replacements
+	if err := fillDocxTemplate("templates/publication_reward_template.docx", docxPath, replacements); err != nil {
+		return nil, fmt.Errorf("failed to fill template: %v", err)
 	}
 
-	converter, err := lookupLibreOfficeBinary()
+	// Which binary to use (allow override via env LIBREOFFICE)
+	lo := os.Getenv("LIBREOFFICE")
+	if lo == "" {
+		lo = "soffice"
+	}
+
+	// Convert DOCX → PDF
+	pdfPath, err := convertDocxToPDF(lo, docxPath, tmpDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("DOCX to PDF conversion failed: %v", err)
 	}
 
-	cmd := exec.Command(converter, "--headless", "--convert-to", "pdf", "--outdir", tmpDir, outputDocx)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
-	}
-
-	outputPDF := filepath.Join(tmpDir, "publication_reward_preview.pdf")
-	data, err := os.ReadFile(outputPDF)
+	// Read back PDF bytes
+	pdfBytes, err := os.ReadFile(pdfPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
+		return nil, fmt.Errorf("failed to read generated pdf: %v", err)
 	}
-
-	return data, nil
+	return pdfBytes, nil
 }
 
 func lookupLibreOfficeBinary() (string, error) {
@@ -902,8 +966,8 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 			return fmt.Errorf("failed to read template entry: %w", err)
 		}
 
-		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
-			// Preserve run styling by only touching <w:t> text nodes
+		// Only process Word document parts; leave other XMLs untouched
+		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") && strings.HasPrefix(file.Name, "word/") {
 			data = replacePlaceholdersInWText(data, replacements)
 		}
 
