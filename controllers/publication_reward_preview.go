@@ -809,6 +809,31 @@ func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string
 	}
 
 	outputPDF := filepath.Join(tmpDir, "publication_reward_preview.pdf")
+	if _, err := os.Stat(outputPDF); errors.Is(err, os.ErrNotExist) {
+		globMatches, globErr := filepath.Glob(filepath.Join(tmpDir, "publication_reward_preview*.pdf"))
+		if globErr == nil {
+			for _, match := range globMatches {
+				if info, statErr := os.Stat(match); statErr == nil && !info.IsDir() {
+					outputPDF = match
+					break
+				}
+			}
+		}
+
+		if _, statErr := os.Stat(outputPDF); statErr != nil {
+			entries, readDirErr := os.ReadDir(tmpDir)
+			if readDirErr == nil {
+				names := make([]string, 0, len(entries))
+				for _, entry := range entries {
+					names = append(names, entry.Name())
+				}
+				return nil, fmt.Errorf("failed to read generated pdf: %w (dir contents: %s)", statErr, strings.Join(names, ", "))
+			}
+
+			return nil, fmt.Errorf("failed to read generated pdf: %w", statErr)
+		}
+	}
+
 	data, err := os.ReadFile(outputPDF)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
