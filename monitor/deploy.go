@@ -130,6 +130,16 @@ document.getElementById('btnDeploy').onclick = async ()=>{
   try{
     await streamPost('/deploy/run?token=' + token);
     append("\\nDone.");
+    setTimeout(async () => {
+      append("\nChecking service status...");
+      try {
+        const res = await fetch('/deploy/diag?token=' + token);
+        const txt = await res.text();
+        append("\n" + txt);
+      } catch (e) {
+        append("\nStatus check error: " + e.message);
+      }
+    }, 3000);
   }catch(e){
     append("\\nERROR: " + e.message);
   }
@@ -287,7 +297,7 @@ func deployRun(c *gin.Context) {
 
 	write("== Deploy via login shell ==")
 
-	// Use a login shell + set Go envs so it behaves exactly like your terminal session.
+	// Run git pull + build in one go (same as your terminal), but DO NOT restart inline.
 	cmd := exec.Command("/bin/bash", "-lc", `
 set -e
 
@@ -300,22 +310,37 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/l
 
 mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
 
-# --- Steps ---
+# --- Steps (git pull + build) ---
 cd /root/fundproject/fund-management-api
 `+gitBin+` pull
 cd cmd/api
 `+goBin+` build -o `+outputBin+`
-`+sudoBin+` -n `+systemctlBin+` restart `+serviceName+` || `+systemctlBin+` restart `+serviceName+`
-`)
 
+echo "Build completed."
+`)
 	if err := runCmdStreaming(cmd, write); err != nil {
 		write("ERROR: deploy failed: " + err.Error())
 		return
 	}
 
-	// Show status after restart
-	write("\n== Status after restart ==")
-	_ = runAndStream(write, "", systemctlBin, "is-active", serviceName)
+	// Schedule restart in the background so this HTTP request can complete cleanly.
+	// This avoids killing the streaming connection (which caused your 'network error').
+	write("\nScheduling service restart in 1s...")
+	bg := exec.Command("/bin/bash", "-lc", `
+(sleep 1; `+sudoBin+` -n `+systemctlBin+` restart `+serviceName+` || `+systemctlBin+` restart `+serviceName+`) >/dev/null 2>&1 &
+echo "Restart scheduled."
+`)
+	if out, err := bg.CombinedOutput(); err != nil {
+		write("WARN: failed to schedule restart: " + err.Error())
+		if len(out) > 0 {
+			write(strings.TrimSpace(string(out)))
+		}
+	} else if len(out) > 0 {
+		write(strings.TrimSpace(string(out)))
+	}
+
+	write("\nNOTE: The service will restart shortly; this page will remain connected.")
+	write("You can run /deploy/diag after a few seconds to confirm status.")
 }
 
 // ---------- helpers ----------
