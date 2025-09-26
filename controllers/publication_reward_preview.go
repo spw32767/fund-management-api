@@ -93,21 +93,9 @@ type PublicationRewardPreviewExternal struct {
 
 // PreviewPublicationReward generates a Publication Reward preview PDF from a DOCX template.
 func PreviewPublicationReward(c *gin.Context) {
-	contentType := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Type")))
-	if strings.Contains(contentType, "multipart/form-data") {
-		if form, err := tryParsePublicationPreviewForm(c); err == nil && form != nil {
-			defer form.RemoveAll()
-			handlePublicationRewardPreviewForm(c, form)
-			return
-		}
-	}
-
-	if form, err := tryParsePublicationPreviewForm(c); err == nil && form != nil {
-		defer form.RemoveAll()
-		handlePublicationRewardPreviewForm(c, form)
-		return
-	} else if err != nil && !errors.Is(err, http.ErrNotMultipart) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form data"})
+	contentType := c.GetHeader("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		handlePublicationRewardPreviewForm(c)
 		return
 	}
 
@@ -196,12 +184,14 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfData)
 }
 
-func handlePublicationRewardPreviewForm(c *gin.Context, form *multipart.Form) {
-	if form == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing form data"})
+func handlePublicationRewardPreviewForm(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form data"})
 		return
 	}
+	defer c.Request.MultipartForm.RemoveAll()
 
+	form := c.Request.MultipartForm
 	rawPayload := form.Value["data"]
 	if len(rawPayload) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing form payload"})
@@ -245,22 +235,6 @@ func handlePublicationRewardPreviewForm(c *gin.Context, form *multipart.Form) {
 	c.Header("Content-Type", "application/pdf")
 	c.Header("Content-Disposition", "inline; filename=publication_reward_preview.pdf")
 	c.Data(http.StatusOK, "application/pdf", merged)
-}
-
-func tryParsePublicationPreviewForm(c *gin.Context) (*multipart.Form, error) {
-	if c.Request == nil {
-		return nil, http.ErrNotMultipart
-	}
-
-	if c.Request.MultipartForm != nil {
-		return c.Request.MultipartForm, nil
-	}
-
-	if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
-		return nil, err
-	}
-
-	return c.Request.MultipartForm, nil
 }
 
 func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader) (map[string]string, error) {
