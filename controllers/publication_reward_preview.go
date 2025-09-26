@@ -352,7 +352,7 @@ func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) 
 		return base, nil
 	}
 
-	tmpDir, err := os.MkdirTemp("", "publication-preview-merge-")
+	tmpDir, err := createPreviewTempDir("publication-preview-merge-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -787,7 +787,7 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 		return nil, fmt.Errorf("failed to access template: %w", err)
 	}
 
-	tmpDir, err := os.MkdirTemp("", "publication-preview-")
+	tmpDir, err := createPreviewTempDir("publication-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -825,6 +825,17 @@ func lookupLibreOfficeBinary() (string, error) {
 		return path, nil
 	}
 	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH")
+}
+
+func createPreviewTempDir(prefix string) (string, error) {
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		base := filepath.Join(home, "tmp")
+		if err := os.MkdirAll(base, 0700); err == nil {
+			return os.MkdirTemp(base, prefix)
+		}
+	}
+
+	return os.MkdirTemp("", prefix)
 }
 
 func fillDocxTemplate(templatePath, outputPath string, replacements map[string]string) error {
