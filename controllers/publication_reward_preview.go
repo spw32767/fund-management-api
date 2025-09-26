@@ -268,7 +268,12 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 		return nil, err
 	}
 
-	cmd := exec.Command("libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpDir, outputDocx)
+	converter, err := lookupLibreOfficeBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command(converter, "--headless", "--convert-to", "pdf", "--outdir", tmpDir, outputDocx)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
 	}
@@ -280,6 +285,16 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 	}
 
 	return data, nil
+}
+
+func lookupLibreOfficeBinary() (string, error) {
+	if path, err := exec.LookPath("soffice"); err == nil {
+		return path, nil
+	}
+	if path, err := exec.LookPath("libreoffice"); err == nil {
+		return path, nil
+	}
+	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH")
 }
 
 func fillDocxTemplate(templatePath, outputPath string, replacements map[string]string) error {
