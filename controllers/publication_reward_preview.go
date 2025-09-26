@@ -395,7 +395,7 @@ func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) 
 	}
 
 	outputPath := filepath.Join(tmpDir, "merged.pdf")
-	if err := mergePDFsWithNode(inputFiles, outputPath); err != nil {
+	if err := mergePDFs(inputFiles, outputPath); err != nil {
 		return nil, err
 	}
 
@@ -407,26 +407,9 @@ func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) 
 	return merged, nil
 }
 
-func mergePDFsWithNode(inputs []string, outputPath string) error {
+func mergePDFs(inputs []string, outputPath string) error {
 	if len(inputs) == 0 {
 		return fmt.Errorf("no pdf files provided for merging")
-	}
-
-	scriptPath := filepath.Join("scripts", "merge_pdf.js")
-	absScriptPath, err := filepath.Abs(scriptPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve merge script path: %w", err)
-	}
-	if _, err := os.Stat(absScriptPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("merge script not found at %s", absScriptPath)
-		}
-		return fmt.Errorf("failed to access merge script: %w", err)
-	}
-
-	nodeBinary, err := exec.LookPath("node")
-	if err != nil {
-		return fmt.Errorf("node binary not found: %w", err)
 	}
 
 	absOutput, err := filepath.Abs(outputPath)
@@ -443,7 +426,59 @@ func mergePDFsWithNode(inputs []string, outputPath string) error {
 		absInputs = append(absInputs, absInput)
 	}
 
-	args := append([]string{absScriptPath, absOutput}, absInputs...)
+	var attempts []string
+
+	if nodeBinary, err := resolveNodeBinary(); err == nil {
+		if err := mergePDFsWithNode(nodeBinary, absInputs, absOutput); err == nil {
+			return nil
+		} else {
+			attempts = append(attempts, fmt.Sprintf("node (%v)", err))
+		}
+	} else {
+		attempts = append(attempts, fmt.Sprintf("node (%v)", err))
+	}
+
+	if gsBinary, err := exec.LookPath("gs"); err == nil {
+		if err := mergePDFsWithGhostscript(gsBinary, absInputs, absOutput); err == nil {
+			return nil
+		} else {
+			attempts = append(attempts, fmt.Sprintf("gs (%v)", err))
+		}
+	} else {
+		attempts = append(attempts, fmt.Sprintf("gs (%v)", err))
+	}
+
+	if uniteBinary, err := exec.LookPath("pdfunite"); err == nil {
+		if err := mergePDFsWithPdfunite(uniteBinary, absInputs, absOutput); err == nil {
+			return nil
+		} else {
+			attempts = append(attempts, fmt.Sprintf("pdfunite (%v)", err))
+		}
+	} else {
+		attempts = append(attempts, fmt.Sprintf("pdfunite (%v)", err))
+	}
+
+	if len(attempts) == 0 {
+		return fmt.Errorf("failed to merge pdf files: no merge strategy available")
+	}
+
+	return fmt.Errorf("failed to merge pdf files: %s", strings.Join(attempts, "; "))
+}
+
+func mergePDFsWithNode(nodeBinary string, inputs []string, outputPath string) error {
+	scriptPath := filepath.Join("scripts", "merge_pdf.js")
+	absScriptPath, err := filepath.Abs(scriptPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve merge script path: %w", err)
+	}
+	if _, err := os.Stat(absScriptPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("merge script not found at %s", absScriptPath)
+		}
+		return fmt.Errorf("failed to access merge script: %w", err)
+	}
+
+	args := append([]string{absScriptPath, outputPath}, inputs...)
 
 	repoDir := filepath.Dir(filepath.Dir(absScriptPath))
 	nodeModulesPath := filepath.Join(repoDir, "..", "frontend_project_fund", "node_modules")
@@ -473,10 +508,94 @@ func mergePDFsWithNode(inputs []string, outputPath string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("failed to merge pdf files: %s", msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	return nil
+}
+
+func mergePDFsWithGhostscript(gsBinary string, inputs []string, outputPath string) error {
+	args := []string{"-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite", fmt.Sprintf("-sOutputFile=%s", outputPath)}
+	args = append(args, inputs...)
+
+	cmd := exec.Command(gsBinary, args...)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil
+}
+
+func mergePDFsWithPdfunite(uniteBinary string, inputs []string, outputPath string) error {
+	args := append([]string{}, inputs...)
+	args = append(args, outputPath)
+
+	cmd := exec.Command(uniteBinary, args...)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil
+}
+
+func resolveNodeBinary() (string, error) {
+	if override := strings.TrimSpace(os.Getenv("PUBLICATION_PREVIEW_NODE_BINARY")); override != "" {
+		if filepath.IsAbs(override) {
+			if _, err := os.Stat(override); err == nil {
+				return override, nil
+			} else {
+				return "", fmt.Errorf("configured node binary %s is not accessible: %w", override, err)
+			}
+		}
+		if resolved, err := exec.LookPath(override); err == nil {
+			return resolved, nil
+		}
+	}
+
+	candidates := []string{"node", "nodejs"}
+	var errs []string
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if resolved, err := exec.LookPath(candidate); err == nil {
+			return resolved, nil
+		} else {
+			errs = append(errs, fmt.Sprintf("%s: %v", candidate, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return "", fmt.Errorf("node binary not found: %s", strings.Join(errs, "; "))
+	}
+
+	return "", fmt.Errorf("node binary not found")
 }
 
 func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachments []*multipart.FileHeader) string {
