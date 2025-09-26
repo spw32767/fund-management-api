@@ -383,3 +383,80 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// UpdateSystemConfigAnnouncement อัปเดตประกาศทีละช่องด้วย slot param
+type setAnnouncementPayload struct {
+	AnnouncementID *int `json:"announcement_id"` // null = เคลียร์ค่า
+}
+
+func UpdateSystemConfigAnnouncement(c *gin.Context) {
+	// slot: main | reward | activity_support | conference | service
+	slot := c.Param("slot")
+
+	// map slot -> column ในตาราง system_config
+	colMap := map[string]string{
+		"main":             "main_annoucement", // สะกดตาม schema เดิม
+		"reward":           "reward_announcement",
+		"activity_support": "activity_support_announcement",
+		"conference":       "conference_announcement",
+		"service":          "service_announcement",
+	}
+	col, ok := colMap[slot]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid slot"})
+		return
+	}
+
+	var p setAnnouncementPayload
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid payload"})
+		return
+	}
+
+	// user_id (ถ้ามี auth middleware ใส่ไว้แล้ว)
+	var updatedBy *int
+	if v, ok := c.Get("user_id"); ok {
+		if id, ok2 := v.(int); ok2 {
+			updatedBy = &id
+		}
+	}
+
+	// หาแถวล่าสุด
+	var cfgID sql.NullInt64
+	if err := config.DB.Raw(`
+		SELECT config_id
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Row().Scan(&cfgID); err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
+		return
+	}
+
+	if !cfgID.Valid {
+		// ถ้ายังไม่มี row เลย ให้สร้างใหม่ พร้อมกำหนดคอลัมน์ที่ต้องการ
+		q := `
+			INSERT INTO system_config (` + col + `, last_updated, updated_by)
+			VALUES (?, NOW(), ?)
+		`
+		if err := config.DB.Exec(q, p.AnnouncementID, updatedBy).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+
+	// อัปเดตคอลัมน์ที่เลือกในแถวล่าสุด
+	q := `
+		UPDATE system_config
+		SET ` + col + ` = ?, last_updated = NOW(), updated_by = ?
+		WHERE config_id = ?
+	`
+	if err := config.DB.Exec(q, p.AnnouncementID, updatedBy, int(cfgID.Int64)).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

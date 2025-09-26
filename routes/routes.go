@@ -468,6 +468,7 @@ func SetupRoutes(router *gin.Engine) {
 				{
 					systemConfig.GET("", controllers.GetSystemConfigAdmin)
 					systemConfig.PUT("", controllers.UpdateSystemConfigWindow)
+					systemConfig.PATCH("/announcements/:slot", controllers.UpdateSystemConfigAnnouncement)
 				}
 
 				submissionManagement := admin.Group("/submissions")
