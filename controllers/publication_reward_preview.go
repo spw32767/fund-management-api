@@ -935,7 +935,20 @@ func createPreviewTempDir(c *gin.Context, prefix string) (string, error) {
 				return "", fmt.Errorf("failed to prepare user temp directory: %w", err)
 			}
 
-			return os.MkdirTemp(tempBase, prefix)
+			if pathIsASCII(tempBase) {
+				dir, err := os.MkdirTemp(tempBase, prefix)
+				if err != nil {
+					return "", fmt.Errorf("failed to create temp directory: %w", err)
+				}
+				return dir, nil
+			}
+
+			safeBase := filepath.Join(basePath, "temp_previews", fmt.Sprintf("user_%d", user.UserID))
+			if err := os.MkdirAll(safeBase, 0755); err == nil && pathIsASCII(safeBase) {
+				if dir, err := os.MkdirTemp(safeBase, prefix); err == nil {
+					return dir, nil
+				}
+			}
 		}
 	}
 
@@ -946,7 +959,24 @@ func createPreviewTempDir(c *gin.Context, prefix string) (string, error) {
 		}
 	}
 
+	if fallbackBase := filepath.Join(os.TempDir(), "fund-publication-preview"); fallbackBase != "" {
+		if err := os.MkdirAll(fallbackBase, 0700); err == nil {
+			if dir, err := os.MkdirTemp(fallbackBase, prefix); err == nil {
+				return dir, nil
+			}
+		}
+	}
+
 	return os.MkdirTemp("", prefix)
+}
+
+func pathIsASCII(value string) bool {
+	for _, r := range value {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveContextUser(c *gin.Context) *models.User {
