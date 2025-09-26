@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -107,18 +108,16 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// Resolve effective_from
 	effectiveFrom := time.Now().UTC()
 	if p.EffectiveFrom != nil && *p.EffectiveFrom != "" {
-		parsed, err := time.Parse(time.RFC3339, *p.EffectiveFrom)
+		t, err := time.Parse(time.RFC3339, *p.EffectiveFrom)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid effective_from (RFC3339)"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid effective_from"})
 			return
 		}
-		effectiveFrom = parsed.UTC()
+		effectiveFrom = t.UTC()
 	}
 
-	// Actor (changed_by)
 	var changedBy *int
 	if v, ok := c.Get("user_id"); ok {
 		if id, ok2 := v.(int); ok2 {
@@ -126,36 +125,78 @@ func AssignDeptHead(c *gin.Context) {
 		}
 	}
 
-	// Use a transaction to ensure atomicity
 	tx := config.DB.Begin()
 	if tx.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to begin tx"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "begin tx failed"})
 		return
 	}
 
-	// 1) Close current active (if any)
-	if err := tx.Exec(`
-		UPDATE dept_head_assignments
-		SET effective_to = ?
-		WHERE effective_to IS NULL
-	`, effectiveFrom).Error; err != nil {
+	// 1) ปิดหัวหน้าปัจจุบัน (ถ้ามี) + ลดบทบาทกลับ
+	// หา assignment ปัจจุบัน (effective_to IS NULL)
+	var cur struct {
+		HeadUserID    *int
+		RestoreRoleID *int
+	}
+	if err := tx.Raw(`
+        SELECT head_user_id, restore_role_id
+        FROM dept_head_assignments
+        WHERE effective_to IS NULL
+        ORDER BY assignment_id DESC
+        LIMIT 1
+    `).Row().Scan(&cur.HeadUserID, &cur.RestoreRoleID); err != nil && err != sql.ErrNoRows {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to close current"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "query current assignment failed"})
 		return
 	}
 
-	// 2) Insert new assignment (always a new row)
-	if err := tx.Exec(`
-		INSERT INTO dept_head_assignments (head_user_id, effective_from, effective_to, changed_by, changed_at, note)
-		VALUES (?, ?, NULL, ?, NOW(), ?)
-	`, p.HeadUserID, effectiveFrom, changedBy, p.Note).Error; err != nil {
+	if cur.HeadUserID != nil && cur.RestoreRoleID != nil {
+		// close assignment
+		if err := tx.Exec(`
+            UPDATE dept_head_assignments
+            SET effective_to = ?
+            WHERE effective_to IS NULL
+        `, effectiveFrom).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "close current assignment failed"})
+			return
+		}
+		// demote old head
+		if err := tx.Exec(`
+            UPDATE users SET role_id = ? WHERE user_id = ?
+        `, *cur.RestoreRoleID, *cur.HeadUserID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "demote current head failed"})
+			return
+		}
+	}
+
+	// 2) โปรโมตหัวหน้าคนใหม่ (อ่าน role เดิมเพื่อเก็บลง restore_role_id)
+	var prevRoleID int
+	if err := tx.Raw(`SELECT role_id FROM users WHERE user_id = ?`, p.HeadUserID).Row().Scan(&prevRoleID); err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert new assignment"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "new head not found"})
+		return
+	}
+
+	// อัปเดตบทบาทเป็น dept_head (role_id = 4)
+	if err := tx.Exec(`UPDATE users SET role_id = 4 WHERE user_id = ?`, p.HeadUserID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "promote new head failed"})
+		return
+	}
+
+	// สร้างแถว history ใหม่ (เก็บ role เดิมไว้ใน restore_role_id)
+	if err := tx.Exec(`
+        INSERT INTO dept_head_assignments (head_user_id, restore_role_id, effective_from, effective_to, changed_by, changed_at, note)
+        VALUES (?, ?, ?, NULL, ?, NOW(), ?)
+    `, p.HeadUserID, prevRoleID, effectiveFrom, changedBy, p.Note).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "insert assignment failed"})
 		return
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to commit"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "commit failed"})
 		return
 	}
 
