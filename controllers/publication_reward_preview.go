@@ -163,9 +163,9 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
 		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
 		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
-		"{{publication_date}}":   utils.FormatThaiDate(detail.PublicationDate),
+		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
 		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
-		"{{page_numbers}}":       strings.TrimSpace(detail.PageNumbers),
+		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
 		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
 		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
 		"{{document_line}}":      buildDocumentLine(documents),
@@ -248,10 +248,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 
 	totalAmount := parseFormFloat(payload.FormData.TotalAmount)
 	publicationDate := resolveFormPublicationDate(&payload.FormData)
-	publicationDateText := ""
-	if publicationDate != nil {
-		publicationDateText = utils.FormatThaiDate(*publicationDate)
-	}
+	publicationYearText := derivePublicationYear(publicationDate, payload.FormData.JournalYear)
 
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
@@ -264,9 +261,9 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		"{{author_name_list}}":   strings.TrimSpace(payload.FormData.AuthorNameList),
 		"{{paper_title}}":        strings.TrimSpace(payload.FormData.ArticleTitle),
 		"{{journal_name}}":       strings.TrimSpace(payload.FormData.JournalName),
-		"{{publication_date}}":   publicationDateText,
+		"{{publication_year}}":   publicationYearText,
 		"{{volume_issue}}":       strings.TrimSpace(payload.FormData.JournalIssue),
-		"{{page_numbers}}":       strings.TrimSpace(payload.FormData.JournalPages),
+		"{{page_number}}":        strings.TrimSpace(payload.FormData.JournalPages),
 		"{{author_role}}":        buildAuthorRole(payload.FormData.AuthorStatus),
 		"{{quartile_line}}":      buildQuartileLine(payload.FormData.JournalQuartile),
 		"{{document_line}}":      buildPreviewDocumentLine(payload.Attachments, attachments),
@@ -909,4 +906,25 @@ var xmlReplacer = strings.NewReplacer(
 
 func xmlEscape(value string) string {
 	return xmlReplacer.Replace(value)
+}
+
+func formatThaiYear(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return strconv.Itoa(t.Year() + 543)
+}
+
+func formatThaiYearPtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return formatThaiYear(*t)
+}
+
+func derivePublicationYear(date *time.Time, fallback string) string {
+	if value := formatThaiYearPtr(date); value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
 }
