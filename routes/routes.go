@@ -300,6 +300,13 @@ func SetupRoutes(router *gin.Engine) {
 				}
 			}
 
+			// Legacy/compatibility route for publication summary preview
+			publicationSummary := protected.Group("/publication-summary")
+			{
+				// POST /api/v1/publication-summary/preview (alias of publication reward preview)
+				publicationSummary.POST("/preview", controllers.PreviewPublicationReward)
+			}
+
 			rewardConfig := v1.Group("/reward-config")
 			rewardConfig.Use(middleware.AuthMiddleware())
 			{

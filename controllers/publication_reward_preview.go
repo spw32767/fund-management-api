@@ -175,7 +175,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		"{{signature}}":          strings.TrimSpace(detail.Signature),
 	}
 
-	pdfData, err := generatePublicationRewardPDF(c, replacements)
+	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -222,13 +222,13 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 		return
 	}
 
-	pdfData, err := generatePublicationRewardPDF(c, replacements)
+	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	merged, err := mergePreviewPDFWithAttachments(c, pdfData, attachments)
+	merged, err := mergePreviewPDFWithAttachments(pdfData, attachments)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -347,12 +347,12 @@ func buildPreviewApplicantName(app PublicationRewardPreviewApplicant) string {
 	return strings.Join(filtered, " ")
 }
 
-func mergePreviewPDFWithAttachments(c *gin.Context, base []byte, files []*multipart.FileHeader) ([]byte, error) {
+func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) ([]byte, error) {
 	if len(files) == 0 {
 		return base, nil
 	}
 
-	tmpDir, err := createPreviewTempDir(c, "publication-preview-merge-")
+	tmpDir, err := os.MkdirTemp("", "publication-preview-merge-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -778,7 +778,7 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
-func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string) ([]byte, error) {
+func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
 	templatePath := filepath.Join("templates", "publication_reward_template.docx")
 	if _, err := os.Stat(templatePath); err != nil {
 		if os.IsNotExist(err) {
@@ -787,7 +787,7 @@ func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string
 		return nil, fmt.Errorf("failed to access template: %w", err)
 	}
 
-	tmpDir, err := createPreviewTempDir(c, "publication-preview-")
+	tmpDir, err := os.MkdirTemp("", "publication-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
@@ -808,103 +808,13 @@ func generatePublicationRewardPDF(c *gin.Context, replacements map[string]string
 		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
 	}
 
-	outputPDF, err := waitForPreviewPDF(tmpDir, "publication_reward_preview")
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if names, listErr := readPreviewDirectory(tmpDir); listErr == nil {
-				return nil, fmt.Errorf("failed to read generated pdf: %w (dir contents: %s)", err, strings.Join(names, ", "))
-			}
-		}
-		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
-	}
-
+	outputPDF := filepath.Join(tmpDir, "publication_reward_preview.pdf")
 	data, err := os.ReadFile(outputPDF)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
 	}
 
 	return data, nil
-}
-
-const (
-	previewPDFWaitTimeout  = 10 * time.Second
-	previewPDFPollInterval = 200 * time.Millisecond
-)
-
-func waitForPreviewPDF(dir, baseName string) (string, error) {
-	deadline := time.Now().Add(previewPDFWaitTimeout)
-	var lastErr error
-
-	for {
-		path, err := locatePreviewPDF(dir, baseName)
-		if err == nil {
-			return path, nil
-		}
-
-		if errors.Is(err, os.ErrNotExist) {
-			lastErr = err
-		} else if err != nil {
-			return "", err
-		}
-
-		if time.Now().After(deadline) {
-			if lastErr != nil {
-				return "", lastErr
-			}
-			return "", os.ErrNotExist
-		}
-
-		time.Sleep(previewPDFPollInterval)
-	}
-}
-
-func locatePreviewPDF(dir, baseName string) (string, error) {
-	primary := filepath.Join(dir, baseName+".pdf")
-	if info, err := os.Stat(primary); err == nil {
-		if info.IsDir() {
-			return "", fmt.Errorf("generated pdf path is a directory: %s", primary)
-		}
-		return primary, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-
-	pattern := filepath.Join(dir, baseName+"*.pdf")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return "", err
-	}
-
-	for _, match := range matches {
-		info, statErr := os.Stat(match)
-		if statErr == nil {
-			if info.IsDir() {
-				continue
-			}
-			return match, nil
-		}
-
-		if !errors.Is(statErr, os.ErrNotExist) {
-			return "", statErr
-		}
-	}
-
-	return "", os.ErrNotExist
-}
-
-func readPreviewDirectory(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-
-	return names, nil
 }
 
 func lookupLibreOfficeBinary() (string, error) {
@@ -915,95 +825,6 @@ func lookupLibreOfficeBinary() (string, error) {
 		return path, nil
 	}
 	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH")
-}
-
-func createPreviewTempDir(c *gin.Context, prefix string) (string, error) {
-	if c != nil {
-		if user := resolveContextUser(c); user != nil {
-			basePath := strings.TrimSpace(os.Getenv("UPLOAD_PATH"))
-			if basePath == "" {
-				basePath = "./uploads"
-			}
-
-			userFolderPath, err := utils.CreateUserFolderIfNotExists(*user, basePath)
-			if err != nil {
-				return "", fmt.Errorf("failed to prepare user folder: %w", err)
-			}
-
-			tempBase := filepath.Join(userFolderPath, "temp")
-			if err := os.MkdirAll(tempBase, 0755); err != nil {
-				return "", fmt.Errorf("failed to prepare user temp directory: %w", err)
-			}
-
-			if pathIsASCII(tempBase) {
-				dir, err := os.MkdirTemp(tempBase, prefix)
-				if err != nil {
-					return "", fmt.Errorf("failed to create temp directory: %w", err)
-				}
-				return dir, nil
-			}
-
-			safeBase := filepath.Join(basePath, "temp_previews", fmt.Sprintf("user_%d", user.UserID))
-			if err := os.MkdirAll(safeBase, 0755); err == nil && pathIsASCII(safeBase) {
-				if dir, err := os.MkdirTemp(safeBase, prefix); err == nil {
-					return dir, nil
-				}
-			}
-		}
-	}
-
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		base := filepath.Join(home, "tmp")
-		if err := os.MkdirAll(base, 0700); err == nil {
-			return os.MkdirTemp(base, prefix)
-		}
-	}
-
-	if fallbackBase := filepath.Join(os.TempDir(), "fund-publication-preview"); fallbackBase != "" {
-		if err := os.MkdirAll(fallbackBase, 0700); err == nil {
-			if dir, err := os.MkdirTemp(fallbackBase, prefix); err == nil {
-				return dir, nil
-			}
-		}
-	}
-
-	return os.MkdirTemp("", prefix)
-}
-
-func pathIsASCII(value string) bool {
-	for _, r := range value {
-		if r > 127 {
-			return false
-		}
-	}
-	return true
-}
-
-func resolveContextUser(c *gin.Context) *models.User {
-	if c == nil {
-		return nil
-	}
-
-	if val, exists := c.Get("user"); exists {
-		switch typed := val.(type) {
-		case models.User:
-			user := typed
-			return &user
-		case *models.User:
-			return typed
-		}
-	}
-
-	if val, exists := c.Get("userID"); exists {
-		if id, ok := val.(int); ok {
-			var user models.User
-			if err := config.DB.Where("user_id = ?", id).First(&user).Error; err == nil {
-				return &user
-			}
-		}
-	}
-
-	return nil
 }
 
 func fillDocxTemplate(templatePath, outputPath string, replacements map[string]string) error {
@@ -1037,20 +858,7 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
 			for placeholder, value := range replacements {
-				formatted := formatDocxValue(value)
-				normalizedTarget := fmt.Sprintf("<w:t xml:space=\"preserve\">%s</w:t>", placeholder)
-				if strings.Contains(content, normalizedTarget) {
-					content = strings.ReplaceAll(content, normalizedTarget, formatted)
-					continue
-				}
-
-				legacyTarget := fmt.Sprintf("<w:t>%s</w:t>", placeholder)
-				if strings.Contains(content, legacyTarget) {
-					content = strings.ReplaceAll(content, legacyTarget, formatted)
-					continue
-				}
-
-				content = strings.ReplaceAll(content, placeholder, formatted)
+				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
 			}
 			data = []byte(content)
 		}
@@ -1075,26 +883,20 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 }
 
 func formatDocxValue(value string) string {
+	if value == "" {
+		return ""
+	}
+
 	parts := strings.Split(value, "\n")
 	for i, part := range parts {
 		parts[i] = xmlEscape(part)
 	}
 
-	var builder strings.Builder
-	for i, part := range parts {
-		if i > 0 {
-			builder.WriteString("<w:br/>")
-		}
-		builder.WriteString("<w:t xml:space=\"preserve\">")
-		builder.WriteString(part)
-		builder.WriteString("</w:t>")
+	if len(parts) == 1 {
+		return parts[0]
 	}
 
-	if builder.Len() == 0 {
-		builder.WriteString("<w:t xml:space=\"preserve\"></w:t>")
-	}
-
-	return builder.String()
+	return strings.Join(parts, "</w:t><w:br/><w:t xml:space=\"preserve\">")
 }
 
 var xmlReplacer = strings.NewReplacer(
@@ -1129,75 +931,10 @@ func normalizeDocxPlaceholders(content string, replacements map[string]string) s
 
 	for _, placeholder := range keys {
 		re := placeholderRegexFor(placeholder)
-		content = re.ReplaceAllStringFunc(content, func(match string) string {
-			return collapsePlaceholderRun(match, placeholder)
-		})
+		content = re.ReplaceAllString(content, placeholder)
 	}
 
 	return content
-}
-
-func collapsePlaceholderRun(match, placeholder string) string {
-	firstRunIdx := strings.Index(match, "<w:r")
-	if firstRunIdx == -1 {
-		return placeholder
-	}
-
-	prefix := match[:firstRunIdx]
-
-	runOpenEnd := strings.Index(match[firstRunIdx:], ">")
-	if runOpenEnd == -1 {
-		return placeholder
-	}
-	runOpenEnd += firstRunIdx
-	runOpen := match[firstRunIdx : runOpenEnd+1]
-
-	tIdx := strings.Index(match[runOpenEnd+1:], "<w:t")
-	if tIdx == -1 {
-		return prefix + runOpen + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
-	}
-	tIdx += runOpenEnd + 1
-
-	between := match[runOpenEnd+1 : tIdx]
-
-	tOpenEnd := strings.Index(match[tIdx:], ">")
-	if tOpenEnd == -1 {
-		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
-	}
-	tOpenEnd += tIdx
-
-	tClose := strings.Index(match[tOpenEnd+1:], "</w:t>")
-	if tClose == -1 {
-		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
-	}
-	tClose += tOpenEnd + 1
-
-	rClose := strings.Index(match[tClose+len("</w:t>"):], "</w:r>")
-	if rClose == -1 {
-		return prefix + runOpen + between + `<w:t xml:space="preserve">` + placeholder + `</w:t>`
-	}
-	rClose += tClose + len("</w:t>")
-
-	runInnerSuffix := match[tClose+len("</w:t>") : rClose]
-	runClose := match[rClose : rClose+len("</w:r>")]
-
-	trailing := match[rClose+len("</w:r>"):]
-	if strings.TrimSpace(trailing) != "" {
-		trailing = ""
-	}
-
-	var builder strings.Builder
-	builder.WriteString(prefix)
-	builder.WriteString(runOpen)
-	builder.WriteString(between)
-	builder.WriteString(`<w:t xml:space="preserve">`)
-	builder.WriteString(placeholder)
-	builder.WriteString(`</w:t>`)
-	builder.WriteString(runInnerSuffix)
-	builder.WriteString(runClose)
-	builder.WriteString(trailing)
-
-	return builder.String()
 }
 
 func placeholderRegexFor(placeholder string) *regexp.Regexp {
