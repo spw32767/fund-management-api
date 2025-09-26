@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"fund-management-api/config"
@@ -778,6 +779,53 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
+// replacePlaceholdersInWText preserves styles by replacing inside <w:t> nodes only.
+func replacePlaceholdersInWText(xmlBytes []byte, replacements map[string]string) []byte {
+	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
+	var out bytes.Buffer
+	enc := xml.NewEncoder(&out)
+	enc.Indent("", "")
+
+	inWText := false
+
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return xmlBytes // fallback if parse fails
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
+				inWText = true
+			}
+			enc.EncodeToken(t)
+		case xml.EndElement:
+			if t.Name.Local == "t" && (t.Name.Space == "w" || t.Name.Space == "") {
+				inWText = false
+			}
+			enc.EncodeToken(t)
+		case xml.CharData:
+			if inWText {
+				s := string(t)
+				for ph, v := range replacements {
+					s = strings.ReplaceAll(s, ph, v)
+				}
+				enc.EncodeToken(xml.CharData([]byte(s)))
+			} else {
+				enc.EncodeToken(t)
+			}
+		default:
+			enc.EncodeToken(t)
+		}
+	}
+	enc.Flush()
+	return out.Bytes()
+}
+
 func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
 	templatePath := filepath.Join("templates", "publication_reward_template.docx")
 	if _, err := os.Stat(templatePath); err != nil {
@@ -855,12 +903,8 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		}
 
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
-			content := string(data)
-			content = normalizeDocxPlaceholders(content, replacements)
-			for placeholder, value := range replacements {
-				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
-			}
-			data = []byte(content)
+			// Preserve run styling by only touching <w:t> text nodes
+			data = replacePlaceholdersInWText(data, replacements)
 		}
 
 		header := file.FileHeader
