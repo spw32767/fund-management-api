@@ -18,10 +18,11 @@ import (
 // ==============================
 
 // GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
+// controllers/admin_submission.go
+
+// GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
 func GetSubmissionDetails(c *gin.Context) {
 	submissionID := c.Param("id")
-
-	// Validate submissionID
 	if submissionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission ID is required"})
 		return
@@ -29,7 +30,7 @@ func GetSubmissionDetails(c *gin.Context) {
 
 	var submission models.Submission
 
-	// Query หลักพร้อม preload associations
+	// ✅ preload ทุกความสัมพันธ์ที่หน้ารายละเอียดต้องใช้ (รวมผู้ยื่น)
 	query := config.DB.
 		Preload("User").
 		Preload("Year").
@@ -37,15 +38,16 @@ func GetSubmissionDetails(c *gin.Context) {
 		Preload("FundApplicationDetail").
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
+		// (ถ้าต้องการ budget ของ subcategory ด้วย ให้เติมบรรทัดนี้)
+		// Preload("FundApplicationDetail.Subcategory.SubcategoryBudget").
 		Preload("PublicationRewardDetail")
 
-	// ดึงข้อมูล submission
 	if err := query.First(&submission, submissionID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
-	// ดึง submission users (co-authors)
+	// co-authors
 	var submissionUsers []models.SubmissionUser
 	if err := config.DB.Where("submission_id = ?", submissionID).
 		Preload("User").
@@ -54,14 +56,14 @@ func GetSubmissionDetails(c *gin.Context) {
 		submissionUsers = []models.SubmissionUser{}
 	}
 
-	// ดึง documents
+	// เอกสารแนบ
 	var documents []models.SubmissionDocument
 	config.DB.Where("submission_id = ?", submissionID).
 		Preload("DocumentType").
 		Preload("File").
 		Find(&documents)
 
-	// สร้าง response structure
+	// ✅ สร้าง response มาตรฐาน พร้อม “ผู้ยื่น” ทั้งใน submission.user และ alias ด้านนอก
 	response := gin.H{
 		"submission": gin.H{
 			"submission_id":         submission.SubmissionID,
@@ -76,16 +78,24 @@ func GetSubmissionDetails(c *gin.Context) {
 			"submitted_at":          submission.SubmittedAt,
 			"created_at":            submission.CreatedAt,
 			"updated_at":            submission.UpdatedAt,
-			"user":                  submission.User,
+			"user":                  submission.User, // ← ผู้ยื่น (owner) อยู่ตรงนี้เสมอ
 			"year":                  submission.Year,
 			"status":                submission.Status,
 		},
 		"details":          nil,
 		"submission_users": []gin.H{},
 		"documents":        []gin.H{},
+		// 🔻 alias ชัดๆ ให้ FE ใช้ง่าย ตามที่หน้า GeneralSubmissionDetails รองรับ
+		"applicant": gin.H{
+			"user_id":    submission.User.UserID,
+			"user_fname": submission.User.UserFname,
+			"user_lname": submission.User.UserLname,
+			"email":      submission.User.Email,
+		},
+		"applicant_user_id": submission.UserID,
 	}
 
-	// เพิ่มรายละเอียดตาม submission type
+	// รายละเอียดตามประเภทคำร้อง
 	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
 		if submission.StatusID != 2 {
 			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
@@ -104,12 +114,12 @@ func GetSubmissionDetails(c *gin.Context) {
 		}
 	}
 
-	// Format submission users (with nil check)
+	// map co-authors
 	for _, su := range submissionUsers {
 		if su.User == nil {
-			var user models.User
-			if err := config.DB.Where("user_id = ?", su.UserID).First(&user).Error; err == nil {
-				su.User = &user
+			var u models.User
+			if err := config.DB.Where("user_id = ?", su.UserID).First(&u).Error; err == nil {
+				su.User = &u
 			} else {
 				continue
 			}
@@ -129,9 +139,9 @@ func GetSubmissionDetails(c *gin.Context) {
 		})
 	}
 
-	// Format documents
+	// map documents
 	for _, doc := range documents {
-		docInfo := gin.H{
+		d := gin.H{
 			"document_id":      doc.DocumentID,
 			"submission_id":    doc.SubmissionID,
 			"file_id":          doc.FileID,
@@ -142,14 +152,14 @@ func GetSubmissionDetails(c *gin.Context) {
 			"created_at":       doc.CreatedAt,
 		}
 		if doc.DocumentType.DocumentTypeID != 0 {
-			docInfo["document_type"] = gin.H{
+			d["document_type"] = gin.H{
 				"document_type_id":   doc.DocumentType.DocumentTypeID,
 				"document_type_name": doc.DocumentType.DocumentTypeName,
 				"required":           doc.DocumentType.Required,
 			}
 		}
 		if doc.File.FileID != 0 {
-			docInfo["file"] = gin.H{
+			d["file"] = gin.H{
 				"file_id":       doc.File.FileID,
 				"original_name": doc.File.OriginalName,
 				"file_size":     doc.File.FileSize,
@@ -157,7 +167,7 @@ func GetSubmissionDetails(c *gin.Context) {
 				"uploaded_at":   doc.File.UploadedAt,
 			}
 		}
-		response["documents"] = append(response["documents"].([]gin.H), docInfo)
+		response["documents"] = append(response["documents"].([]gin.H), d)
 	}
 
 	c.JSON(http.StatusOK, response)
