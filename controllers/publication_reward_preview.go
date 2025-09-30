@@ -11,6 +11,7 @@ import (
 	"fund-management-api/models"
 	"fund-management-api/utils"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -142,22 +143,37 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
-	sysConfig, err := fetchLatestSystemConfig(config.DB)
+	sysConfig, err := fetchLatestSystemConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system configuration"})
 		return
 	}
 
-	documents, err := fetchSubmissionDocuments(config.DB, req.SubmissionID)
+	documents, err := fetchSubmissionDocuments(req.SubmissionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load submission documents"})
 		return
 	}
 
-	replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	replacements := map[string]string{
+		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
+		"{{applicant_name}}":     buildApplicantName(submission.User),
+		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
+		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
+		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{total_amount}}":       formatAmount(detail.TotalAmount),
+		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
+		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
+		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
+		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
+		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
+		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
+		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
+		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
+		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
+		"{{document_line}}":      buildDocumentLine(documents),
+		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":          strings.TrimSpace(detail.Signature),
 	}
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
@@ -193,7 +209,7 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 		return
 	}
 
-	sysConfig, err := fetchLatestSystemConfig(nil)
+	sysConfig, err := fetchLatestSystemConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system configuration"})
 		return
@@ -222,49 +238,6 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 	c.Header("Content-Type", "application/pdf")
 	c.Header("Content-Disposition", "inline; filename=publication_reward_preview.pdf")
 	c.Data(http.StatusOK, "application/pdf", merged)
-}
-
-func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
-	if submission == nil {
-		return nil, fmt.Errorf("submission is required")
-	}
-	if submission.User == nil {
-		return nil, fmt.Errorf("submission missing applicant")
-	}
-	if detail == nil {
-		return nil, fmt.Errorf("publication reward detail is required")
-	}
-	if sysConfig == nil {
-		sysConfig = &systemConfigSnapshot{}
-	}
-
-	positionName := ""
-	if name := strings.TrimSpace(submission.User.Position.PositionName); name != "" {
-		positionName = name
-	}
-
-	replacements := map[string]string{
-		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
-		"{{applicant_name}}":     buildApplicantName(submission.User),
-		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
-		"{{position}}":           positionName,
-		"{{installment}}":        formatNullableInt(sysConfig.Installment),
-		"{{total_amount}}":       formatAmount(detail.TotalAmount),
-		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
-		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
-		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
-		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
-		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
-		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
-		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
-		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
-		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
-		"{{document_line}}":      buildDocumentLine(documents),
-		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
-		"{{signature}}":          strings.TrimSpace(detail.Signature),
-	}
-
-	return replacements, nil
 }
 
 func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader) (map[string]string, error) {
@@ -666,12 +639,9 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 	return strings.Join(lines, "\n")
 }
 
-func fetchLatestSystemConfig(db *gorm.DB) (*systemConfigSnapshot, error) {
-	if db == nil {
-		db = config.DB
-	}
+func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
 	var row systemConfigSnapshot
-	if err := db.Table("system_config").
+	if err := config.DB.Table("system_config").
 		Select("installment, kku_report_year").
 		Order("config_id DESC").
 		Limit(1).
@@ -684,12 +654,9 @@ func fetchLatestSystemConfig(db *gorm.DB) (*systemConfigSnapshot, error) {
 	return &row, nil
 }
 
-func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.SubmissionDocument, error) {
-	if db == nil {
-		db = config.DB
-	}
+func fetchSubmissionDocuments(submissionID int) ([]models.SubmissionDocument, error) {
 	var documents []models.SubmissionDocument
-	if err := db.
+	if err := config.DB.
 		Preload("DocumentType").
 		Where("submission_id = ?", submissionID).
 		Order("display_order ASC, document_id ASC").
@@ -812,27 +779,15 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderPublicationRewardDocx(destination string, replacements map[string]string) error {
+func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
 	templatePath := filepath.Join("templates", "publication_reward_template.docx")
 	if _, err := os.Stat(templatePath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("template file not found")
+			return nil, fmt.Errorf("template file not found")
 		}
-		return fmt.Errorf("failed to access template: %w", err)
+		return nil, fmt.Errorf("failed to access template: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
-		return fmt.Errorf("failed to prepare output directory: %w", err)
-	}
-
-	if err := fillDocxTemplate(templatePath, destination, replacements); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
 	tmpDir, err := os.MkdirTemp("", "publication-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
@@ -840,7 +795,12 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 	defer os.RemoveAll(tmpDir)
 
 	outputDocx := filepath.Join(tmpDir, "publication_reward_preview.docx")
-	if err := renderPublicationRewardDocx(outputDocx, replacements); err != nil {
+	if err := fillDocxTemplate(templatePath, outputDocx, replacements); err != nil {
+		return nil, err
+	}
+
+	fontEnv, err := configureLibreOfficeFonts(tmpDir)
+	if err != nil {
 		return nil, err
 	}
 
@@ -849,7 +809,22 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 		return nil, err
 	}
 
-	cmd := exec.Command(converter, "--headless", "--convert-to", "pdf", "--outdir", tmpDir, outputDocx)
+	profileDir := filepath.Join(tmpDir, "lo-profile")
+	if err := os.MkdirAll(profileDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to prepare libreoffice profile: %w", err)
+	}
+
+	profileArg := fmt.Sprintf("-env:UserInstallation=file://%s", filepath.ToSlash(profileDir))
+	filterArg := "pdf:writer_pdf_Export:EmbedStandardFonts=true"
+
+	args := []string{profileArg, "--headless", "--convert-to", filterArg, "--outdir", tmpDir, outputDocx}
+	cmd := exec.Command(converter, args...)
+	env := append([]string{}, os.Environ()...)
+	if len(fontEnv) > 0 {
+		env = append(env, fontEnv...)
+	}
+	cmd.Env = env
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("failed to convert to pdf: %v", strings.TrimSpace(string(output)))
 	}
@@ -1033,4 +1008,103 @@ func derivePublicationYear(date *time.Time, fallback string) string {
 		return value
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func configureLibreOfficeFonts(tmpDir string) ([]string, error) {
+	fontDirs := collectFontDirectories()
+	if len(fontDirs) == 0 {
+		return nil, nil
+	}
+
+	fontConfigDir := filepath.Join(tmpDir, "fontconfig")
+	if err := os.MkdirAll(fontConfigDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to prepare fontconfig directory: %w", err)
+	}
+
+	configPath := filepath.Join(fontConfigDir, "fonts.conf")
+	var builder strings.Builder
+	builder.WriteString("<?xml version=\"1.0\"?>\n")
+	builder.WriteString("<fontconfig>\n")
+	for _, dir := range fontDirs {
+		builder.WriteString("  <dir>")
+		builder.WriteString(xmlEscape(dir))
+		builder.WriteString("</dir>\n")
+	}
+	builder.WriteString("</fontconfig>\n")
+
+	if err := os.WriteFile(configPath, []byte(builder.String()), 0600); err != nil {
+		return nil, fmt.Errorf("failed to write font configuration: %w", err)
+	}
+
+	xdgDataHome := filepath.Join(tmpDir, "xdg-data")
+	if err := os.MkdirAll(xdgDataHome, 0700); err != nil {
+		return nil, fmt.Errorf("failed to prepare font cache directory: %w", err)
+	}
+
+	xdgCacheHome := filepath.Join(tmpDir, "xdg-cache")
+	if err := os.MkdirAll(xdgCacheHome, 0700); err != nil {
+		return nil, fmt.Errorf("failed to prepare font cache directory: %w", err)
+	}
+
+	env := []string{
+		fmt.Sprintf("FONTCONFIG_FILE=%s", configPath),
+		fmt.Sprintf("FONTCONFIG_PATH=%s", fontConfigDir),
+		fmt.Sprintf("XDG_DATA_HOME=%s", xdgDataHome),
+		fmt.Sprintf("XDG_CACHE_HOME=%s", xdgCacheHome),
+	}
+
+	return env, nil
+}
+
+func collectFontDirectories() []string {
+	candidates := []string{
+		filepath.Join("templates", "fonts"),
+		filepath.Join("frontend_project_fund", "public", "font"),
+	}
+
+	seen := make(map[string]struct{})
+	var result []string
+
+	for _, candidate := range candidates {
+		absRoot, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+
+		info, err := os.Stat(absRoot)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
+		_ = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+
+			name := d.Name()
+			if strings.HasPrefix(name, "._") {
+				return nil
+			}
+
+			ext := strings.ToLower(filepath.Ext(name))
+			if ext != ".ttf" && ext != ".otf" {
+				return nil
+			}
+
+			dir := filepath.Dir(path)
+			if _, exists := seen[dir]; exists {
+				return nil
+			}
+
+			seen[dir] = struct{}{}
+			result = append(result, dir)
+			return nil
+		})
+	}
+
+	sort.Strings(result)
+	return result
 }
