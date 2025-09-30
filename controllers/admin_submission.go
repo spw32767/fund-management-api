@@ -5,6 +5,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/utils"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,149 +19,180 @@ import (
 // ==============================
 
 // GetSubmissionDetails - ดึงข้อมูล submission แบบละเอียด
-func GetSubmissionDetails(c *gin.Context) {
-	submissionID := c.Param("id")
+// controllers/admin_submission.go
 
-	// Validate submissionID
-	if submissionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission ID is required"})
+// GET /admin/submissions/:id/details
+func GetSubmissionDetails(c *gin.Context) {
+	idStr := c.Param("id")
+	sid, err := strconv.Atoi(idStr)
+	if err != nil || sid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid submission id"})
 		return
 	}
 
-	var submission models.Submission
+	var s models.Submission
 
-	// Query หลักพร้อม preload associations
-	query := config.DB.
-		Preload("User").
+	// 1) โหลด submission + ความสัมพันธ์หลักแบบกันพลาด
+	q := config.DB.
+		Preload("User"). // เจ้าของคำร้อง
 		Preload("Year").
 		Preload("Status").
-		Preload("FundApplicationDetail").
+		Preload("Category").
+		Preload("Subcategory").
+		Preload("Subcategory.SubcategoryBudget"). // เผื่อ UI ต้องใช้
+		Preload("FundApplicationDetail").         // FA detail
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
-		Preload("PublicationRewardDetail")
+		Preload("PublicationRewardDetail") // PR detail
 
-	// ดึงข้อมูล submission
-	if err := query.First(&submission, submissionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+	if err := q.First(&s, "submission_id = ?", sid).Error; err != nil {
+		log.Printf("[GetSubmissionDetails] find submission %v error: %v", sid, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
 	}
 
-	// ดึง submission users (co-authors)
-	var submissionUsers []models.SubmissionUser
-	if err := config.DB.Where("submission_id = ?", submissionID).
+	// 2) fallback: ถ้า User ไม่ถูก preload แต่มี user_id ให้ดึงซ้ำแบบตรงๆ
+	if s.UserID > 0 && (s.User == nil || s.User.UserID == 0) {
+		var owner models.User
+		if err := config.DB.First(&owner, "user_id = ?", s.UserID).Error; err == nil {
+			s.User = &owner
+		}
+	}
+
+	// 3) co-authors (submission_users)
+	var su []models.SubmissionUser
+	if err := config.DB.
+		Where("submission_id = ?", sid).
 		Preload("User").
 		Order("display_order ASC").
-		Find(&submissionUsers).Error; err != nil {
-		submissionUsers = []models.SubmissionUser{}
+		Find(&su).Error; err != nil {
+		log.Printf("[GetSubmissionDetails] load submission_users error: %v", err)
 	}
 
-	// ดึง documents
-	var documents []models.SubmissionDocument
-	config.DB.Where("submission_id = ?", submissionID).
+	// 4) เอกสารแนบ
+	var docs []models.SubmissionDocument
+	if err := config.DB.
+		Where("submission_id = ?", sid).
 		Preload("DocumentType").
 		Preload("File").
-		Find(&documents)
-
-	// สร้าง response structure
-	response := gin.H{
-		"submission": gin.H{
-			"submission_id":         submission.SubmissionID,
-			"submission_number":     submission.SubmissionNumber,
-			"submission_type":       submission.SubmissionType,
-			"user_id":               submission.UserID,
-			"year_id":               submission.YearID,
-			"category_id":           submission.CategoryID,
-			"subcategory_id":        submission.SubcategoryID,
-			"subcategory_budget_id": submission.SubcategoryBudgetID,
-			"status_id":             submission.StatusID,
-			"submitted_at":          submission.SubmittedAt,
-			"created_at":            submission.CreatedAt,
-			"updated_at":            submission.UpdatedAt,
-			"user":                  submission.User,
-			"year":                  submission.Year,
-			"status":                submission.Status,
-		},
-		"details":          nil,
-		"submission_users": []gin.H{},
-		"documents":        []gin.H{},
+		Find(&docs).Error; err != nil {
+		log.Printf("[GetSubmissionDetails] load documents error: %v", err)
 	}
 
-	// เพิ่มรายละเอียดตาม submission type
-	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
-		if submission.StatusID != 2 {
-			submission.PublicationRewardDetail.AnnounceReferenceNumber = ""
+	// 5) จัด details ตามประเภท (กัน nil)
+	var details gin.H
+	switch s.SubmissionType {
+	case "publication_reward":
+		if s.PublicationRewardDetail != nil {
+			details = gin.H{"type": "publication_reward", "data": s.PublicationRewardDetail}
 		}
-		response["details"] = gin.H{
-			"type": "publication_reward",
-			"data": submission.PublicationRewardDetail,
+	case "fund_application":
+		if s.FundApplicationDetail != nil {
+			details = gin.H{"type": "fund_application", "data": s.FundApplicationDetail}
 		}
-	} else if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
-		if submission.StatusID != 2 {
-			submission.FundApplicationDetail.AnnounceReferenceNumber = ""
-		}
-		response["details"] = gin.H{
-			"type": "fund_application",
-			"data": submission.FundApplicationDetail,
+	default:
+		// เผื่อมีเคส type ว่าง แต่มี detail ฝั่งใดฝั่งหนึ่ง
+		if s.FundApplicationDetail != nil {
+			details = gin.H{"type": "fund_application", "data": s.FundApplicationDetail}
+		} else if s.PublicationRewardDetail != nil {
+			details = gin.H{"type": "publication_reward", "data": s.PublicationRewardDetail}
 		}
 	}
 
-	// Format submission users (with nil check)
-	for _, su := range submissionUsers {
-		if su.User == nil {
-			var user models.User
-			if err := config.DB.Where("user_id = ?", su.UserID).First(&user).Error; err == nil {
-				su.User = &user
-			} else {
-				continue
+	// 6) map co-authors
+	suOut := make([]gin.H, 0, len(su))
+	for _, x := range su {
+		var u map[string]any
+		if x.User != nil && x.User.UserID > 0 {
+			u = map[string]any{
+				"user_id":    x.User.UserID,
+				"user_fname": x.User.UserFname,
+				"user_lname": x.User.UserLname,
+				"email":      x.User.Email,
 			}
 		}
-		response["submission_users"] = append(response["submission_users"].([]gin.H), gin.H{
-			"user_id":       su.UserID,
-			"role":          su.Role,
-			"display_order": su.DisplayOrder,
-			"is_primary":    su.IsPrimary,
-			"created_at":    su.CreatedAt,
-			"user": gin.H{
-				"user_id":    su.User.UserID,
-				"user_fname": su.User.UserFname,
-				"user_lname": su.User.UserLname,
-				"email":      su.User.Email,
-			},
+		suOut = append(suOut, gin.H{
+			"user_id":       x.UserID,
+			"role":          x.Role,
+			"display_order": x.DisplayOrder,
+			"is_primary":    x.IsPrimary,
+			"created_at":    x.CreatedAt,
+			"user":          u,
 		})
 	}
 
-	// Format documents
-	for _, doc := range documents {
-		docInfo := gin.H{
-			"document_id":      doc.DocumentID,
-			"submission_id":    doc.SubmissionID,
-			"file_id":          doc.FileID,
-			"document_type_id": doc.DocumentTypeID,
-			"description":      doc.Description,
-			"display_order":    doc.DisplayOrder,
-			"is_required":      doc.IsRequired,
-			"created_at":       doc.CreatedAt,
+	// 7) map documents
+	docOut := make([]gin.H, 0, len(docs))
+	for _, d := range docs {
+		item := gin.H{
+			"document_id":      d.DocumentID,
+			"submission_id":    d.SubmissionID,
+			"file_id":          d.FileID,
+			"document_type_id": d.DocumentTypeID,
+			"description":      d.Description,
+			"display_order":    d.DisplayOrder,
+			"is_required":      d.IsRequired,
+			"created_at":       d.CreatedAt,
 		}
-		if doc.DocumentType.DocumentTypeID != 0 {
-			docInfo["document_type"] = gin.H{
-				"document_type_id":   doc.DocumentType.DocumentTypeID,
-				"document_type_name": doc.DocumentType.DocumentTypeName,
-				"required":           doc.DocumentType.Required,
+		if d.DocumentType.DocumentTypeID != 0 {
+			item["document_type"] = gin.H{
+				"document_type_id":   d.DocumentType.DocumentTypeID,
+				"document_type_name": d.DocumentType.DocumentTypeName,
+				"required":           d.DocumentType.Required,
 			}
 		}
-		if doc.File.FileID != 0 {
-			docInfo["file"] = gin.H{
-				"file_id":       doc.File.FileID,
-				"original_name": doc.File.OriginalName,
-				"file_size":     doc.File.FileSize,
-				"mime_type":     doc.File.MimeType,
-				"uploaded_at":   doc.File.UploadedAt,
+		if d.File.FileID != 0 {
+			item["file"] = gin.H{
+				"file_id":       d.File.FileID,
+				"original_name": d.File.OriginalName,
+				"file_size":     d.File.FileSize,
+				"mime_type":     d.File.MimeType,
+				"uploaded_at":   d.File.UploadedAt,
 			}
 		}
-		response["documents"] = append(response["documents"].([]gin.H), docInfo)
+		docOut = append(docOut, item)
 	}
 
-	c.JSON(http.StatusOK, response)
+	// 8) applicant alias (ให้ FE ใช้ง่าย)
+	var applicant map[string]any
+	if s.User != nil && s.User.UserID > 0 {
+		applicant = map[string]any{
+			"user_id":    s.User.UserID,
+			"user_fname": s.User.UserFname,
+			"user_lname": s.User.UserLname,
+			"email":      s.User.Email,
+		}
+	}
+
+	// 9) response
+	resp := gin.H{
+		"submission": gin.H{
+			"submission_id":         s.SubmissionID,
+			"submission_number":     s.SubmissionNumber,
+			"submission_type":       s.SubmissionType,
+			"user_id":               s.UserID,
+			"year_id":               s.YearID,
+			"category_id":           s.CategoryID,
+			"subcategory_id":        s.SubcategoryID,
+			"subcategory_budget_id": s.SubcategoryBudgetID,
+			"status_id":             s.StatusID,
+			"submitted_at":          s.SubmittedAt,
+			"created_at":            s.CreatedAt,
+			"updated_at":            s.UpdatedAt,
+			"user":                  s.User, // owner object (อาจเป็น nil ได้)
+			"year":                  s.Year,
+			"status":                s.Status,
+			"category":              s.Category,
+			"subcategory":           s.Subcategory,
+		},
+		"details":           details,   // gin.H หรือ nil
+		"submission_users":  suOut,     // []gin.H
+		"documents":         docOut,    // []gin.H
+		"applicant":         applicant, // map หรือ nil
+		"applicant_user_id": s.UserID,
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // ==============================
