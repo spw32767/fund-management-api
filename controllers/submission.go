@@ -24,6 +24,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const publicationRewardFormDocumentCode = "publication_reward_form_docx"
+
 // ===================== SUBMISSION MANAGEMENT =====================
 
 // GetSubmissions returns user's submissions
@@ -401,29 +403,151 @@ func DeleteSubmission(c *gin.Context) {
 // SubmitSubmission submits a submission (changes status)
 func SubmitSubmission(c *gin.Context) {
 	submissionID := c.Param("id")
-	userID, _ := c.Get("userID")
+	userIDValue, _ := c.Get("userID")
+	userID, ok := userIDValue.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user context"})
+		return
+	}
 
-	// Find submission
 	var submission models.Submission
-	if err := config.DB.Where("submission_id = ? AND user_id = ? AND deleted_at IS NULL",
-		submissionID, userID).First(&submission).Error; err != nil {
+	if err := config.DB.
+		Preload("User").
+		Preload("User.Position").
+		Where("submission_id = ? AND user_id = ? AND deleted_at IS NULL", submissionID, userID).
+		First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
-	// Check if can be submitted
 	if !submission.CanBeSubmitted() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission cannot be submitted"})
 		return
 	}
 
-	// Update submission
 	now := time.Now()
-	submission.SubmittedAt = &now
-	submission.UpdatedAt = now
 
-	if err := config.DB.Save(&submission).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit submission"})
+	if err := config.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Submission{}).
+			Where("submission_id = ?", submission.SubmissionID).
+			Updates(map[string]interface{}{
+				"submitted_at": &now,
+				"updated_at":   now,
+			}).Error; err != nil {
+			return err
+		}
+
+		submission.SubmittedAt = &now
+		submission.UpdatedAt = now
+
+		if submission.SubmissionType != "publication_reward" {
+			return nil
+		}
+
+		applicant := submission.User
+		if applicant == nil {
+			applicant = &models.User{}
+		}
+		if err := tx.Preload("Position").Where("user_id = ?", submission.UserID).First(applicant).Error; err != nil {
+			return fmt.Errorf("failed to load applicant: %w", err)
+		}
+		submission.User = applicant
+
+		var detail models.PublicationRewardDetail
+		if err := tx.Where("submission_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", submission.SubmissionID).
+			First(&detail).Error; err != nil {
+			return fmt.Errorf("failed to load publication reward detail: %w", err)
+		}
+
+		sysConfig, err := fetchLatestSystemConfig(tx)
+		if err != nil {
+			return fmt.Errorf("failed to load system configuration: %w", err)
+		}
+
+		documents, err := fetchSubmissionDocuments(tx, submission.SubmissionID)
+		if err != nil {
+			return fmt.Errorf("failed to load submission documents: %w", err)
+		}
+
+		replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents)
+		if err != nil {
+			return err
+		}
+
+		docType, err := ensurePublicationRewardFormDocumentType(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare document type: %w", err)
+		}
+
+		uploadPath := os.Getenv("UPLOAD_PATH")
+		if uploadPath == "" {
+			uploadPath = "./uploads"
+		}
+
+		userFolderPath, err := utils.CreateUserFolderIfNotExists(*submission.User, uploadPath)
+		if err != nil {
+			return fmt.Errorf("failed to prepare user directory: %w", err)
+		}
+
+		submissionFolderPath, err := utils.CreateSubmissionFolder(userFolderPath, submission.SubmissionType, submission.SubmissionID, submission.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to prepare submission folder: %w", err)
+		}
+
+		baseFilename := "publication_reward_form.docx"
+		if submission.SubmissionNumber != "" {
+			baseFilename = fmt.Sprintf("%s_publication_reward_form.docx", submission.SubmissionNumber)
+		}
+		uniqueFilename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
+		outputPath := filepath.Join(submissionFolderPath, uniqueFilename)
+
+		if err := renderPublicationRewardDocx(outputPath, replacements); err != nil {
+			return err
+		}
+
+		stat, err := os.Stat(outputPath)
+		if err != nil {
+			os.Remove(outputPath)
+			return fmt.Errorf("failed to stat generated docx: %w", err)
+		}
+
+		fileUpload := models.FileUpload{
+			OriginalName: uniqueFilename,
+			StoredPath:   outputPath,
+			FileSize:     stat.Size(),
+			MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			FileHash:     "",
+			IsPublic:     false,
+			UploadedBy:   submission.UserID,
+			UploadedAt:   now,
+			CreateAt:     now,
+			UpdateAt:     now,
+		}
+
+		if err := tx.Create(&fileUpload).Error; err != nil {
+			os.Remove(outputPath)
+			return fmt.Errorf("failed to persist generated docx: %w", err)
+		}
+
+		displayOrder := nextDocumentDisplayOrder(documents)
+		submissionDocument := models.SubmissionDocument{
+			SubmissionID:   submission.SubmissionID,
+			FileID:         fileUpload.FileID,
+			DocumentTypeID: docType.DocumentTypeID,
+			DisplayOrder:   displayOrder,
+			IsRequired:     false,
+			IsVerified:     false,
+			CreatedAt:      now,
+		}
+
+		if err := tx.Create(&submissionDocument).Error; err != nil {
+			os.Remove(outputPath)
+			return fmt.Errorf("failed to register generated docx: %w", err)
+		}
+
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -431,6 +555,50 @@ func SubmitSubmission(c *gin.Context) {
 		"success": true,
 		"message": "Submission submitted successfully",
 	})
+}
+
+func nextDocumentDisplayOrder(existing []models.SubmissionDocument) int {
+	maxOrder := 0
+	for _, doc := range existing {
+		if doc.DisplayOrder > maxOrder {
+			maxOrder = doc.DisplayOrder
+		}
+	}
+	if maxOrder == 0 {
+		return len(existing) + 1
+	}
+	return maxOrder + 1
+}
+
+func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType, error) {
+	var docType models.DocumentType
+	if err := tx.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", publicationRewardFormDocumentCode).
+		First(&docType).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		now := time.Now()
+		category := "publication_reward"
+		fundTypes := "[\"publication_reward\"]"
+		docType = models.DocumentType{
+			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (DOCX)",
+			Code:             publicationRewardFormDocumentCode,
+			Category:         category,
+			Required:         false,
+			Multiple:         false,
+			DocumentOrder:    0,
+			CreateAt:         now,
+			UpdateAt:         now,
+			FundTypes:        &fundTypes,
+		}
+
+		if err := tx.Create(&docType).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	return &docType, nil
 }
 
 // ===================== FILE UPLOAD SYSTEM =====================

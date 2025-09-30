@@ -142,37 +142,22 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
-	sysConfig, err := fetchLatestSystemConfig()
+	sysConfig, err := fetchLatestSystemConfig(config.DB)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system configuration"})
 		return
 	}
 
-	documents, err := fetchSubmissionDocuments(req.SubmissionID)
+	documents, err := fetchSubmissionDocuments(config.DB, req.SubmissionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load submission documents"})
 		return
 	}
 
-	replacements := map[string]string{
-		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
-		"{{applicant_name}}":     buildApplicantName(submission.User),
-		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
-		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
-		"{{installment}}":        formatNullableInt(sysConfig.Installment),
-		"{{total_amount}}":       formatAmount(detail.TotalAmount),
-		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
-		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
-		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
-		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
-		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
-		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
-		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
-		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
-		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
-		"{{document_line}}":      buildDocumentLine(documents),
-		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
-		"{{signature}}":          strings.TrimSpace(detail.Signature),
+	replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
@@ -208,7 +193,7 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 		return
 	}
 
-	sysConfig, err := fetchLatestSystemConfig()
+	sysConfig, err := fetchLatestSystemConfig(nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system configuration"})
 		return
@@ -237,6 +222,49 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 	c.Header("Content-Type", "application/pdf")
 	c.Header("Content-Disposition", "inline; filename=publication_reward_preview.pdf")
 	c.Data(http.StatusOK, "application/pdf", merged)
+}
+
+func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
+	if submission == nil {
+		return nil, fmt.Errorf("submission is required")
+	}
+	if submission.User == nil {
+		return nil, fmt.Errorf("submission missing applicant")
+	}
+	if detail == nil {
+		return nil, fmt.Errorf("publication reward detail is required")
+	}
+	if sysConfig == nil {
+		sysConfig = &systemConfigSnapshot{}
+	}
+
+	positionName := ""
+	if name := strings.TrimSpace(submission.User.Position.PositionName); name != "" {
+		positionName = name
+	}
+
+	replacements := map[string]string{
+		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
+		"{{applicant_name}}":     buildApplicantName(submission.User),
+		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
+		"{{position}}":           positionName,
+		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{total_amount}}":       formatAmount(detail.TotalAmount),
+		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
+		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
+		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
+		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
+		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
+		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
+		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
+		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
+		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
+		"{{document_line}}":      buildDocumentLine(documents),
+		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":          strings.TrimSpace(detail.Signature),
+	}
+
+	return replacements, nil
 }
 
 func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader) (map[string]string, error) {
@@ -638,9 +666,12 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 	return strings.Join(lines, "\n")
 }
 
-func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
+func fetchLatestSystemConfig(db *gorm.DB) (*systemConfigSnapshot, error) {
+	if db == nil {
+		db = config.DB
+	}
 	var row systemConfigSnapshot
-	if err := config.DB.Table("system_config").
+	if err := db.Table("system_config").
 		Select("installment, kku_report_year").
 		Order("config_id DESC").
 		Limit(1).
@@ -653,9 +684,12 @@ func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
 	return &row, nil
 }
 
-func fetchSubmissionDocuments(submissionID int) ([]models.SubmissionDocument, error) {
+func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.SubmissionDocument, error) {
+	if db == nil {
+		db = config.DB
+	}
 	var documents []models.SubmissionDocument
-	if err := config.DB.
+	if err := db.
 		Preload("DocumentType").
 		Where("submission_id = ?", submissionID).
 		Order("display_order ASC, document_id ASC").
@@ -778,15 +812,27 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	return strings.Join(lines, "\n")
 }
 
-func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
+func renderPublicationRewardDocx(destination string, replacements map[string]string) error {
 	templatePath := filepath.Join("templates", "publication_reward_template.docx")
 	if _, err := os.Stat(templatePath); err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("template file not found")
+			return fmt.Errorf("template file not found")
 		}
-		return nil, fmt.Errorf("failed to access template: %w", err)
+		return fmt.Errorf("failed to access template: %w", err)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		return fmt.Errorf("failed to prepare output directory: %w", err)
+	}
+
+	if err := fillDocxTemplate(templatePath, destination, replacements); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
 	tmpDir, err := os.MkdirTemp("", "publication-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
@@ -794,7 +840,7 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 	defer os.RemoveAll(tmpDir)
 
 	outputDocx := filepath.Join(tmpDir, "publication_reward_preview.docx")
-	if err := fillDocxTemplate(templatePath, outputDocx, replacements); err != nil {
+	if err := renderPublicationRewardDocx(outputDocx, replacements); err != nil {
 		return nil, err
 	}
 
