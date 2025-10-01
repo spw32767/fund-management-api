@@ -149,7 +149,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
-	documents, err := fetchSubmissionDocuments(req.SubmissionID)
+	documents, err := fetchSubmissionDocuments(nil, req.SubmissionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load submission documents"})
 		return
@@ -654,10 +654,15 @@ func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
 	return &row, nil
 }
 
-func fetchSubmissionDocuments(submissionID int) ([]models.SubmissionDocument, error) {
+func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.SubmissionDocument, error) {
+	if db == nil {
+		db = config.DB
+	}
+
 	var documents []models.SubmissionDocument
-	if err := config.DB.
+	if err := db.
 		Preload("DocumentType").
+		Preload("File").
 		Where("submission_id = ?", submissionID).
 		Order("display_order ASC, document_id ASC").
 		Find(&documents).Error; err != nil {
@@ -769,6 +774,12 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 		name := strings.TrimSpace(doc.DocumentTypeName)
 		if name == "" {
 			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(doc.Description)
+		}
+		if name == "" {
+			name = strings.TrimSpace(doc.File.OriginalName)
 		}
 		if name == "" {
 			continue
