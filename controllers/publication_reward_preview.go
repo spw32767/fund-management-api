@@ -815,7 +815,7 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 	}
 
 	profileArg := fmt.Sprintf("-env:UserInstallation=file://%s", filepath.ToSlash(profileDir))
-	filterArg := "pdf:writer_pdf_Export:EmbedStandardFonts=true"
+	filterArg := "pdf:writer_pdf_Export:EmbedStandardFonts=true;EmbedFonts=true"
 
 	args := []string{profileArg, "--headless", "--convert-to", filterArg, "--outdir", tmpDir, outputDocx}
 	cmd := exec.Command(converter, args...)
@@ -1030,6 +1030,38 @@ func configureLibreOfficeFonts(tmpDir string) ([]string, error) {
 		builder.WriteString(xmlEscape(dir))
 		builder.WriteString("</dir>\n")
 	}
+
+	aliasMap := map[string]string{
+		"Cordia New":      "TH Sarabun New",
+		"Angsana New":     "TH Sarabun New",
+		"AngsanaUPC":      "TH Sarabun New",
+		"Sarabun":         "TH Sarabun New",
+		"Times New Roman": "DejaVu Serif",
+		"Calibri":         "DejaVu Sans",
+		"Calibri Light":   "DejaVu Sans",
+		"Segoe UI Symbol": "DejaVu Sans",
+	}
+
+	aliasKeys := make([]string, 0, len(aliasMap))
+	for from := range aliasMap {
+		aliasKeys = append(aliasKeys, from)
+	}
+	sort.Strings(aliasKeys)
+
+	for _, from := range aliasKeys {
+		to := aliasMap[from]
+		builder.WriteString("  <alias binding=\"strong\">\n")
+		builder.WriteString("    <family>")
+		builder.WriteString(xmlEscape(from))
+		builder.WriteString("</family>\n")
+		builder.WriteString("    <accept>\n")
+		builder.WriteString("      <family>")
+		builder.WriteString(xmlEscape(to))
+		builder.WriteString("</family>\n")
+		builder.WriteString("    </accept>\n")
+		builder.WriteString("  </alias>\n")
+	}
+
 	builder.WriteString("</fontconfig>\n")
 
 	if err := os.WriteFile(configPath, []byte(builder.String()), 0600); err != nil {
