@@ -617,7 +617,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			if name == "" {
 				continue
 			}
-			lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
+			lines = append(lines, name+" — จำนวน 1 ฉบับ")
 		}
 		if len(lines) > 0 {
 			return strings.Join(lines, "\n")
@@ -634,7 +634,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 		if name == "" {
 			continue
 		}
-		lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, name+" — จำนวน 1 ฉบับ")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -784,7 +784,7 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 		if name == "" {
 			continue
 		}
-		lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, name+" — จำนวน 1 ฉบับ")
 	}
 
 	return strings.Join(lines, "\n")
