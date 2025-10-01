@@ -459,12 +459,12 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to load publication reward detail: %w", err)
 		}
 
-		sysConfig, err := fetchLatestSystemConfig(tx)
+		sysConfig, err := fetchLatestSystemConfigWithDB(tx)
 		if err != nil {
 			return fmt.Errorf("failed to load system configuration: %w", err)
 		}
 
-		documents, err := fetchSubmissionDocuments(tx, submission.SubmissionID)
+		documents, err := fetchSubmissionDocumentsWithDB(tx, submission.SubmissionID)
 		if err != nil {
 			return fmt.Errorf("failed to load submission documents: %w", err)
 		}
@@ -599,6 +599,98 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 	}
 
 	return &docType, nil
+}
+
+func fetchLatestSystemConfigWithDB(tx *gorm.DB) (*systemConfigSnapshot, error) {
+	if tx == nil {
+		return fetchLatestSystemConfig()
+	}
+
+	var row systemConfigSnapshot
+	if err := tx.Table("system_config").
+		Select("installment, kku_report_year").
+		Order("config_id DESC").
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &systemConfigSnapshot{}, nil
+		}
+		return nil, err
+	}
+
+	return &row, nil
+}
+
+func fetchSubmissionDocumentsWithDB(tx *gorm.DB, submissionID int) ([]models.SubmissionDocument, error) {
+	query := config.DB
+	if tx != nil {
+		query = tx
+	}
+
+	var documents []models.SubmissionDocument
+	if err := query.
+		Preload("DocumentType").
+		Where("submission_id = ?", submissionID).
+		Order("display_order ASC, document_id ASC").
+		Find(&documents).Error; err != nil {
+		return nil, err
+	}
+
+	return documents, nil
+}
+
+func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
+	if submission == nil {
+		return nil, fmt.Errorf("submission is nil")
+	}
+	if submission.User == nil {
+		return nil, fmt.Errorf("submission missing applicant")
+	}
+	if detail == nil {
+		return nil, fmt.Errorf("publication detail is nil")
+	}
+	if sysConfig == nil {
+		sysConfig = &systemConfigSnapshot{}
+	}
+
+	replacements := map[string]string{
+		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
+		"{{applicant_name}}":     buildApplicantName(submission.User),
+		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
+		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
+		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{total_amount}}":       formatAmount(detail.TotalAmount),
+		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
+		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
+		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
+		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
+		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
+		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
+		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
+		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
+		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
+		"{{document_line}}":      buildDocumentLine(documents),
+		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":          strings.TrimSpace(detail.Signature),
+	}
+
+	return replacements, nil
+}
+
+func renderPublicationRewardDocx(outputPath string, replacements map[string]string) error {
+	templatePath := filepath.Join("templates", "publication_reward_template.docx")
+	if _, err := os.Stat(templatePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("template file not found")
+		}
+		return fmt.Errorf("failed to access template: %w", err)
+	}
+
+	if err := fillDocxTemplate(templatePath, outputPath, replacements); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ===================== FILE UPLOAD SYSTEM =====================
