@@ -149,7 +149,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
-	documents, err := fetchSubmissionDocuments(nil, req.SubmissionID)
+	documents, err := fetchSubmissionDocuments(config.DB, req.SubmissionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load submission documents"})
 		return
@@ -158,7 +158,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
-		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
+		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
 		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
 		"{{installment}}":        formatNullableInt(sysConfig.Installment),
 		"{{total_amount}}":       formatAmount(detail.TotalAmount),
@@ -328,6 +328,38 @@ func formatThaiDateFromString(raw string) string {
 
 	if t, err := time.Parse("2006-01-02", trimmed); err == nil {
 		return utils.FormatThaiDate(t)
+	}
+
+	return ""
+}
+
+func resolveApplicantEmploymentDate(user *models.User) string {
+	if user == nil {
+		return ""
+	}
+
+	if formatted := utils.FormatThaiDatePtr(user.DateOfEmployment); formatted != "" {
+		return formatted
+	}
+
+	if user.UserID == 0 {
+		return ""
+	}
+
+	type employmentRow struct {
+		Date sql.NullTime `gorm:"column:date_of_employment"`
+	}
+
+	var row employmentRow
+	if err := config.DB.Table("users").
+		Select("date_of_employment").
+		Where("user_id = ?", user.UserID).
+		Scan(&row).Error; err != nil {
+		return ""
+	}
+
+	if row.Date.Valid {
+		return utils.FormatThaiDate(row.Date.Time)
 	}
 
 	return ""
@@ -617,7 +649,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			if name == "" {
 				continue
 			}
-			lines = append(lines, name+" — จำนวน 1 ฉบับ")
+			lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
 		}
 		if len(lines) > 0 {
 			return strings.Join(lines, "\n")
@@ -634,7 +666,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 		if name == "" {
 			continue
 		}
-		lines = append(lines, name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -662,7 +694,6 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 	var documents []models.SubmissionDocument
 	if err := db.
 		Preload("DocumentType").
-		Preload("File").
 		Where("submission_id = ?", submissionID).
 		Order("display_order ASC, document_id ASC").
 		Find(&documents).Error; err != nil {
@@ -776,15 +807,9 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
 		}
 		if name == "" {
-			name = strings.TrimSpace(doc.Description)
-		}
-		if name == "" {
-			name = strings.TrimSpace(doc.File.OriginalName)
-		}
-		if name == "" {
 			continue
 		}
-		lines = append(lines, name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, "☑ "+name+" — จำนวน 1 ฉบับ")
 	}
 
 	return strings.Join(lines, "\n")
