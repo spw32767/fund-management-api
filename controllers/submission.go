@@ -291,12 +291,25 @@ func CreateSubmission(c *gin.Context) {
 }
 
 func determineInitialStatusID(submissionType string, requestedStatusID *int, roleID int) (int, error) {
-	if requestedStatusID != nil && roleID == 3 {
+	if requestedStatusID != nil {
 		status, err := utils.GetApplicationStatusByID(*requestedStatusID)
 		if err != nil {
 			return 0, err
 		}
-		return status.ApplicationStatusID, nil
+
+		if roleID == 3 {
+			return status.ApplicationStatusID, nil
+		}
+
+		if submissionType == "fund_application" {
+			allowed, err := utils.StatusMatchesCodes(status.ApplicationStatusID, utils.StatusCodeDeptHeadPending)
+			if err != nil {
+				return 0, err
+			}
+			if allowed {
+				return status.ApplicationStatusID, nil
+			}
+		}
 	}
 
 	switch submissionType {
