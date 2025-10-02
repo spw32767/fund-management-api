@@ -217,7 +217,12 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 
 	attachments := form.File["attachments"]
 
-	replacements, err := buildFormPreviewReplacements(&payload, sysConfig, attachments)
+	requesterID := 0
+	if id, ok := getUserIDFromContext(c); ok {
+		requesterID = int(id)
+	}
+
+	replacements, err := buildFormPreviewReplacements(&payload, sysConfig, attachments, requesterID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -240,7 +245,7 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", merged)
 }
 
-func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader) (map[string]string, error) {
+func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader, requesterID int) (map[string]string, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("invalid form payload")
 	}
@@ -253,10 +258,15 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	publicationDate := resolveFormPublicationDate(&payload.FormData)
 	publicationYearText := derivePublicationYear(publicationDate, payload.FormData.JournalYear)
 
+	employmentDate := formatThaiDateFromString(payload.Applicant.DateOfEmployment)
+	if employmentDate == "" {
+		employmentDate = lookupEmploymentDateFromUserID(requesterID)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
 		"{{applicant_name}}":     buildPreviewApplicantName(payload.Applicant),
-		"{{date_of_employment}}": formatThaiDateFromString(payload.Applicant.DateOfEmployment),
+		"{{date_of_employment}}": employmentDate,
 		"{{position}}":           strings.TrimSpace(payload.Applicant.PositionName),
 		"{{installment}}":        formatNullableInt(sysConfig.Installment),
 		"{{total_amount}}":       formatAmount(totalAmount),
@@ -360,6 +370,26 @@ func resolveApplicantEmploymentDate(user *models.User) string {
 
 	if row.Date.Valid {
 		return utils.FormatThaiDate(row.Date.Time)
+	}
+
+	return ""
+}
+
+func lookupEmploymentDateFromUserID(userID int) string {
+	if userID <= 0 {
+		return ""
+	}
+
+	var user models.User
+	if err := config.DB.
+		Select("user_id", "date_of_employment").
+		Where("user_id = ?", userID).
+		First(&user).Error; err != nil {
+		return ""
+	}
+
+	if formatted := utils.FormatThaiDatePtr(user.DateOfEmployment); formatted != "" {
+		return formatted
 	}
 
 	return ""
