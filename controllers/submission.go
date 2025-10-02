@@ -633,7 +633,7 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(documentDate),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
-		"{{date_of_employment}}": utils.FormatThaiDatePtr(submission.User.DateOfEmployment),
+		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
 		"{{position}}":           positionName,
 		"{{installment}}":        formatNullableInt(sysConfig.Installment),
 		"{{total_amount}}":       formatAmount(detail.TotalAmount),
