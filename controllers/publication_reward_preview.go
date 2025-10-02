@@ -672,11 +672,14 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 
 		lines := make([]string, 0, len(metaCopy))
 		for _, entry := range metaCopy {
-			name := selectCleanDocumentName(entry.Filename, entry.DocumentTypeName)
+			name := strings.TrimSpace(entry.DocumentTypeName)
+			if name == "" {
+				name = strings.TrimSpace(entry.Filename)
+			}
 			if name == "" {
 				continue
 			}
-			lines = append(lines, name+" — จำนวน 1 ฉบับ")
+			lines = append(lines, buildDocumentQuantityLine(name))
 		}
 		if len(lines) > 0 {
 			return strings.Join(lines, "\n")
@@ -689,11 +692,11 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 
 	lines := make([]string, 0, len(attachments))
 	for _, header := range attachments {
-		name := selectCleanDocumentName(header.Filename)
+		name := strings.TrimSpace(header.Filename)
 		if name == "" {
 			continue
 		}
-		lines = append(lines, name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, buildDocumentQuantityLine(name))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -720,6 +723,8 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 
 	var documents []models.SubmissionDocument
 	if err := db.
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.*, dt.document_type_name").
 		Preload("DocumentType").
 		Preload("File").
 		Where("submission_id = ?", submissionID).
@@ -830,63 +835,45 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 
 	lines := make([]string, 0, len(documents))
 	for _, doc := range documents {
-		name := selectCleanDocumentName(
-			doc.File.OriginalName,
-			doc.DocumentTypeName,
-			doc.DocumentType.DocumentTypeName,
-			doc.Description,
-		)
+		name := strings.TrimSpace(doc.DocumentTypeName)
+		if name == "" {
+			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(doc.Description)
+		}
+		if name == "" {
+			name = strings.TrimSpace(doc.File.OriginalName)
+		}
 		if name == "" {
 			continue
 		}
-		lines = append(lines, name+" — จำนวน 1 ฉบับ")
+		lines = append(lines, buildDocumentQuantityLine(name))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func selectCleanDocumentName(candidates ...string) string {
-	for _, candidate := range candidates {
-		cleaned := cleanDocumentDisplayName(candidate)
-		if cleaned != "" {
-			return cleaned
-		}
-	}
-	return ""
-}
-
-func cleanDocumentDisplayName(name string) string {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+func buildDocumentQuantityLine(name string) string {
+	unit := documentUnitForName(name)
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
 		return ""
 	}
+	return fmt.Sprintf("%s จำนวน 1 %s", cleanName, unit)
+}
 
-	unwantedSuffixes := []string{
-		"(ประเภททุน)",
-		"(ประเภททุน )",
-		" ประเภททุน",
-		"- ประเภททุน",
-		"– ประเภททุน",
-		"— ประเภททุน",
-		": ประเภททุน",
+func documentUnitForName(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return "ฉบับ"
 	}
 
-	for _, suffix := range unwantedSuffixes {
-		if strings.HasSuffix(trimmed, suffix) {
-			trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, suffix))
-		}
+	if normalized == strings.ToLower("Full Reprint (บทความตีพิมพ์)") || strings.Contains(normalized, "บทความตีพิมพ์") {
+		return "เรื่อง"
 	}
 
-	// Handle cases where the label is wrapped in parentheses with leading space.
-	if idx := strings.LastIndex(trimmed, " (ประเภททุน)"); idx != -1 && idx+len(" (ประเภททุน)") == len(trimmed) {
-		trimmed = strings.TrimSpace(trimmed[:idx])
-	}
-
-	// Remove any trailing connectors left after trimming the unwanted suffix.
-	trimmed = strings.TrimRight(trimmed, "-–—:() ")
-	trimmed = strings.TrimSpace(trimmed)
-
-	return trimmed
+	return "ฉบับ"
 }
 
 func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
