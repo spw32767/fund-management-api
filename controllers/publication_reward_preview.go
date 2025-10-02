@@ -672,10 +672,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 
 		lines := make([]string, 0, len(metaCopy))
 		for _, entry := range metaCopy {
-			name := strings.TrimSpace(entry.DocumentTypeName)
-			if name == "" {
-				name = strings.TrimSpace(entry.Filename)
-			}
+			name := selectCleanDocumentName(entry.Filename, entry.DocumentTypeName)
 			if name == "" {
 				continue
 			}
@@ -692,7 +689,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 
 	lines := make([]string, 0, len(attachments))
 	for _, header := range attachments {
-		name := strings.TrimSpace(header.Filename)
+		name := selectCleanDocumentName(header.Filename)
 		if name == "" {
 			continue
 		}
@@ -833,16 +830,12 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 
 	lines := make([]string, 0, len(documents))
 	for _, doc := range documents {
-		name := strings.TrimSpace(doc.DocumentTypeName)
-		if name == "" {
-			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
-		}
-		if name == "" {
-			name = strings.TrimSpace(doc.Description)
-		}
-		if name == "" {
-			name = strings.TrimSpace(doc.File.OriginalName)
-		}
+		name := selectCleanDocumentName(
+			doc.File.OriginalName,
+			doc.DocumentTypeName,
+			doc.DocumentType.DocumentTypeName,
+			doc.Description,
+		)
 		if name == "" {
 			continue
 		}
@@ -850,6 +843,50 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func selectCleanDocumentName(candidates ...string) string {
+	for _, candidate := range candidates {
+		cleaned := cleanDocumentDisplayName(candidate)
+		if cleaned != "" {
+			return cleaned
+		}
+	}
+	return ""
+}
+
+func cleanDocumentDisplayName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+
+	unwantedSuffixes := []string{
+		"(ประเภททุน)",
+		"(ประเภททุน )",
+		" ประเภททุน",
+		"- ประเภททุน",
+		"– ประเภททุน",
+		"— ประเภททุน",
+		": ประเภททุน",
+	}
+
+	for _, suffix := range unwantedSuffixes {
+		if strings.HasSuffix(trimmed, suffix) {
+			trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, suffix))
+		}
+	}
+
+	// Handle cases where the label is wrapped in parentheses with leading space.
+	if idx := strings.LastIndex(trimmed, " (ประเภททุน)"); idx != -1 && idx+len(" (ประเภททุน)") == len(trimmed) {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+
+	// Remove any trailing connectors left after trimming the unwanted suffix.
+	trimmed = strings.TrimRight(trimmed, "-–—:() ")
+	trimmed = strings.TrimSpace(trimmed)
+
+	return trimmed
 }
 
 func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error) {
