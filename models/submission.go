@@ -27,6 +27,22 @@ type Submission struct {
 	DeletedAt               *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
 	AnnounceReferenceNumber string     `gorm:"-" json:"announce_reference_number,omitempty"`
 
+	// ===== ADD: Admin approval (central truth) =====
+	AdminApprovedBy *int       `gorm:"column:admin_approved_by" json:"admin_approved_by,omitempty"`
+	AdminApprovedAt *time.Time `gorm:"column:admin_approved_at" json:"admin_approved_at,omitempty"`
+
+	// ===== ADD: Head rejection (split) =====
+	HeadRejectedBy      *int       `gorm:"column:head_rejected_by" json:"head_rejected_by,omitempty"`
+	HeadRejectedAt      *time.Time `gorm:"column:head_rejected_at" json:"head_rejected_at,omitempty"`
+	HeadRejectionReason *string    `gorm:"column:head_rejection_reason" json:"head_rejection_reason,omitempty"`
+	HeadComment         *string    `gorm:"column:head_comment" json:"head_comment,omitempty"`
+
+	// ===== ADD: Admin rejection (split) =====
+	AdminRejectedBy      *int       `gorm:"column:admin_rejected_by" json:"admin_rejected_by,omitempty"`
+	AdminRejectedAt      *time.Time `gorm:"column:admin_rejected_at" json:"admin_rejected_at,omitempty"`
+	AdminRejectionReason *string    `gorm:"column:admin_rejection_reason" json:"admin_rejection_reason,omitempty"`
+	AdminComment         *string    `gorm:"column:admin_comment" json:"admin_comment,omitempty"`
+
 	// Relations
 	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`

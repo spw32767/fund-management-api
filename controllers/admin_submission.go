@@ -265,7 +265,7 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 // REPLACED: ApproveSubmission (single source of truth)
 // ==============================
 
-// ApproveSubmission - อนุมัติ submission พร้อมระบุจำนวนเงิน และบันทึกเลขประกาศ
+// ===== REPLACE WHOLE FUNCTION =====
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -275,18 +275,16 @@ func ApproveSubmission(c *gin.Context) {
 	}
 	userID, _ := c.Get("userID")
 
-	// Accept both legacy and new payloads
 	var req struct {
-		// New granular fields (admin page)
+		// amounts (PR)
 		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
 		RevisionFeeApproveAmount    *float64 `json:"revision_fee_approve_amount"`
 		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
 		TotalApproveAmount          *float64 `json:"total_approve_amount"`
 		AnnounceReferenceNumber     string   `json:"announce_reference_number"`
-
-		// Legacy fields (keep compatibility)
+		// legacy fallback
 		ApprovedAmount  *float64 `json:"approved_amount"`
-		ApprovalComment string   `json:"approval_comment"`
+		ApprovalComment string   `json:"approval_comment"` // จะเก็บที่ admin_comment ได้ถ้าต้องการ
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
@@ -300,7 +298,7 @@ func ApproveSubmission(c *gin.Context) {
 		}
 	}()
 
-	// Load submission with publication detail
+	// load
 	var submission models.Submission
 	if err := tx.Preload("PublicationRewardDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
@@ -310,87 +308,83 @@ func ApproveSubmission(c *gin.Context) {
 		return
 	}
 
-	allowedForApproval, err := utils.StatusMatchesCodes(
+	allowed, err := utils.StatusMatchesCodes(
 		submission.StatusID,
 		utils.StatusCodePending,
 		utils.StatusCodeDraft,
 		utils.StatusCodeDeptHeadPending,
 		utils.StatusCodeDeptHeadRecommended,
 	)
-	if err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
-		return
-	}
-	if !allowedForApproval {
+	if err != nil || !allowed {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only submissions awaiting review can be approved"})
 		return
 	}
 
-	// Update submission status → approved
 	now := time.Now()
-	submission.StatusID = 2
-	submission.UpdatedAt = now
+	var adminID *int
 	if uid, ok := userID.(int); ok {
-		submission.ApprovedBy = &uid
+		adminID = &uid
 	}
-	submission.ApprovedAt = &now
-	if err := tx.Save(&submission).Error; err != nil {
+
+	// ✅ central truth
+	updates := map[string]interface{}{
+		"status_id":         2, // approved
+		"updated_at":        now,
+		"admin_approved_by": adminID,
+		"admin_approved_at": now,
+	}
+	// (ออปชัน) เก็บความเห็นของแอดมินตอนอนุมัติ
+	if strings.TrimSpace(req.ApprovalComment) != "" {
+		updates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
+	}
+
+	if err := tx.Model(&models.Submission{}).
+		Where("submission_id = ?", submissionID).
+		Updates(updates).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// Update detail for publication_reward
+	// PR amounts
 	if submission.SubmissionType == "publication_reward" {
-		var detail models.PublicationRewardDetail
+		var d models.PublicationRewardDetail
 		if submission.PublicationRewardDetail != nil {
-			detail = *submission.PublicationRewardDetail
+			d = *submission.PublicationRewardDetail
 		} else {
-			// try to find; or prepare new
-			if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err != nil {
-				detail.SubmissionID = submissionID
-			}
+			_ = tx.Where("submission_id = ?", submissionID).First(&d).Error
 		}
+		d.SubmissionID = submissionID
 
-		// Apply amounts if provided
 		if req.RewardApproveAmount != nil {
-			detail.RewardApproveAmount = *req.RewardApproveAmount
+			d.RewardApproveAmount = *req.RewardApproveAmount
 		}
 		if req.RevisionFeeApproveAmount != nil {
-			detail.RevisionFeeApproveAmount = *req.RevisionFeeApproveAmount
+			d.RevisionFeeApproveAmount = *req.RevisionFeeApproveAmount
 		}
 		if req.PublicationFeeApproveAmount != nil {
-			detail.PublicationFeeApproveAmount = *req.PublicationFeeApproveAmount
+			d.PublicationFeeApproveAmount = *req.PublicationFeeApproveAmount
 		}
-
-		// Total priority: explicit total → legacy approved_amount → sum of parts
 		if req.TotalApproveAmount != nil {
-			detail.TotalApproveAmount = *req.TotalApproveAmount
+			d.TotalApproveAmount = *req.TotalApproveAmount
 		} else if req.ApprovedAmount != nil {
-			detail.TotalApproveAmount = *req.ApprovedAmount
+			d.TotalApproveAmount = *req.ApprovedAmount
 		} else {
-			detail.TotalApproveAmount = detail.RewardApproveAmount +
-				detail.RevisionFeeApproveAmount +
-				detail.PublicationFeeApproveAmount
+			d.TotalApproveAmount = d.RewardApproveAmount + d.RevisionFeeApproveAmount + d.PublicationFeeApproveAmount
 		}
+		d.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
 
-		// Save announce reference number
-		detail.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
-
-		if detail.DetailID == 0 {
-			if err := tx.Create(&detail).Error; err != nil {
+		if d.DetailID == 0 {
+			if err := tx.Create(&d).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create detail"})
 				return
 			}
-		} else {
-			if err := tx.Save(&detail).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update detail"})
-				return
-			}
+		} else if err := tx.Save(&d).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update detail"})
+			return
 		}
 	}
 
@@ -399,23 +393,15 @@ func ApproveSubmission(c *gin.Context) {
 		return
 	}
 
-	// Return latest (with detail)
 	var out models.Submission
-	if err := config.DB.Preload("PublicationRewardDetail").
+	_ = config.DB.Preload("PublicationRewardDetail").
 		Where("submission_id = ?", submissionID).
-		First(&out).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Submission approved"})
-		return
-	}
+		First(&out).Error
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"message":    "Submission approved successfully",
 		"submission": out,
-		"details": gin.H{
-			"type": "publication_reward",
-			"data": out.PublicationRewardDetail,
-		},
 	})
 }
 
@@ -423,7 +409,7 @@ func ApproveSubmission(c *gin.Context) {
 // REPLACED: RejectSubmission (single source of truth)
 // ==============================
 
-// RejectSubmission - ปฏิเสธ submission พร้อมเหตุผล
+// ===== REPLACE WHOLE FUNCTION =====
 func RejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -435,6 +421,7 @@ func RejectSubmission(c *gin.Context) {
 
 	var req struct {
 		RejectionReason string `json:"rejection_reason" binding:"required"`
+		Comment         string `json:"comment"` // ออปชัน
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
@@ -450,7 +437,7 @@ func RejectSubmission(c *gin.Context) {
 		return
 	}
 
-	allowedForRejection, err := utils.StatusMatchesCodes(
+	allowed, err := utils.StatusMatchesCodes(
 		submission.StatusID,
 		utils.StatusCodePending,
 		utils.StatusCodeDraft,
@@ -458,61 +445,41 @@ func RejectSubmission(c *gin.Context) {
 		utils.StatusCodeDeptHeadRecommended,
 		utils.StatusCodeDeptHeadNotRecommended,
 	)
-	if err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
-		return
-	}
-	if !allowedForRejection {
+	if err != nil || !allowed {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only submissions awaiting review can be rejected"})
 		return
 	}
 
 	now := time.Now()
-	submission.StatusID = 3
-	submission.UpdatedAt = now
-	if err := tx.Save(&submission).Error; err != nil {
+	var adminID *int
+	if uid, ok := userID.(int); ok {
+		adminID = &uid
+	}
+
+	updates := map[string]interface{}{
+		"status_id":              3, // rejected
+		"updated_at":             now,
+		"admin_rejected_by":      adminID,
+		"admin_rejected_at":      now,
+		"admin_rejection_reason": strings.TrimSpace(req.RejectionReason),
+	}
+	if strings.TrimSpace(req.Comment) != "" {
+		updates["admin_comment"] = strings.TrimSpace(req.Comment)
+	}
+
+	if err := tx.Model(&models.Submission{}).
+		Where("submission_id = ?", submissionID).
+		Updates(updates).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// Save rejection info
-	switch submission.SubmissionType {
-	case "publication_reward":
-		if err := tx.Model(&models.PublicationRewardDetail{}).
-			Where("submission_id = ?", submissionID).
-			Updates(map[string]interface{}{
-				"rejection_reason": req.RejectionReason,
-				"rejected_by":      userID,
-				"rejected_at":      now,
-				"update_at":        now,
-			}).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save rejection info"})
-			return
-		}
-	case "fund_application":
-		var detail models.FundApplicationDetail
-		if err := tx.Where("submission_id = ?", submissionID).First(&detail).Error; err == nil {
-			detail.Comment = req.RejectionReason
-			rejectedByID := userID.(int)
-			detail.RejectedBy = &rejectedByID
-			detail.RejectedAt = &now
-			detail.ClosedAt = &now
-			if err := tx.Save(&detail).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save rejection info"})
-				return
-			}
-		}
-	}
-
-	// Audit log
+	// Audit
 	desc := req.RejectionReason
-	auditLog := models.AuditLog{
-		UserID:       userID.(int),
+	if err := tx.Create(&models.AuditLog{
+		UserID:       *adminID,
 		Action:       "reject",
 		EntityType:   "submission",
 		EntityID:     &submission.SubmissionID,
@@ -520,8 +487,11 @@ func RejectSubmission(c *gin.Context) {
 		Description:  &desc,
 		IPAddress:    c.ClientIP(),
 		CreatedAt:    now,
+	}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record audit log"})
+		return
 	}
-	tx.Create(&auditLog)
 
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject submission"})
@@ -531,10 +501,5 @@ func RejectSubmission(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Submission rejected successfully",
-		"submission": gin.H{
-			"submission_id":     submission.SubmissionID,
-			"submission_number": submission.SubmissionNumber,
-			"status_id":         submission.StatusID,
-		},
 	})
 }

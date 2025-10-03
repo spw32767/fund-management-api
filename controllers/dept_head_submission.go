@@ -227,6 +227,7 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
+// ===== REPLACE WHOLE FUNCTION =====
 func DeptHeadRejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -239,19 +240,9 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		RejectionReason string `json:"rejection_reason" binding:"required"`
 		Comment         string `json:"comment"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
 		return
-	}
-
-	reason := strings.TrimSpace(req.RejectionReason)
-	if reason == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
-		return
-	}
-	comment := strings.TrimSpace(req.Comment)
-	if comment == "" {
-		comment = reason
 	}
 
 	userIDVal, _ := c.Get("userID")
@@ -264,23 +255,14 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 
 	var submission models.Submission
-	if err := tx.Preload("Status").First(&submission, submissionID).Error; err != nil {
+	if err := tx.First(&submission, submissionID).Error; err != nil {
 		tx.Rollback()
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
-		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
 	allowed, err := utils.StatusMatchesCodes(submission.StatusID, utils.StatusCodeDeptHeadPending)
-	if err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
-		return
-	}
-	if !allowed {
+	if err != nil || !allowed {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not awaiting department review"})
 		return
@@ -295,13 +277,18 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status_id":        rejectStatus.ApplicationStatusID,
-		"updated_at":       now,
-		"reviewed_at":      now,
-		"head_approved_at": now,
-		"head_approved_by": userID,
-		"closed_at":        now,
-		"comment":          comment,
+		"status_id":             rejectStatus.ApplicationStatusID,
+		"updated_at":            now,
+		"reviewed_at":           now,
+		"head_approved_at":      now, // ตัดสินใจแล้ว
+		"head_approved_by":      userID,
+		"closed_at":             now,
+		"head_rejected_by":      userID,
+		"head_rejected_at":      now,
+		"head_rejection_reason": strings.TrimSpace(req.RejectionReason),
+	}
+	if strings.TrimSpace(req.Comment) != "" {
+		updates["head_comment"] = strings.TrimSpace(req.Comment)
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -312,39 +299,11 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
-	switch submission.SubmissionType {
-	case "publication_reward":
-		detailUpdates := map[string]interface{}{
-			"rejection_reason": reason,
-			"rejected_by":      userID,
-			"rejected_at":      now,
-			"update_at":        now,
-		}
-		if err := tx.Model(&models.PublicationRewardDetail{}).
-			Where("submission_id = ?", submissionID).
-			Updates(detailUpdates).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record rejection details"})
-			return
-		}
-	case "fund_application":
-		detailUpdates := map[string]interface{}{
-			"comment":     comment,
-			"rejected_by": userID,
-			"rejected_at": now,
-			"closed_at":   now,
-		}
-		if err := tx.Model(&models.FundApplicationDetail{}).
-			Where("submission_id = ?", submissionID).
-			Updates(detailUpdates).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record rejection details"})
-			return
-		}
-	}
+	// (ไม่อัปเดตตารางรายละเอียดอีกต่อไป)
 
-	desc := reason
-	auditLog := models.AuditLog{
+	// Audit
+	desc := req.RejectionReason
+	if err := tx.Create(&models.AuditLog{
 		UserID:       userID,
 		Action:       "reject",
 		EntityType:   "submission",
@@ -353,8 +312,7 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		Description:  &desc,
 		IPAddress:    c.ClientIP(),
 		CreatedAt:    now,
-	}
-	if err := tx.Create(&auditLog).Error; err != nil {
+	}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record audit log"})
 		return
@@ -365,12 +323,12 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
+	// payload (ตามพฤติกรรมเดิม)
 	payload, err := buildSubmissionDetailPayload(submissionID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
-
 	payload["success"] = true
 	c.JSON(http.StatusOK, payload)
 }
