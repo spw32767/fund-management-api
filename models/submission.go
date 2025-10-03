@@ -43,6 +43,20 @@ type Submission struct {
 	AdminRejectionReason *string    `gorm:"column:admin_rejection_reason" json:"admin_rejection_reason,omitempty"`
 	AdminComment         *string    `gorm:"column:admin_comment" json:"admin_comment,omitempty"`
 
+	// --- อนุมัติของหัวหน้าสาขา ---
+	HeadApprovedBy *int       `gorm:"column:head_approved_by" json:"head_approved_by,omitempty"`
+	HeadApprovedAt *time.Time `gorm:"column:head_approved_at" json:"head_approved_at,omitempty"`
+
+	// --- เวลารีวิว/ปิดคำขอ (บางจุดของโค้ดใช้) ---
+	ReviewedAt *time.Time `gorm:"column:reviewed_at" json:"reviewed_at,omitempty"`
+	ClosedAt   *time.Time `gorm:"column:closed_at"   json:"closed_at,omitempty"`
+
+	// --- ช่องรวมศูนย์แบบ legacy (คงไว้เพื่อความเข้ากันได้/UI บางที่ fallback) ---
+	RejectedBy      *int       `gorm:"column:rejected_by"      json:"rejected_by,omitempty"`
+	RejectedAt      *time.Time `gorm:"column:rejected_at"      json:"rejected_at,omitempty"`
+	RejectionReason *string    `gorm:"column:rejection_reason" json:"rejection_reason,omitempty"`
+	Comment         *string    `gorm:"column:comment"          json:"comment,omitempty"`
+
 	// Relations
 	User                    *User                    `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Year                    Year                     `gorm:"foreignKey:YearID" json:"year,omitempty"`

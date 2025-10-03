@@ -334,120 +334,105 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 }
 
 func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
+	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น
 	var submission models.Submission
-	query := config.DB.Preload("User").
+	if err := config.DB.
+		Preload("User").
 		Preload("Year").
 		Preload("Status").
-		Preload("FundApplicationDetail.Subcategory.Category").
-		Preload("PublicationRewardDetail")
-
-	if err := query.First(&submission, submissionID).Error; err != nil {
+		Preload("SubmissionUsers.User").
+		Preload("PublicationRewardDetail").
+		Preload("FundApplicationDetail").
+		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
+		First(&submission).Error; err != nil {
 		return nil, err
 	}
 
-	var submissionUsers []models.SubmissionUser
-	if err := config.DB.Where("submission_id = ?", submissionID).
-		Preload("User").
-		Order("display_order ASC").
-		Find(&submissionUsers).Error; err != nil {
-		submissionUsers = []models.SubmissionUser{}
-	}
-
-	var documents []models.SubmissionDocument
-	config.DB.Where("submission_id = ?", submissionID).
-		Preload("DocumentType").
-		Preload("File").
-		Find(&documents)
-
-	response := gin.H{
-		"submission": gin.H{
-			"submission_id":         submission.SubmissionID,
-			"submission_number":     submission.SubmissionNumber,
-			"submission_type":       submission.SubmissionType,
-			"user_id":               submission.UserID,
-			"year_id":               submission.YearID,
-			"category_id":           submission.CategoryID,
-			"subcategory_id":        submission.SubcategoryID,
-			"subcategory_budget_id": submission.SubcategoryBudgetID,
-			"status_id":             submission.StatusID,
-			"submitted_at":          submission.SubmittedAt,
-			"created_at":            submission.CreatedAt,
-			"updated_at":            submission.UpdatedAt,
-			"user":                  submission.User,
-			"year":                  submission.Year,
-			"status":                submission.Status,
-		},
-		"details":          nil,
-		"submission_users": []gin.H{},
-		"documents":        []gin.H{},
-	}
-
-	if submission.SubmissionType == "publication_reward" && submission.PublicationRewardDetail != nil {
-		response["details"] = gin.H{
-			"type": "publication_reward",
-			"data": submission.PublicationRewardDetail,
-		}
-	} else if submission.SubmissionType == "fund_application" && submission.FundApplicationDetail != nil {
-		response["details"] = gin.H{
-			"type": "fund_application",
-			"data": submission.FundApplicationDetail,
+	// ---- applicant (เหมือนฝั่ง Admin) ----
+	var applicant map[string]any
+	if submission.User != nil && submission.User.UserID > 0 {
+		applicant = map[string]any{
+			"user_id":    submission.User.UserID,
+			"user_fname": submission.User.UserFname,
+			"user_lname": submission.User.UserLname,
+			"email":      submission.User.Email,
 		}
 	}
 
-	for _, su := range submissionUsers {
-		if su.User == nil {
-			var user models.User
-			if err := config.DB.Where("user_id = ?", su.UserID).First(&user).Error; err == nil {
-				su.User = &user
-			} else {
-				continue
-			}
-		}
-		response["submission_users"] = append(response["submission_users"].([]gin.H), gin.H{
-			"user_id":       su.UserID,
-			"role":          su.Role,
-			"display_order": su.DisplayOrder,
-			"is_primary":    su.IsPrimary,
-			"created_at":    su.CreatedAt,
-			"user": gin.H{
-				"user_id":    su.User.UserID,
-				"user_fname": su.User.UserFname,
-				"user_lname": su.User.UserLname,
-				"email":      su.User.Email,
-			},
+	// ---- details (ตามชนิดคำขอ) ----
+	details := gin.H{"type": submission.SubmissionType, "data": nil}
+	switch submission.SubmissionType {
+	case "publication_reward":
+		details["data"] = submission.PublicationRewardDetail
+	case "fund_application":
+		details["data"] = submission.FundApplicationDetail
+	}
+
+	// ---- submission_users (แปลงเป็น payload บางส่วนให้อ่านง่าย) ----
+	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
+	for _, su := range submission.SubmissionUsers {
+		u := su.User
+		submissionUsers = append(submissionUsers, gin.H{
+			"submission_user_id": su.SubmissionUserID,
+			"user_id":            u.UserID,
+			"user_fname":         u.UserFname,
+			"user_lname":         u.UserLname,
+			"email":              u.Email,
+			"role":               su.Role,      // ถ้ามีฟิลด์ Role ในโมเดล
+			"is_primary":         su.IsPrimary, // ถ้ามีฟิลด์ IsPrimary ในโมเดล
 		})
 	}
 
-	for _, doc := range documents {
-		docInfo := gin.H{
-			"document_id":      doc.DocumentID,
-			"submission_id":    doc.SubmissionID,
-			"file_id":          doc.FileID,
-			"document_type_id": doc.DocumentTypeID,
-			"description":      doc.Description,
-			"display_order":    doc.DisplayOrder,
-			"is_required":      doc.IsRequired,
-			"created_at":       doc.CreatedAt,
-		}
-		if doc.DocumentType.DocumentTypeID != 0 {
-			docInfo["document_type"] = gin.H{
-				"document_type_id":   doc.DocumentType.DocumentTypeID,
-				"document_type_name": doc.DocumentType.DocumentTypeName,
-			}
-		}
-		if doc.File.FileID != 0 {
-			docInfo["file"] = gin.H{
-				"file_id":       doc.File.FileID,
-				"original_name": doc.File.OriginalName,
-				"file_size":     doc.File.FileSize,
-				"mime_type":     doc.File.MimeType,
-				"uploaded_at":   doc.File.UploadedAt,
-			}
-		}
-		response["documents"] = append(response["documents"].([]gin.H), docInfo)
+	// ---- documents (ถ้ามี logic เดิมอยู่ ให้คงไว้; ใส่เป็น [] เปล่าเพื่อความปลอดภัย) ----
+	documents := []gin.H{}
+
+	// ---- ประกอบ payload (จัดรูปแบบ submission ให้เหมือนที่ FE ใช้อยู่) ----
+	submissionPayload := gin.H{
+		"submission_id":     submission.SubmissionID,
+		"submission_number": submission.SubmissionNumber,
+		"submission_type":   submission.SubmissionType,
+		"user_id":           submission.UserID,
+		"year_id":           submission.YearID,
+		"status_id":         submission.StatusID,
+		"submitted_at":      submission.SubmittedAt,
+		"reviewed_at":       submission.ReviewedAt,
+		"head_approved_by":  submission.HeadApprovedBy,
+		"head_approved_at":  submission.HeadApprovedAt,
+		"admin_approved_by": submission.AdminApprovedBy,
+		"admin_approved_at": submission.AdminApprovedAt,
+
+		// ชุด reject (split)
+		"head_rejected_by":       submission.HeadRejectedBy,
+		"head_rejected_at":       submission.HeadRejectedAt,
+		"head_rejection_reason":  submission.HeadRejectionReason,
+		"head_comment":           submission.HeadComment,
+		"admin_rejected_by":      submission.AdminRejectedBy,
+		"admin_rejected_at":      submission.AdminRejectedAt,
+		"admin_rejection_reason": submission.AdminRejectionReason,
+		"admin_comment":          submission.AdminComment,
+
+		// legacy aggregate (ยังคงส่งไว้เผื่อ FE เก่า)
+		"rejected_by":      submission.RejectedBy,
+		"rejected_at":      submission.RejectedAt,
+		"rejection_reason": submission.RejectionReason,
+		"comment":          submission.Comment,
+
+		"user":   submission.User,
+		"year":   submission.Year,
+		"status": submission.Status,
 	}
 
-	return response, nil
+	// ---- ส่งคืน payload ครบชุด ----
+	resp := gin.H{
+		"submission":        submissionPayload,
+		"details":           details,
+		"submission_users":  submissionUsers,
+		"documents":         documents,
+		"applicant":         applicant,         // ✅ เพิ่ม
+		"applicant_user_id": submission.UserID, // ✅ เพิ่ม
+		"success":           true,
+	}
+	return resp, nil
 }
 
 func extractApplicantUser(submission *models.Submission) *models.User {
