@@ -14,10 +14,12 @@ import (
 	"io/fs"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -911,7 +913,12 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 		return nil, fmt.Errorf("failed to prepare libreoffice profile: %w", err)
 	}
 
-	profileArg := fmt.Sprintf("-env:UserInstallation=file://%s", filepath.ToSlash(profileDir))
+	profileURL, err := fileURLFromPath(profileDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare libreoffice profile: %w", err)
+	}
+
+	profileArg := fmt.Sprintf("-env:UserInstallation=%s", profileURL)
 	filterArg := "pdf:writer_pdf_Export:EmbedStandardFonts=true;EmbedFonts=true"
 
 	args := []string{profileArg, "--headless", "--convert-to", filterArg, "--outdir", tmpDir, outputDocx}
@@ -936,13 +943,75 @@ func generatePublicationRewardPDF(replacements map[string]string) ([]byte, error
 }
 
 func lookupLibreOfficeBinary() (string, error) {
+	if explicit := strings.TrimSpace(os.Getenv("LIBREOFFICE_PATH")); explicit != "" {
+		if runtime.GOOS == "windows" {
+			explicit = strings.Trim(explicit, "\"")
+		}
+
+		candidate := explicit
+		if !filepath.IsAbs(candidate) {
+			absPath, err := filepath.Abs(candidate)
+			if err != nil {
+				return "", fmt.Errorf("invalid LIBREOFFICE_PATH: %w", err)
+			}
+			candidate = absPath
+		}
+
+		info, err := os.Stat(candidate)
+		if err != nil {
+			return "", fmt.Errorf("invalid LIBREOFFICE_PATH: %w", err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("LIBREOFFICE_PATH must point to the soffice executable, not a directory")
+		}
+
+		return candidate, nil
+	}
+
 	if path, err := exec.LookPath("soffice"); err == nil {
 		return path, nil
 	}
 	if path, err := exec.LookPath("libreoffice"); err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH")
+	return "", fmt.Errorf("libreoffice (soffice) binary not found in PATH; set LIBREOFFICE_PATH to override")
+}
+
+func fileURLFromPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	absPath = filepath.ToSlash(absPath)
+
+	if runtime.GOOS == "windows" {
+		if strings.HasPrefix(absPath, "//") {
+			trimmed := strings.TrimPrefix(absPath, "//")
+			parts := strings.SplitN(trimmed, "/", 2)
+			host := parts[0]
+			var uncPath string
+			if len(parts) == 2 {
+				uncPath = "/" + parts[1]
+			}
+
+			u := &url.URL{
+				Scheme: "file",
+				Host:   host,
+				Path:   uncPath,
+			}
+			return u.String(), nil
+		}
+
+		if !strings.HasPrefix(absPath, "/") {
+			absPath = "/" + absPath
+		}
+	} else if !strings.HasPrefix(absPath, "/") {
+		absPath = "/" + absPath
+	}
+
+	u := &url.URL{Scheme: "file", Path: absPath}
+	return u.String(), nil
 }
 
 func fillDocxTemplate(templatePath, outputPath string, replacements map[string]string) error {
