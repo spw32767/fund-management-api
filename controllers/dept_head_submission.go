@@ -340,7 +340,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
-		Preload("SubmissionUsers.User").
+		Preload("SubmissionUsers.User"). // <- preload ผู้ร่วม + user ไว้เลย
 		Preload("PublicationRewardDetail").
 		Preload("FundApplicationDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
@@ -368,25 +368,25 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		details["data"] = submission.FundApplicationDetail
 	}
 
-	// ---- submission_users (แปลงเป็น payload บางส่วนให้อ่านง่าย) ----
+	// ---- submission_users (ปลอดภัย: ไม่แตะฟิลด์ใน SubmissionUser โดยตรง) ----
+	// ส่งเฉพาะข้อมูล User (ที่แน่ใจว่ามีจาก Preload) เพื่อให้ FE ใช้งานได้
 	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
 	for _, su := range submission.SubmissionUsers {
-		u := su.User
-		submissionUsers = append(submissionUsers, gin.H{
-			"submission_user_id": su.SubmissionUserID,
-			"user_id":            u.UserID,
-			"user_fname":         u.UserFname,
-			"user_lname":         u.UserLname,
-			"email":              u.Email,
-			"role":               su.Role,      // ถ้ามีฟิลด์ Role ในโมเดล
-			"is_primary":         su.IsPrimary, // ถ้ามีฟิลด์ IsPrimary ในโมเดล
-		})
+		if su.User != nil && su.User.UserID > 0 {
+			submissionUsers = append(submissionUsers, gin.H{
+				"user_id":    su.User.UserID,
+				"user_fname": su.User.UserFname,
+				"user_lname": su.User.UserLname,
+				"email":      su.User.Email,
+				// ถ้าภายหลังอยากส่ง role/is_primary ให้เพิ่มจากโมเดลของคุณได้
+			})
+		}
 	}
 
-	// ---- documents (ถ้ามี logic เดิมอยู่ ให้คงไว้; ใส่เป็น [] เปล่าเพื่อความปลอดภัย) ----
+	// ---- documents (ถ้ามีระบบเอกสาร ให้เติมตามจริงของโปรเจกต์) ----
 	documents := []gin.H{}
 
-	// ---- ประกอบ payload (จัดรูปแบบ submission ให้เหมือนที่ FE ใช้อยู่) ----
+	// ---- ประกอบ payload submission (ฟิลด์สำคัญตามโครงสร้างใหม่) ----
 	submissionPayload := gin.H{
 		"submission_id":     submission.SubmissionID,
 		"submission_number": submission.SubmissionNumber,
@@ -411,7 +411,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"admin_rejection_reason": submission.AdminRejectionReason,
 		"admin_comment":          submission.AdminComment,
 
-		// legacy aggregate (ยังคงส่งไว้เผื่อ FE เก่า)
+		// legacy aggregate (คงไว้เพื่อความเข้ากันได้)
 		"rejected_by":      submission.RejectedBy,
 		"rejected_at":      submission.RejectedAt,
 		"rejection_reason": submission.RejectionReason,
@@ -426,10 +426,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	resp := gin.H{
 		"submission":        submissionPayload,
 		"details":           details,
-		"submission_users":  submissionUsers,
+		"submission_users":  submissionUsers, // <— โครงแบบปลอดภัย
 		"documents":         documents,
-		"applicant":         applicant,         // ✅ เพิ่ม
-		"applicant_user_id": submission.UserID, // ✅ เพิ่ม
+		"applicant":         applicant,         // <— เพิ่มเพื่อให้เหมือนฝั่ง admin
+		"applicant_user_id": submission.UserID, // <— เพิ่มเพื่อให้เหมือนฝั่ง admin
 		"success":           true,
 	}
 	return resp, nil
