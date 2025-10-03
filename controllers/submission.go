@@ -1116,18 +1116,18 @@ func AttachDocument(c *gin.Context) {
 	})
 }
 
+// controllers/submission.go
 // GetSubmissionDocuments returns documents attached to a submission
 func GetSubmissionDocuments(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
-	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	// ให้ admin (3) และ dept head (4) มองเห็นได้ทั้งหมด
+	if roleID.(int) != 3 && roleID.(int) != 4 {
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -1136,9 +1136,9 @@ func GetSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
-	// Get documents
 	var documents []models.SubmissionDocument
-	if err := config.DB.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+	if err := config.DB.
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 		Select("submission_documents.*, dt.document_type_name").
 		Preload("File").
 		Preload("DocumentType").
