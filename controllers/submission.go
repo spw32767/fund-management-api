@@ -114,6 +114,8 @@ func GetSubmission(c *gin.Context) {
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
+		Preload("Category").
+		Preload("Subcategory").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 				Select("submission_documents.*, dt.document_type_name").
@@ -933,37 +935,60 @@ func DownloadFile(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
+	// 1) โหลดไฟล์โดยไม่กรองสิทธิ์ก่อน (เพื่อจะตรวจสิทธิ์เอง)
 	var file models.FileUpload
-	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
-
-	// Check permission
-	if roleID.(int) != 3 {
-		query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
-	}
-
-	if err := query.First(&file).Error; err != nil {
+	if err := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID).First(&file).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 		return
 	}
 
-	// Check if file exists
+	// 2) ตรวจสิทธิ์การเข้าถึง
+	role := 0
+	if v, ok := roleID.(int); ok {
+		role = v
+	}
+
+	allowed := false
+	switch role {
+	case 3: // admin
+		allowed = true
+
+	case 4: // dept head — อนุญาตถ้าไฟล์ถูกแนบกับ submission ใด ๆ
+		var cnt int64
+		if err := config.DB.Model(&models.SubmissionDocument{}).
+			Where("file_id = ?", file.FileID).
+			Count(&cnt).Error; err == nil && cnt > 0 {
+			allowed = true
+		}
+
+	default:
+		// ผู้ใช้ทั่วไป: ต้องเป็นคนอัปโหลดเอง หรือไฟล์ public
+		if file.UploadedBy == userID.(int) || file.IsPublic {
+			allowed = true
+		}
+	}
+
+	if !allowed {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	// 3) ตรวจว่ามีไฟล์จริงบนดิสก์
 	if _, err := os.Stat(file.StoredPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found on disk"})
 		return
 	}
 
-	// ===== ประกอบชื่อไฟล์แนบ: <original-name>_<submission-number><ext> (ถ้าหา submission ได้)
+	// 4) ตั้งชื่อไฟล์ดาวน์โหลดแบบแนบเลขคำร้อง (ถ้ารู้ว่าไฟล์นี้ผูกกับ submission ไหน)
 	downloadName := file.OriginalName
 	ext := filepath.Ext(file.OriginalName)
 	base := strings.TrimSuffix(file.OriginalName, ext)
 
-	// หา submission_id ผ่านตาราง submission_documents (ไฟล์นี้ถูกแนบกับ submission ไหน)
 	var doc models.SubmissionDocument
 	if err := config.DB.
 		Where("file_id = ?", file.FileID).
 		Order("created_at ASC").
 		First(&doc).Error; err == nil {
-
 		var sub models.Submission
 		if err := config.DB.
 			Select("submission_id", "submission_number").
@@ -973,7 +998,7 @@ func DownloadFile(c *gin.Context) {
 		}
 	}
 
-	// Serve file
+	// 5) ส่งไฟล์
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
 	c.Header("Content-Type", file.MimeType)
 	c.File(file.StoredPath)
