@@ -350,12 +350,33 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 
 	// ---- applicant (เหมือนฝั่ง Admin) ----
 	var applicant map[string]any
+
+	// 1) พยายามใช้ submission.User จาก Preload ก่อน
 	if submission.User != nil && submission.User.UserID > 0 {
 		applicant = map[string]any{
 			"user_id":    submission.User.UserID,
 			"user_fname": submission.User.UserFname,
 			"user_lname": submission.User.UserLname,
 			"email":      submission.User.Email,
+		}
+	} else if submission.UserID > 0 {
+		// 2) Fallback: ดึงจาก DB ด้วย user_id โดยตรง (กันเคส mapping GORM ไม่ match)
+		var u models.User
+		if err := config.DB.
+			Select("user_id, user_fname, user_lname, email").
+			Where("user_id = ?", submission.UserID).
+			First(&u).Error; err == nil && u.UserID > 0 {
+
+			applicant = map[string]any{
+				"user_id":    u.UserID,
+				"user_fname": u.UserFname,
+				"user_lname": u.UserLname,
+				"email":      u.Email,
+			}
+
+			// ใส่กลับเข้า submissionPayload ด้วย เพื่อให้ FE ใช้ data.user ได้ด้วย
+			// (ทำตอนประกอบ submissionPayload ด้านล่าง)
+			submission.User = &u
 		}
 	}
 
