@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// วางไว้ใน routes.go (import "net/http", "strconv", "github.com/gin-gonic/gin" ให้ครบ)
 func requireTeacherLike() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, ok := c.Get("role_id")
@@ -38,7 +39,8 @@ func requireTeacherLike() gin.HandlerFunc {
 			}
 		}
 
-		if role == 1 || role == 2 || role == 4 {
+		// ✅ อนุญาตเฉพาะ Teacher (1) และ Dept Head (4)
+		if role == 1 || role == 4 {
 			c.Next()
 			return
 		}
