@@ -125,6 +125,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
 			protected.GET("/system-config/current-year", controllers.GetSystemConfigCurrentYear)
 			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
+			protected.GET("/system-config/dept-head/eligible-roles", controllers.GetDeptHeadEligibleRoles)
 
 			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
 			// General submissions listing (all users)

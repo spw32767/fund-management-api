@@ -3,7 +3,9 @@ package controllers
 import (
 	"database/sql"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"fund-management-api/config"
@@ -116,7 +118,7 @@ func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *
 		EndDate        sql.NullTime
 	}
 
-	// 1. Try to fetch the currently active assignment (start <= NOW() and (end IS NULL or end >= NOW()))
+	// 1) แถวที่ Active ตอนนี้
 	qActive := `
 		SELECT announcement_id, start_date, end_date
 		FROM announcement_assignments
@@ -126,56 +128,50 @@ func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *
 		ORDER BY changed_at DESC, start_date DESC
 		LIMIT 1
 	`
-
 	err2 := config.DB.Raw(qActive, slot).Scan(&row).Error
 	if err2 != nil && err2 != sql.ErrNoRows {
 		return nil, nil, nil, err2
 	}
 
-	// 2. If no active assignment is found, try to fetch the NEXT UPCOMING assignment (start > NOW())
-	if !row.AnnouncementID.Valid { // หากไม่พบรายการที่ Active
+	// 2) ถ้าไม่เจอ ให้หาแถวที่ "กำลังจะเริ่ม" อันถัดไป
+	if !row.AnnouncementID.Valid {
 		qUpcoming := `
-            SELECT announcement_id, start_date, end_date
-            FROM announcement_assignments
-            WHERE slot_code = ?
-              AND start_date > NOW()
-            ORDER BY start_date ASC, changed_at DESC
-            LIMIT 1
-        `
-		// Clear row struct to ensure accurate check after scan
+			SELECT announcement_id, start_date, end_date
+			FROM announcement_assignments
+			WHERE slot_code = ?
+			  AND start_date > NOW()
+			ORDER BY start_date ASC, changed_at DESC
+			LIMIT 1
+		`
 		row = struct {
 			AnnouncementID sql.NullInt64
 			StartDate      sql.NullTime
 			EndDate        sql.NullTime
 		}{}
-
 		err3 := config.DB.Raw(qUpcoming, slot).Scan(&row).Error
 		if err3 != nil && err3 != sql.ErrNoRows {
 			return nil, nil, nil, err3
 		}
 	}
 
-	// Process the found row (either active or upcoming)
+	// Process
 	if row.AnnouncementID.Valid {
 		x := int(row.AnnouncementID.Int64)
 		annID = &x
 	}
-
 	if row.StartDate.Valid {
 		t := row.StartDate.Time.UTC()
 		start = &t
 	}
-
 	if row.EndDate.Valid {
 		t := row.EndDate.Time.UTC()
 		end = &t
 	}
 
-	// Ensure we return if no assignment was found in either query
+	// no assignment found
 	if annID == nil && start == nil && end == nil {
 		return nil, nil, nil, nil
 	}
-
 	return annID, start, end, nil
 }
 
@@ -699,4 +695,50 @@ func ListAnnouncementHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// ===== New: GET /api/v1/system-config/dept-head/eligible-roles =====
+
+// คืนรายการ role key สำหรับการคัดกรองรายชื่อผู้ใช้ที่เลือกเป็น "หัวหน้าสาขา" ได้ (แบบไดนามิก)
+// แหล่งข้อมูล:
+//  1. ENV: DEPT_HEAD_ELIGIBLE_ROLES (เช่น "teacher,dept_head")
+//  2. Fallback: ["teacher", "dept_head"]
+func GetDeptHeadEligibleRoles(c *gin.Context) {
+	// อ่านจาก ENV
+	env := strings.TrimSpace(os.Getenv("DEPT_HEAD_ELIGIBLE_ROLES"))
+	var roles []string
+	if env != "" {
+		// รองรับตัวคั่นได้หลายแบบ: , ; |
+		parts := strings.FieldsFunc(env, func(r rune) bool {
+			return r == ',' || r == ';' || r == '|'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				roles = append(roles, strings.ToLower(p))
+			}
+		}
+	}
+
+	// fallback
+	if len(roles) == 0 {
+		roles = []string{"teacher", "dept_head"}
+	}
+
+	// dedupe
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		k := strings.ToLower(strings.TrimSpace(r))
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }
