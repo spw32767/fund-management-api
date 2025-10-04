@@ -228,14 +228,41 @@ func AdminListSubmissions(c *gin.Context) {
 		return
 	}
 
-	// ถ้ากังวลเรื่องขนาด payload จะ map เหลือ field ที่ต้องใช้ก็ได้
-	c.JSON(http.StatusOK, gin.H{
-		"submissions": submissions, // มี User ติดมาด้วย
-		"pagination": gin.H{
-			"page": page, "per_page": perPage,
-			"total": total, "total_pages": (total + int64(perPage) - 1) / int64(perPage),
-		},
-	})
+	out := make([]gin.H, 0, len(submissions))
+	for _, s := range submissions {
+		var applicant gin.H
+		if s.User != nil && s.User.UserID > 0 {
+			applicant = gin.H{
+				"user_id":    s.User.UserID,
+				"user_fname": s.User.UserFname,
+				"user_lname": s.User.UserLname,
+				"email":      s.User.Email,
+			}
+		}
+
+		out = append(out, gin.H{
+			"submission_id":     s.SubmissionID,
+			"submission_number": s.SubmissionNumber,
+			"submission_type":   s.SubmissionType,
+			"user_id":           s.UserID,
+			"year_id":           s.YearID,
+			"category_id":       s.CategoryID,
+			"subcategory_id":    s.SubcategoryID,
+			"status_id":         s.StatusID,
+			"submitted_at":      s.SubmittedAt,
+			"created_at":        s.CreatedAt,
+			"updated_at":        s.UpdatedAt,
+
+			// ส่งชื่อผู้ยื่นแบบชัวร์ ๆ ให้ FE ใช้ได้ทันที
+			"applicant": applicant,
+
+			// ถ้าต้องการส่งชื่อหมวด/ทุนย่อยไปด้วย (กัน tag json:"-")
+			"category":    s.Category,
+			"subcategory": s.Subcategory,
+			"status":      s.Status,
+			"year":        s.Year,
+		})
+	}
 }
 
 // UpdatePublicationRewardApprovalAmounts updates *_approve_amount fields for a publication_reward submission
