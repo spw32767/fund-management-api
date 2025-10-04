@@ -123,6 +123,17 @@ func AssignDeptHead(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid start/end date"})
 		return
 	}
+
+	// ---- NEW: backfill buffer 1 นาที เพื่อกันช่องว่างระหว่างสลับหัวหน้า ----
+	nowUTC := time.Now().UTC()
+	bufferStart := nowUTC.Add(-1 * time.Minute)
+
+	// ใช้เวลาเริ่มที่ "ย้อน 1 นาที" ถ้าคนกรอกมาช้ากว่านั้น (คืออยู่อนาคตกว่า bufferStart)
+	if st.After(bufferStart) {
+		*st = bufferStart
+	}
+
+	// validate หลังปรับ buffer แล้ว
 	if en != nil && st.After(*en) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "start_date must be before or equal to end_date"})
 		return
