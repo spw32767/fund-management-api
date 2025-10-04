@@ -195,9 +195,48 @@ func GetSubmissionDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// ==============================
-// NEW: PATCH approval amounts (publication_reward only)
-// ==============================
+// controllers/admin_submission.go
+func AdminListSubmissions(c *gin.Context) {
+	pageStr := c.DefaultQuery("page", "1")
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	perPage := 50
+
+	var submissions []models.Submission
+	q := config.DB.
+		Preload("User"). // << สำคัญ: โหลด owner เพื่อให้มีชื่อ
+		Preload("Year").
+		Preload("Status").
+		Preload("Category").
+		Preload("Subcategory").
+		Where("deleted_at IS NULL")
+
+	if y := c.Query("year_id"); y != "" {
+		q = q.Where("year_id = ?", y)
+	}
+	sortBy := c.DefaultQuery("sort_by", "created_at")
+	sortOrder := c.DefaultQuery("sort_order", "desc")
+	q = q.Order(sortBy + " " + sortOrder)
+
+	var total int64
+	q.Model(&models.Submission{}).Count(&total)
+
+	if err := q.Limit(perPage).Offset((page - 1) * perPage).Find(&submissions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch admin submissions"})
+		return
+	}
+
+	// ถ้ากังวลเรื่องขนาด payload จะ map เหลือ field ที่ต้องใช้ก็ได้
+	c.JSON(http.StatusOK, gin.H{
+		"submissions": submissions, // มี User ติดมาด้วย
+		"pagination": gin.H{
+			"page": page, "per_page": perPage,
+			"total": total, "total_pages": (total + int64(perPage) - 1) / int64(perPage),
+		},
+	})
+}
 
 // UpdatePublicationRewardApprovalAmounts updates *_approve_amount fields for a publication_reward submission
 func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
@@ -244,7 +283,7 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 		"revision_fee_approve_amount":    *req.RevisionFeeApproveAmount,
 		"publication_fee_approve_amount": *req.PublicationFeeApproveAmount,
 		"total_approve_amount":           *req.TotalApproveAmount,
-		"update_at":                      now,
+		"updated_at":                     now, // ✅ แก้เป็น updated_at
 	}
 
 	if err := config.DB.Model(&models.PublicationRewardDetail{}).
