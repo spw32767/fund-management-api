@@ -21,13 +21,14 @@ type AssignDeptHeadPayload struct {
 
 // GetCurrentDeptHead returns the head whose window covers "now" (UTC).
 func GetCurrentDeptHead(c *gin.Context) {
-	var row struct {
+	type rowT struct {
 		HeadUserID    sql.NullInt64
 		EffectiveFrom sql.NullTime
 		EffectiveTo   sql.NullTime
 	}
+	var row rowT
 
-	// ใช้ UTC_TIMESTAMP() เพื่อให้เทียบกับค่า DATETIME ที่เราเก็บเป็น UTC
+	// เทียบเวลาแบบ UTC ให้ตรงกับค่าที่บันทึก (จาก datetime-local -> ISO -> UTC)
 	if err := config.DB.Raw(`
 		SELECT head_user_id, effective_from, effective_to
 		FROM dept_head_assignments
@@ -45,24 +46,15 @@ func GetCurrentDeptHead(c *gin.Context) {
 		v := int(row.HeadUserID.Int64)
 		headID = &v
 	}
-
 	var ef *string
 	if row.EffectiveFrom.Valid {
 		v := row.EffectiveFrom.Time.UTC().Format(time.RFC3339)
 		ef = &v
 	}
 
-	// (ถ้าจะส่ง effective_to ไปด้วย ก็ได้ แต่ FE ตอนนี้ไม่ได้ใช้)
-	// var et *string
-	// if row.EffectiveTo.Valid {
-	// 	v := row.EffectiveTo.Time.UTC().Format(time.RFC3339)
-	// 	et = &v
-	// }
-
 	c.JSON(http.StatusOK, gin.H{
 		"head_user_id":   headID,
 		"effective_from": ef,
-		// "effective_to":   et,
 	})
 }
 
