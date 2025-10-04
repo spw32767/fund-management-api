@@ -6,6 +6,7 @@ import (
 	"fund-management-api/models"
 	"fund-management-api/utils"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -230,9 +231,10 @@ func AdminListSubmissions(c *gin.Context) {
 
 	out := make([]gin.H, 0, len(submissions))
 	for _, s := range submissions {
-		var applicant gin.H
+		// สร้าง User object สำหรับส่งกลับ
+		var userObj gin.H
 		if s.User != nil && s.User.UserID > 0 {
-			applicant = gin.H{
+			userObj = gin.H{
 				"user_id":    s.User.UserID,
 				"user_fname": s.User.UserFname,
 				"user_lname": s.User.UserLname,
@@ -253,16 +255,30 @@ func AdminListSubmissions(c *gin.Context) {
 			"created_at":        s.CreatedAt,
 			"updated_at":        s.UpdatedAt,
 
-			// ส่งชื่อผู้ยื่นแบบชัวร์ ๆ ให้ FE ใช้ได้ทันที
-			"applicant": applicant,
+			// ✅ ส่ง User object (ไม่ใช่แค่ applicant)
+			"User":      userObj, // << เพิ่มบรรทัดนี้
+			"user":      userObj, // << เพิ่มทั้ง 2 case เผื่อ frontend ใช้
+			"applicant": userObj, // << เก็บไว้เผื่อ compatibility
 
-			// ถ้าต้องการส่งชื่อหมวด/ทุนย่อยไปด้วย (กัน tag json:"-")
-			"category":    s.Category,
-			"subcategory": s.Subcategory,
-			"status":      s.Status,
-			"year":        s.Year,
+			// ส่งข้อมูลความสัมพันธ์อื่นๆ
+			"Category":    s.Category,
+			"Subcategory": s.Subcategory,
+			"Status":      s.Status,
+			"Year":        s.Year,
 		})
 	}
+
+	// ส่งผลลัพธ์กลับ
+	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
+	c.JSON(http.StatusOK, gin.H{
+		"submissions": out,
+		"pagination": gin.H{
+			"page":        page,
+			"per_page":    perPage,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
 }
 
 // UpdatePublicationRewardApprovalAmounts updates *_approve_amount fields for a publication_reward submission
