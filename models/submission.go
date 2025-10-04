@@ -84,10 +84,12 @@ type FundApplicationDetail struct {
 	AnnounceReferenceNumber string     `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ tracking ==========
-	ApprovedBy *int       `json:"approved_by" gorm:"column:approved_by"`
-	ApprovedAt *time.Time `json:"approved_at" gorm:"column:approved_at"`
-	RejectedBy *int       `json:"rejected_by" gorm:"column:rejected_by"`
-	RejectedAt *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
+	ApprovedBy                  *int       `json:"approved_by" gorm:"column:approved_by"`
+	ApprovedAt                  *time.Time `json:"approved_at" gorm:"column:approved_at"`
+	RejectedBy                  *int       `json:"rejected_by" gorm:"column:rejected_by"`
+	RejectedAt                  *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
+	MainAnnoucement             *int       `json:"main_annoucement" gorm:"column:main_annoucement"`
+	ActivitySupportAnnouncement *int       `json:"activity_support_announcement" gorm:"column:activity_support_announcement"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`

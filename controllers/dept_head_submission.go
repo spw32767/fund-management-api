@@ -337,8 +337,10 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 
 // controllers/dept_head_submission.go
 
+// controllers/dept_head_submission.go
+
 func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
-	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น
+	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น (ตามของเดิม)
 	var submission models.Submission
 	if err := config.DB.
 		Preload("User").
@@ -348,7 +350,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Preload("Subcategory").
 		Preload("SubmissionUsers.User").
 		Preload("PublicationRewardDetail").
-		Preload("FundApplicationDetail"). // ← ให้แน่ใจว่าโหลด detail เองด้วย
+		Preload("FundApplicationDetail").
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
@@ -356,7 +358,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		return nil, err
 	}
 
-	// ---- applicant (เหมือนฝั่ง Admin) ----
+	// ---- applicant (เหมือนเดิม) ----
 	var applicant map[string]any
 	if submission.User != nil && submission.User.UserID > 0 {
 		applicant = map[string]any{
@@ -381,16 +383,60 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		}
 	}
 
-	// ---- details (ตามชนิดคำขอ) ----
-	details := gin.H{"type": submission.SubmissionType, "data": nil}
+	// ---- details (ใส่ประกาศสำหรับ fund_application ให้แน่ใจว่ามี) ----
+	var detailsData any = nil
 	switch submission.SubmissionType {
 	case "publication_reward":
-		details["data"] = submission.PublicationRewardDetail
+		detailsData = submission.PublicationRewardDetail
+
 	case "fund_application":
-		details["data"] = submission.FundApplicationDetail
+		// ดึงสองคอลัมน์ที่ struct ไม่มี เพื่อ inject เข้า response
+		var extra struct {
+			MainAnnoucement             *int `gorm:"column:main_annoucement"`
+			ActivitySupportAnnouncement *int `gorm:"column:activity_support_announcement"`
+		}
+		_ = config.DB.
+			Table("fund_application_details").
+			Select("main_annoucement, activity_support_announcement").
+			Where("submission_id = ?", submissionID).
+			Take(&extra).Error // ถ้าไม่เจอ / nil ก็ปล่อยให้เป็น nil
+
+		if submission.FundApplicationDetail != nil {
+			fad := submission.FundApplicationDetail
+			// สร้าง map ตอบกลับพร้อมประกาศ 2 ตัว
+			detailsData = gin.H{
+				"detail_id":                 fad.DetailID,
+				"submission_id":             fad.SubmissionID,
+				"subcategory_id":            fad.SubcategoryID,
+				"project_title":             fad.ProjectTitle,
+				"project_description":       fad.ProjectDescription,
+				"requested_amount":          fad.RequestedAmount,
+				"approved_amount":           fad.ApprovedAmount,
+				"closed_at":                 fad.ClosedAt,
+				"comment":                   fad.Comment,
+				"announce_reference_number": fad.AnnounceReferenceNumber,
+				"approved_by":               fad.ApprovedBy,
+				"approved_at":               fad.ApprovedAt,
+				"rejected_by":               fad.RejectedBy,
+				"rejected_at":               fad.RejectedAt,
+				"subcategory":               fad.Subcategory,
+
+				// >>> ประกาศที่ต้องการ <<<
+				"main_annoucement":              extra.MainAnnoucement,
+				"activity_support_announcement": extra.ActivitySupportAnnouncement,
+			}
+		} else {
+			// กันเคสไม่ preload detail ด้วย
+			detailsData = gin.H{
+				"main_annoucement":              extra.MainAnnoucement,
+				"activity_support_announcement": extra.ActivitySupportAnnouncement,
+			}
+		}
 	}
 
-	// ---- submission_users ----
+	details := gin.H{"type": submission.SubmissionType, "data": detailsData}
+
+	// ---- submission_users (เหมือนเดิม) ----
 	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
 	for _, su := range submission.SubmissionUsers {
 		if su.User != nil && su.User.UserID > 0 {
@@ -403,10 +449,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		}
 	}
 
-	// ---- documents (เติมตามระบบเอกสารของโปรเจกต์ ถ้ามี) ----
+	// ---- documents (ถ้ามีระบบเอกสาร ค่อยเติม) ----
 	documents := []gin.H{}
 
-	// ---- payload หลักของ submission ----
+	// ---- payload หลัก (เหมือนเดิม) ----
 	submissionPayload := gin.H{
 		"submission_id":     submission.SubmissionID,
 		"submission_number": submission.SubmissionNumber,
@@ -415,13 +461,11 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"year_id":           submission.YearID,
 		"status_id":         submission.StatusID,
 
-		// เวลา/สถานะ
 		"created_at":   submission.CreatedAt,
 		"updated_at":   submission.UpdatedAt,
 		"submitted_at": submission.SubmittedAt,
 		"reviewed_at":  submission.ReviewedAt,
 
-		// ผลพิจารณา (หัวหน้า/แอดมิน)
 		"head_approved_by":       submission.HeadApprovedBy,
 		"head_approved_at":       submission.HeadApprovedAt,
 		"head_rejected_by":       submission.HeadRejectedBy,
@@ -435,13 +479,11 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"admin_rejection_reason": submission.AdminRejectionReason,
 		"admin_comment":          submission.AdminComment,
 
-		// legacy aggregate (คงไว้เพื่อความเข้ากันได้)
 		"rejected_by":      submission.RejectedBy,
 		"rejected_at":      submission.RejectedAt,
 		"rejection_reason": submission.RejectionReason,
 		"comment":          submission.Comment,
 
-		// fund info (object + flatten name กันพลาด)
 		"category_id":           submission.CategoryID,
 		"subcategory_id":        submission.SubcategoryID,
 		"subcategory_budget_id": submission.SubcategoryBudgetID,
