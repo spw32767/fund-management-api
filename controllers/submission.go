@@ -110,7 +110,10 @@ func GetSubmission(c *gin.Context) {
 	query := config.DB.Model(&models.Submission{}).
 		Joins("LEFT JOIN fund_categories ON submissions.category_id = fund_categories.category_id").
 		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id AND fund_subcategories.category_id = submissions.category_id").
-		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name").
+		Select(`submissions.*,
+        fund_categories.category_name AS category_name,
+        submissions.subcategory_id AS subcategory_id,
+        fund_subcategories.subcategory_name AS subcategory_name`).
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
