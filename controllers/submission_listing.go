@@ -131,13 +131,15 @@ func GetAllSubmissions(c *gin.Context) {
 }
 
 // GetTeacherSubmissions returns submissions for authenticated teacher
+// GetTeacherSubmissions returns submissions for authenticated teacher (and dept head)
 func GetTeacherSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
-	// Ensure user is teacher
-	if roleID.(int) != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Teacher access required"})
+	// Allow both teacher (1) and dept_head (4) to view "my submissions"
+	rid := roleID.(int)
+	if rid != 1 && rid != 4 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Teacher or Dept Head access required"})
 		return
 	}
 
@@ -156,7 +158,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 	}
 	offset := (page - 1) * limit
 
-	// Build query for teacher's submissions
+	// Build query for current user's submissions
 	var submissions []models.Submission
 	query := config.DB.Preload("Year").Preload("Status").Preload("Category").
 		Joins("LEFT JOIN fund_categories ON submissions.category_id = fund_categories.category_id").
@@ -164,7 +166,6 @@ func GetTeacherSubmissions(c *gin.Context) {
 		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name").
 		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID)
 
-	// Apply filters
 	if submissionType != "" {
 		query = query.Where("submission_type = ?", submissionType)
 	}
@@ -175,22 +176,19 @@ func GetTeacherSubmissions(c *gin.Context) {
 		query = query.Where("year_id = ?", yearID)
 	}
 
-	// Get total count
 	var totalCount int64
 	query.Model(&models.Submission{}).Count(&totalCount)
 
-	// Get submissions with pagination
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&submissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch submissions"})
 		return
 	}
 
-	// Load type-specific details for each submission
+	// Load type-specific details
 	for i := range submissions {
 		switch submissions[i].SubmissionType {
 		case "fund_application":
 			fundDetail := &models.FundApplicationDetail{}
-			// Preload subcategory and its parent category to expose category information
 			if err := config.DB.Preload("Subcategory.Category").Where("submission_id = ?", submissions[i].SubmissionID).First(fundDetail).Error; err == nil {
 				if submissions[i].StatusID != 2 {
 					fundDetail.AnnounceReferenceNumber = ""
