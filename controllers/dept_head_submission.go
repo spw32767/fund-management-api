@@ -333,13 +333,17 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
+// controllers/dept_head_submission.go
+
 func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
-	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น
+	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น (เพิ่ม Category/Subcategory)
 	var submission models.Submission
 	if err := config.DB.
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
+		Preload("Category").
+		Preload("Subcategory").
 		Preload("SubmissionUsers.User"). // <- preload ผู้ร่วม + user ไว้เลย
 		Preload("PublicationRewardDetail").
 		Preload("FundApplicationDetail").
@@ -350,8 +354,6 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 
 	// ---- applicant (เหมือนฝั่ง Admin) ----
 	var applicant map[string]any
-
-	// 1) พยายามใช้ submission.User จาก Preload ก่อน
 	if submission.User != nil && submission.User.UserID > 0 {
 		applicant = map[string]any{
 			"user_id":    submission.User.UserID,
@@ -360,22 +362,17 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 			"email":      submission.User.Email,
 		}
 	} else if submission.UserID > 0 {
-		// 2) Fallback: ดึงจาก DB ด้วย user_id โดยตรง (กันเคส mapping GORM ไม่ match)
 		var u models.User
 		if err := config.DB.
 			Select("user_id, user_fname, user_lname, email").
 			Where("user_id = ?", submission.UserID).
 			First(&u).Error; err == nil && u.UserID > 0 {
-
 			applicant = map[string]any{
 				"user_id":    u.UserID,
 				"user_fname": u.UserFname,
 				"user_lname": u.UserLname,
 				"email":      u.Email,
 			}
-
-			// ใส่กลับเข้า submissionPayload ด้วย เพื่อให้ FE ใช้ data.user ได้ด้วย
-			// (ทำตอนประกอบ submissionPayload ด้านล่าง)
 			submission.User = &u
 		}
 	}
@@ -389,8 +386,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		details["data"] = submission.FundApplicationDetail
 	}
 
-	// ---- submission_users (ปลอดภัย: ไม่แตะฟิลด์ใน SubmissionUser โดยตรง) ----
-	// ส่งเฉพาะข้อมูล User (ที่แน่ใจว่ามีจาก Preload) เพื่อให้ FE ใช้งานได้
+	// ---- submission_users (ปลอดภัย) ----
 	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
 	for _, su := range submission.SubmissionUsers {
 		if su.User != nil && su.User.UserID > 0 {
@@ -399,7 +395,6 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 				"user_fname": su.User.UserFname,
 				"user_lname": su.User.UserLname,
 				"email":      su.User.Email,
-				// ถ้าภายหลังอยากส่ง role/is_primary ให้เพิ่มจากโมเดลของคุณได้
 			})
 		}
 	}
@@ -407,7 +402,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	// ---- documents (ถ้ามีระบบเอกสาร ให้เติมตามจริงของโปรเจกต์) ----
 	documents := []gin.H{}
 
-	// ---- ประกอบ payload submission (ฟิลด์สำคัญตามโครงสร้างใหม่) ----
+	// ---- ประกอบ payload submission (เติมฟิลด์ที่ขาดให้ครบ) ----
 	submissionPayload := gin.H{
 		"submission_id":     submission.SubmissionID,
 		"submission_number": submission.SubmissionNumber,
@@ -415,14 +410,19 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"user_id":           submission.UserID,
 		"year_id":           submission.YearID,
 		"status_id":         submission.StatusID,
-		"submitted_at":      submission.SubmittedAt,
-		"reviewed_at":       submission.ReviewedAt,
+
+		// ✅ สำคัญกับ "สถานะคำร้อง"
+		"created_at":   submission.CreatedAt,
+		"updated_at":   submission.UpdatedAt,
+		"submitted_at": submission.SubmittedAt,
+		"reviewed_at":  submission.ReviewedAt,
+
+		// ✅ ข้อมูล Dept/Admin approve/reject
 		"head_approved_by":  submission.HeadApprovedBy,
 		"head_approved_at":  submission.HeadApprovedAt,
 		"admin_approved_by": submission.AdminApprovedBy,
 		"admin_approved_at": submission.AdminApprovedAt,
 
-		// ชุด reject (split)
 		"head_rejected_by":       submission.HeadRejectedBy,
 		"head_rejected_at":       submission.HeadRejectedAt,
 		"head_rejection_reason":  submission.HeadRejectionReason,
@@ -438,6 +438,13 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"rejection_reason": submission.RejectionReason,
 		"comment":          submission.Comment,
 
+		// ✅ ข้อมูล fund สำหรับโชว์ชื่อทุน/ทุนย่อย
+		"category_id":           submission.CategoryID,
+		"subcategory_id":        submission.SubcategoryID,
+		"subcategory_budget_id": submission.SubcategoryBudgetID,
+		"category":              submission.Category,
+		"subcategory":           submission.Subcategory,
+
 		"user":   submission.User,
 		"year":   submission.Year,
 		"status": submission.Status,
@@ -447,10 +454,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	resp := gin.H{
 		"submission":        submissionPayload,
 		"details":           details,
-		"submission_users":  submissionUsers, // <— โครงแบบปลอดภัย
+		"submission_users":  submissionUsers,
 		"documents":         documents,
-		"applicant":         applicant,         // <— เพิ่มเพื่อให้เหมือนฝั่ง admin
-		"applicant_user_id": submission.UserID, // <— เพิ่มเพื่อให้เหมือนฝั่ง admin
+		"applicant":         applicant,
+		"applicant_user_id": submission.UserID,
 		"success":           true,
 	}
 	return resp, nil
