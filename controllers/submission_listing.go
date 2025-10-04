@@ -136,7 +136,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	// Ensure user is teacher
-	if roleID.(int) != 1 {
+	if !(roleID == 1 || roleID == 2 || roleID == 4) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Teacher access required"})
 		return
 	}
