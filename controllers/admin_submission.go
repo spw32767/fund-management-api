@@ -196,7 +196,6 @@ func GetSubmissionDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// controllers/admin_submission.go
 func AdminListSubmissions(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	page, _ := strconv.Atoi(pageStr)
