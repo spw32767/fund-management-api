@@ -421,29 +421,28 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		}
 	}
 
-	// หาแถวล่าสุด
-	var cfgID sql.NullInt64
+	// หาแถวล่าสุด + ตรวจว่ามี window ครบแล้วหรือยัง
+	var row struct {
+		ConfigID  sql.NullInt64
+		StartDate sql.NullTime
+		EndDate   sql.NullTime
+	}
 	if err := config.DB.Raw(`
-		SELECT config_id
+		SELECT config_id, start_date, end_date
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
-	`).Row().Scan(&cfgID); err != nil && err != sql.ErrNoRows {
+	`).Scan(&row).Error; err != nil && err != sql.ErrNoRows {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
 		return
 	}
 
-	if !cfgID.Valid {
-		// ถ้ายังไม่มี row เลย ให้สร้างใหม่ พร้อมกำหนดคอลัมน์ที่ต้องการ
-		q := `
-			INSERT INTO system_config (` + col + `, last_updated, updated_by)
-			VALUES (?, NOW(), ?)
-		`
-		if err := config.DB.Exec(q, p.AnnouncementID, updatedBy).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
+	// บังคับต้องมี window (manual start/end) ก่อน
+	if !row.ConfigID.Valid || !row.StartDate.Valid || !row.EndDate.Valid {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "กรุณาตั้งค่า start_date และ end_date ก่อนบันทึกประกาศ",
+		})
 		return
 	}
 
@@ -453,7 +452,7 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		SET ` + col + ` = ?, last_updated = NOW(), updated_by = ?
 		WHERE config_id = ?
 	`
-	if err := config.DB.Exec(q, p.AnnouncementID, updatedBy, int(cfgID.Int64)).Error; err != nil {
+	if err := config.DB.Exec(q, p.AnnouncementID, updatedBy, int(row.ConfigID.Int64)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
 		return
 	}
