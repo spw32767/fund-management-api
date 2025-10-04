@@ -344,9 +344,12 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Preload("Status").
 		Preload("Category").
 		Preload("Subcategory").
-		Preload("SubmissionUsers.User"). // <- preload ผู้ร่วม + user ไว้เลย
+		Preload("SubmissionUsers.User").
 		Preload("PublicationRewardDetail").
-		Preload("FundApplicationDetail").
+		// ✅ เพิ่มสองบรรทัดนี้
+		Preload("FundApplicationDetail.Subcategory").
+		Preload("FundApplicationDetail.Subcategory.Category").
+		// เดิม: Preload("FundApplicationDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
 		First(&submission).Error; err != nil {
 		return nil, err
@@ -444,6 +447,18 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"subcategory_budget_id": submission.SubcategoryBudgetID,
 		"category":              submission.Category,
 		"subcategory":           submission.Subcategory,
+		"category_name": func() string {
+			if submission.Category != nil {
+				return submission.Category.CategoryName
+			}
+			return ""
+		}(),
+		"subcategory_name": func() string {
+			if submission.Subcategory != nil {
+				return submission.Subcategory.SubcategoryName
+			}
+			return ""
+		}(),
 
 		"user":   submission.User,
 		"year":   submission.Year,
