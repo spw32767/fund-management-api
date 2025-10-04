@@ -92,6 +92,8 @@ func GetDeptHeadSubmissions(c *gin.Context) {
 	})
 }
 
+// controllers/dept_head_submission.go
+
 func GetDeptHeadSubmissionDetails(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -336,7 +338,7 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 // controllers/dept_head_submission.go
 
 func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
-	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น (เพิ่ม Category/Subcategory)
+	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น
 	var submission models.Submission
 	if err := config.DB.
 		Preload("User").
@@ -346,10 +348,9 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Preload("Subcategory").
 		Preload("SubmissionUsers.User").
 		Preload("PublicationRewardDetail").
-		// ✅ เพิ่มสองบรรทัดนี้
+		Preload("FundApplicationDetail"). // ← ให้แน่ใจว่าโหลด detail เองด้วย
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
-		// เดิม: Preload("FundApplicationDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
 		First(&submission).Error; err != nil {
 		return nil, err
@@ -389,7 +390,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		details["data"] = submission.FundApplicationDetail
 	}
 
-	// ---- submission_users (ปลอดภัย) ----
+	// ---- submission_users ----
 	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
 	for _, su := range submission.SubmissionUsers {
 		if su.User != nil && su.User.UserID > 0 {
@@ -402,10 +403,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		}
 	}
 
-	// ---- documents (ถ้ามีระบบเอกสาร ให้เติมตามจริงของโปรเจกต์) ----
+	// ---- documents (เติมตามระบบเอกสารของโปรเจกต์ ถ้ามี) ----
 	documents := []gin.H{}
 
-	// ---- ประกอบ payload submission (เติมฟิลด์ที่ขาดให้ครบ) ----
+	// ---- payload หลักของ submission ----
 	submissionPayload := gin.H{
 		"submission_id":     submission.SubmissionID,
 		"submission_number": submission.SubmissionNumber,
@@ -414,22 +415,21 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"year_id":           submission.YearID,
 		"status_id":         submission.StatusID,
 
-		// ✅ สำคัญกับ "สถานะคำร้อง"
+		// เวลา/สถานะ
 		"created_at":   submission.CreatedAt,
 		"updated_at":   submission.UpdatedAt,
 		"submitted_at": submission.SubmittedAt,
 		"reviewed_at":  submission.ReviewedAt,
 
-		// ✅ ข้อมูล Dept/Admin approve/reject
-		"head_approved_by":  submission.HeadApprovedBy,
-		"head_approved_at":  submission.HeadApprovedAt,
-		"admin_approved_by": submission.AdminApprovedBy,
-		"admin_approved_at": submission.AdminApprovedAt,
-
+		// ผลพิจารณา (หัวหน้า/แอดมิน)
+		"head_approved_by":       submission.HeadApprovedBy,
+		"head_approved_at":       submission.HeadApprovedAt,
 		"head_rejected_by":       submission.HeadRejectedBy,
 		"head_rejected_at":       submission.HeadRejectedAt,
 		"head_rejection_reason":  submission.HeadRejectionReason,
 		"head_comment":           submission.HeadComment,
+		"admin_approved_by":      submission.AdminApprovedBy,
+		"admin_approved_at":      submission.AdminApprovedAt,
 		"admin_rejected_by":      submission.AdminRejectedBy,
 		"admin_rejected_at":      submission.AdminRejectedAt,
 		"admin_rejection_reason": submission.AdminRejectionReason,
@@ -441,7 +441,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"rejection_reason": submission.RejectionReason,
 		"comment":          submission.Comment,
 
-		// ✅ ข้อมูล fund สำหรับโชว์ชื่อทุน/ทุนย่อย
+		// fund info (object + flatten name กันพลาด)
 		"category_id":           submission.CategoryID,
 		"subcategory_id":        submission.SubcategoryID,
 		"subcategory_budget_id": submission.SubcategoryBudgetID,
@@ -454,8 +454,13 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 			return ""
 		}(),
 		"subcategory_name": func() string {
-			if submission.Subcategory != nil {
+			if submission.Subcategory != nil && submission.Subcategory.SubcategoryName != "" {
 				return submission.Subcategory.SubcategoryName
+			}
+			if submission.FundApplicationDetail != nil &&
+				submission.FundApplicationDetail.Subcategory != nil &&
+				submission.FundApplicationDetail.Subcategory.SubcategoryName != "" {
+				return submission.FundApplicationDetail.Subcategory.SubcategoryName
 			}
 			return ""
 		}(),
@@ -465,7 +470,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"status": submission.Status,
 	}
 
-	// ---- ส่งคืน payload ครบชุด ----
+	// ---- response ครบชุด ----
 	resp := gin.H{
 		"submission":        submissionPayload,
 		"details":           details,
