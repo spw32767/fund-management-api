@@ -49,7 +49,7 @@ func GetSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL")
 
 	// Filter by user if not admin
-	if rid := roleID.(int); rid != 3 && rid != 4 {
+	if roleID.(int) != 3 { // 3 = admin role
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -110,15 +110,10 @@ func GetSubmission(c *gin.Context) {
 	query := config.DB.Model(&models.Submission{}).
 		Joins("LEFT JOIN fund_categories ON submissions.category_id = fund_categories.category_id").
 		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id AND fund_subcategories.category_id = submissions.category_id").
-		Select(`submissions.*,
-        fund_categories.category_name AS category_name,
-        submissions.subcategory_id AS subcategory_id,
-        fund_subcategories.subcategory_name AS subcategory_name`).
+		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name").
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
-		Preload("Category").
-		Preload("Subcategory").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 				Select("submission_documents.*, dt.document_type_name").
@@ -129,7 +124,7 @@ func GetSubmission(c *gin.Context) {
 		Preload("SubmissionUsers.User")
 
 	// Check permission
-	if rid := roleID.(int); rid != 3 && rid != 4 {
+	if roleID.(int) != 3 { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -296,25 +291,12 @@ func CreateSubmission(c *gin.Context) {
 }
 
 func determineInitialStatusID(submissionType string, requestedStatusID *int, roleID int) (int, error) {
-	if requestedStatusID != nil {
+	if requestedStatusID != nil && roleID == 3 {
 		status, err := utils.GetApplicationStatusByID(*requestedStatusID)
 		if err != nil {
 			return 0, err
 		}
-
-		if roleID == 3 {
-			return status.ApplicationStatusID, nil
-		}
-
-		if submissionType == "fund_application" {
-			allowed, err := utils.StatusMatchesCodes(status.ApplicationStatusID, utils.StatusCodeDeptHeadPending)
-			if err != nil {
-				return 0, err
-			}
-			if allowed {
-				return status.ApplicationStatusID, nil
-			}
-		}
+		return status.ApplicationStatusID, nil
 	}
 
 	switch submissionType {
@@ -938,60 +920,37 @@ func DownloadFile(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
-	// 1) โหลดไฟล์โดยไม่กรองสิทธิ์ก่อน (เพื่อจะตรวจสิทธิ์เอง)
 	var file models.FileUpload
-	if err := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID).First(&file).Error; err != nil {
+	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
+
+	// Check permission
+	if roleID.(int) != 3 {
+		query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
+	}
+
+	if err := query.First(&file).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 		return
 	}
 
-	// 2) ตรวจสิทธิ์การเข้าถึง
-	role := 0
-	if v, ok := roleID.(int); ok {
-		role = v
-	}
-
-	allowed := false
-	switch role {
-	case 3: // admin
-		allowed = true
-
-	case 4: // dept head — อนุญาตถ้าไฟล์ถูกแนบกับ submission ใด ๆ
-		var cnt int64
-		if err := config.DB.Model(&models.SubmissionDocument{}).
-			Where("file_id = ?", file.FileID).
-			Count(&cnt).Error; err == nil && cnt > 0 {
-			allowed = true
-		}
-
-	default:
-		// ผู้ใช้ทั่วไป: ต้องเป็นคนอัปโหลดเอง หรือไฟล์ public
-		if file.UploadedBy == userID.(int) || file.IsPublic {
-			allowed = true
-		}
-	}
-
-	if !allowed {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		return
-	}
-
-	// 3) ตรวจว่ามีไฟล์จริงบนดิสก์
+	// Check if file exists
 	if _, err := os.Stat(file.StoredPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found on disk"})
 		return
 	}
 
-	// 4) ตั้งชื่อไฟล์ดาวน์โหลดแบบแนบเลขคำร้อง (ถ้ารู้ว่าไฟล์นี้ผูกกับ submission ไหน)
+	// ===== ประกอบชื่อไฟล์แนบ: <original-name>_<submission-number><ext> (ถ้าหา submission ได้)
 	downloadName := file.OriginalName
 	ext := filepath.Ext(file.OriginalName)
 	base := strings.TrimSuffix(file.OriginalName, ext)
 
+	// หา submission_id ผ่านตาราง submission_documents (ไฟล์นี้ถูกแนบกับ submission ไหน)
 	var doc models.SubmissionDocument
 	if err := config.DB.
 		Where("file_id = ?", file.FileID).
 		Order("created_at ASC").
 		First(&doc).Error; err == nil {
+
 		var sub models.Submission
 		if err := config.DB.
 			Select("submission_id", "submission_number").
@@ -1001,7 +960,7 @@ func DownloadFile(c *gin.Context) {
 		}
 	}
 
-	// 5) ส่งไฟล์
+	// Serve file
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", downloadName))
 	c.Header("Content-Type", file.MimeType)
 	c.File(file.StoredPath)
@@ -1144,18 +1103,18 @@ func AttachDocument(c *gin.Context) {
 	})
 }
 
-// controllers/submission.go
 // GetSubmissionDocuments returns documents attached to a submission
 func GetSubmissionDocuments(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
 	roleID, _ := c.Get("roleID")
 
+	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	// ให้ admin (3) และ dept head (4) มองเห็นได้ทั้งหมด
-	if roleID.(int) != 3 && roleID.(int) != 4 {
+	// Check permission
+	if roleID.(int) != 3 { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -1164,9 +1123,9 @@ func GetSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
+	// Get documents
 	var documents []models.SubmissionDocument
-	if err := config.DB.
-		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+	if err := config.DB.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 		Select("submission_documents.*, dt.document_type_name").
 		Preload("File").
 		Preload("DocumentType").
@@ -1273,19 +1232,15 @@ func onlyDigits(s string) string {
 // Global mutex for submission number generation
 var submissionNumberMutex sync.Mutex
 
-// REPLACE: generateSubmissionNumber creates a unique submission number (prefix-BEYYYYMMDD-RUNNING)
+// REPLACE: generateSubmissionNumber creates a unique submission number (prefix-BEYYYY-RUNNING)
 // - ปีใช้ พ.ศ. จาก system_config.current_year (ถ้าไม่มีค่อย fallback เป็น ปีปัจจุบัน+543)
 // - running number รีเซ็ต "เมื่อปี พ.ศ. เปลี่ยน" (นับรวมทั้งปี ไม่รีเซ็ตรายวัน)
 func generateSubmissionNumber(submissionType string) string {
 	submissionNumberMutex.Lock()
 	defer submissionNumberMutex.Unlock()
 
-	now := time.Now()
 	// ปี พ.ศ. จาก system_config (หรือ fallback)
 	beYear := getCurrentBEYearStr()
-
-	// เดือน/วัน ใช้ของวันนี้
-	dateStr := fmt.Sprintf("%s%02d%02d", beYear, int(now.Month()), now.Day())
 
 	var prefix string
 	switch submissionType {
@@ -1312,7 +1267,7 @@ func generateSubmissionNumber(submissionType string) string {
 
 	// พยายามจองเลขลำดับ + ตรวจซ้ำ
 	for i := int64(1); i <= 10; i++ {
-		potentialNumber := fmt.Sprintf("%s-%s-%04d", prefix, dateStr, count+i)
+		potentialNumber := fmt.Sprintf("%s-%s-%04d", prefix, beYear, count+i)
 
 		var existing int64
 		config.DB.Model(&models.Submission{}).
@@ -1328,7 +1283,7 @@ func generateSubmissionNumber(submissionType string) string {
 	bytes := make([]byte, 3)
 	rand.Read(bytes)
 	randomSuffix := strings.ToUpper(hex.EncodeToString(bytes))
-	return fmt.Sprintf("%s-%s-R-%s", prefix, dateStr, randomSuffix)
+	return fmt.Sprintf("%s-%s-R-%s", prefix, beYear, randomSuffix)
 }
 
 // isValidFileType checks if file type is allowed
