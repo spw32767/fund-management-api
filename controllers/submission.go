@@ -49,7 +49,7 @@ func GetSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL")
 
 	// Filter by user if not admin
-	if roleID.(int) != 3 { // 3 = admin role
+	if rid := roleID.(int); rid != 3 && rid != 4 {
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -126,7 +126,7 @@ func GetSubmission(c *gin.Context) {
 		Preload("SubmissionUsers.User")
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if rid := roleID.(int); rid != 3 && rid != 4 {
 		query = query.Where("user_id = ?", userID)
 	}
 
