@@ -204,9 +204,10 @@ func AdminListSubmissions(c *gin.Context) {
 	}
 	perPage := 50
 
+	// 1) ดึงรายการคำร้อง
 	var submissions []models.Submission
 	q := config.DB.
-		Preload("User"). // << สำคัญ: โหลด owner เพื่อให้มีชื่อ
+		Preload("User"). // อาจไม่ทำงานเพราะโครงสร้าง model, เราจะ backfill ให้ด้วย
 		Preload("Year").
 		Preload("Status").
 		Preload("Category").
@@ -228,16 +229,49 @@ func AdminListSubmissions(c *gin.Context) {
 		return
 	}
 
+	// 2) หา user_id ที่ยังไม่มี s.User (Preload ไม่เติม)
+	missingIDs := make([]int, 0, len(submissions))
+	seen := map[int]struct{}{}
+	for _, s := range submissions {
+		if (s.User == nil || s.User.UserID == 0) && s.UserID > 0 {
+			if _, dup := seen[s.UserID]; !dup {
+				seen[s.UserID] = struct{}{}
+				missingIDs = append(missingIDs, s.UserID)
+			}
+		}
+	}
+	log.Printf("[AdminListSubmissions] page=%d items=%d preload_missing=%d", page, len(submissions), len(missingIDs))
+
+	// 3) ดึง users สำหรับ missingIDs ทีเดียว แล้วทำ map
+	usersByID := map[int]models.User{}
+	if len(missingIDs) > 0 {
+		var users []models.User
+		if err := config.DB.Where("user_id IN ?", missingIDs).Find(&users).Error; err == nil {
+			for _, u := range users {
+				usersByID[u.UserID] = u
+			}
+		}
+		log.Printf("[AdminListSubmissions] backfilled_users=%d", len(usersByID))
+	}
+
+	// 4) ประกอบ response: ใส่ userObj เสมอ (จาก s.User หรือ backfill)
 	out := make([]gin.H, 0, len(submissions))
 	for _, s := range submissions {
-		// สร้าง User object สำหรับส่งกลับ
+		u := s.User
+		if (u == nil || u.UserID == 0) && s.UserID > 0 {
+			if v, ok := usersByID[s.UserID]; ok {
+				// ใช้ที่ backfill มา
+				u = &v
+			}
+		}
+
 		var userObj gin.H
-		if s.User != nil && s.User.UserID > 0 {
+		if u != nil && u.UserID > 0 {
 			userObj = gin.H{
-				"user_id":    s.User.UserID,
-				"user_fname": s.User.UserFname,
-				"user_lname": s.User.UserLname,
-				"email":      s.User.Email,
+				"user_id":    u.UserID,
+				"user_fname": u.UserFname,
+				"user_lname": u.UserLname,
+				"email":      u.Email,
 			}
 		}
 
@@ -254,12 +288,12 @@ func AdminListSubmissions(c *gin.Context) {
 			"created_at":        s.CreatedAt,
 			"updated_at":        s.UpdatedAt,
 
-			// ✅ ส่ง User object (ไม่ใช่แค่ applicant)
-			"User":      userObj, // << เพิ่มบรรทัดนี้
-			"user":      userObj, // << เพิ่มทั้ง 2 case เผื่อ frontend ใช้
-			"applicant": userObj, // << เก็บไว้เผื่อ compatibility
+			// ให้ FE ใช้ชื่อได้ทุกแบบ (เผื่อโค้ดฝั่ง FE เรียก key ต่างกัน)
+			"User":      userObj,
+			"user":      userObj,
+			"applicant": userObj,
 
-			// ส่งข้อมูลความสัมพันธ์อื่นๆ
+			// ข้อมูลความสัมพันธ์อื่น ๆ (ตามที่ต้องการ)
 			"Category":    s.Category,
 			"Subcategory": s.Subcategory,
 			"Status":      s.Status,
@@ -267,7 +301,6 @@ func AdminListSubmissions(c *gin.Context) {
 		})
 	}
 
-	// ส่งผลลัพธ์กลับ
 	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
 	c.JSON(http.StatusOK, gin.H{
 		"submissions": out,
