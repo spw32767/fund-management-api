@@ -476,13 +476,10 @@ func SetupRoutes(router *gin.Engine) {
 
 				submissionManagement := admin.Group("/submissions")
 				{
-					// List
-					submissionManagement.GET("", controllers.AdminListSubmissions)
-
 					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
 
-					// Approval flow
+					// Approval flow (cleaned: only new endpoints)
 					submissionManagement.PATCH("/:id/publication-reward/approval-amounts", controllers.UpdatePublicationRewardApprovalAmounts)
 					submissionManagement.POST("/:id/approve", controllers.ApproveSubmission)
 					submissionManagement.POST("/:id/reject", controllers.RejectSubmission)
