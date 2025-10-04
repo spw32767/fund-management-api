@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
@@ -77,10 +79,11 @@ func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
 	return isOpen, isOpen
 }
 
-// getUserIDAny: ดึง user id จาก context/header ให้ครอบคลุมหลายชนิดข้อมูล (ตั้งชื่อไม่ชนไฟล์อื่น)
+// getUserIDAny: ดึง user id จากหลายแหล่ง (context -> header -> JWT -> cookies)
+// โดยไม่ต้องแก้โค้ดฝั่ง FE
 func getUserIDAny(c *gin.Context) *int {
-	keys := []string{"user_id", "admin_id", "uid", "id"}
-	for _, k := range keys {
+	// 1) ค่าใน Gin context (middleware อาจตั้งให้คีย์ต่างกัน)
+	for _, k := range []string{"user_id", "admin_id", "uid", "id"} {
 		if v, ok := c.Get(k); ok {
 			switch t := v.(type) {
 			case int:
@@ -93,21 +96,115 @@ func getUserIDAny(c *gin.Context) *int {
 				id := int(t)
 				return &id
 			case string:
-				if id64, err := strconv.ParseInt(t, 10, 64); err == nil {
-					id := int(id64)
+				if n, err := strconv.Atoi(t); err == nil {
+					return &n
+				}
+			case json.Number:
+				if n, err := t.Int64(); err == nil {
+					id := int(n)
 					return &id
+				}
+			case map[string]interface{}:
+				if id := extractIDFromMap(t); id != nil {
+					return id
 				}
 			}
 		}
 	}
-	// สำรองอ่านจาก Header
+
+	// 2) Header สำรองแบบเดิม
 	if hv := c.GetHeader("X-User-Id"); hv != "" {
-		if id64, err := strconv.ParseInt(hv, 10, 64); err == nil {
-			id := int(id64)
-			return &id
+		if n, err := strconv.Atoi(hv); err == nil {
+			return &n
+		}
+	}
+
+	// 3) บางระบบอาจยัด claims ทั้งก้อนลง context
+	if v, ok := c.Get("claims"); ok {
+		if m, ok := v.(map[string]interface{}); ok {
+			if id := extractIDFromMap(m); id != nil {
+				return id
+			}
+		}
+	}
+
+	// 4) Authorization: Bearer <JWT>  -> ถอด payload (base64url) แล้วอ่าน claims
+	if ah := c.GetHeader("Authorization"); strings.HasPrefix(strings.ToLower(ah), "bearer ") {
+		if id := extractIDFromJWT(ah[7:]); id != nil {
+			return id
+		}
+	}
+
+	// 5) ลองดูใน cookies ทั่วไปที่มักเก็บ JWT
+	for _, ck := range []string{"access_token", "jwt", "token"} {
+		if token, err := c.Cookie(ck); err == nil && token != "" {
+			if id := extractIDFromJWT(token); id != nil {
+				return id
+			}
+		}
+	}
+
+	return nil
+}
+
+// ===== helpers สำหรับ getUserIDAny =====
+
+func extractIDFromMap(m map[string]interface{}) *int {
+	for _, k := range []string{"user_id", "id", "uid", "sub"} {
+		if v, ok := m[k]; ok {
+			if n, ok := toInt(v); ok {
+				return &n
+			}
+		}
+	}
+	// บางระบบห่อไว้ใต้ "user"
+	if u, ok := m["user"]; ok {
+		if um, ok := u.(map[string]interface{}); ok {
+			return extractIDFromMap(um)
 		}
 	}
 	return nil
+}
+
+func toInt(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	case json.Number:
+		if n, err := t.Int64(); err == nil {
+			return int(n), true
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func extractIDFromJWT(token string) *int {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	payload := parts[1]
+	// pad base64url
+	if m := len(payload) % 4; m != 0 {
+		payload += strings.Repeat("=", 4-m)
+	}
+	b, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return nil
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(b, &claims); err != nil {
+		return nil
+	}
+	return extractIDFromMap(claims)
 }
 
 // fetchCurrentAnnAssignment: ดึง assignment ของ slot ที่ "กำลังมีผล" หรือ "กำลังจะมาถึง" (แก้ไขเพิ่มเติม)
