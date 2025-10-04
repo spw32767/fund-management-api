@@ -109,9 +109,6 @@ func ListDeptHeadHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "items": resp})
 }
 
-// AssignDeptHead closes the current active assignment (if any) and inserts a new one.
-// - รับ start_date/end_date
-// - บันทึก changed_by ทั้งตอน UPDATE (ปิดของเดิม) และตอน INSERT (ของใหม่)
 func AssignDeptHead(c *gin.Context) {
 	var p AssignDeptHeadPayload
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -119,7 +116,7 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// แปลงเวลาแบบเดียวกับ helper ใน system_config.go
+	// parse ช่วงเวลา
 	st, err1 := parseTimePtr(p.StartDate)
 	en, err2 := parseTimePtr(p.EndDate)
 	if st == nil || err1 != nil || err2 != nil {
@@ -131,7 +128,6 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// ผู้ปฏิบัติ: ใช้ helper เดียวกับไฟล์ system_config.go (อ่านจาก context/header/JWT/cookie)
 	changedBy := getUserIDAny(c)
 
 	tx := config.DB.Begin()
@@ -140,44 +136,51 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// 1) ปิด assignment ที่ยังเปิดอยู่ (ถ้ามี) และบันทึก changed_by
-	var cur struct {
-		HeadUserID    *int
-		RestoreRoleID *int
+	// 1) หาแถวที่ "active ณ เวลาเริ่มใหม่ (st)" หรือทับซ้อนกับ st แล้ว demote role กลับ
+	type oldAssign struct {
+		HeadUserID    int
+		RestoreRoleID sql.NullInt64
 	}
+
+	var olds []oldAssign
 	if err := tx.Raw(`
-        SELECT head_user_id, restore_role_id
-        FROM dept_head_assignments
-        WHERE effective_to IS NULL
-        ORDER BY assignment_id DESC
-        LIMIT 1
-    `).Row().Scan(&cur.HeadUserID, &cur.RestoreRoleID); err != nil && err != sql.ErrNoRows {
+		SELECT head_user_id,
+		       COALESCE(restore_role_id, (SELECT role_id FROM users WHERE user_id = head_user_id)) AS restore_role_id
+		FROM dept_head_assignments
+		WHERE effective_from <= ?
+		  AND (effective_to IS NULL OR effective_to > ?)
+	`, st, st).Scan(&olds).Error; err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "query current assignment failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "query overlap failed"})
 		return
 	}
 
-	if cur.HeadUserID != nil && cur.RestoreRoleID != nil {
-		// ปิด assignment เดิม: effective_to = start_date + อัปเดต changed_by/changed_at
-		if err := tx.Exec(`
-            UPDATE dept_head_assignments
-            SET effective_to = ?, changed_by = ?, changed_at = NOW()
-            WHERE effective_to IS NULL
-        `, st, changedBy).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "close current assignment failed"})
-			return
-		}
+	// ปิดทุกแถวที่ทับซ้อนกับ st
+	if err := tx.Exec(`
+		UPDATE dept_head_assignments
+		SET effective_to = ?, changed_by = ?, changed_at = UTC_TIMESTAMP()
+		WHERE effective_from <= ?
+		  AND (effective_to IS NULL OR effective_to > ?)
+	`, st, changedBy, st, st).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "close previous assignments failed"})
+		return
+	}
 
-		// ลดบทบาทหัวหน้าคนเดิมกลับไปตาม restore_role_id
-		if err := tx.Exec(`UPDATE users SET role_id = ? WHERE user_id = ?`, *cur.RestoreRoleID, *cur.HeadUserID).Error; err != nil {
+	// คืน role ให้ทุกคนที่ถูกปิด
+	for _, o := range olds {
+		restore := 1 // fallback: teacher
+		if o.RestoreRoleID.Valid {
+			restore = int(o.RestoreRoleID.Int64)
+		}
+		if err := tx.Exec(`UPDATE users SET role_id = ? WHERE user_id = ? AND role_id = 4`, restore, o.HeadUserID).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "demote current head failed"})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "demote previous head failed"})
 			return
 		}
 	}
 
-	// 2) โปรโมตหัวหน้าคนใหม่ และบันทึกประวัติ
+	// 2) โปรโมตคนใหม่ + บันทึกประวัติ
 	var prevRoleID int
 	if err := tx.Raw(`SELECT role_id FROM users WHERE user_id = ?`, p.HeadUserID).Row().Scan(&prevRoleID); err != nil {
 		tx.Rollback()
@@ -185,21 +188,35 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// อัปเดตบทบาทเป็น dept_head (role_id = 4)
+	// โปรโมตเป็น dept_head
 	if err := tx.Exec(`UPDATE users SET role_id = 4 WHERE user_id = ?`, p.HeadUserID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "promote new head failed"})
 		return
 	}
 
-	// แทรกแถวใหม่: effective_from = st, effective_to = en (อาจเป็น NULL), changed_by = user ปัจจุบัน
+	// แทรก assignment ใหม่
 	if err := tx.Exec(`
-        INSERT INTO dept_head_assignments
-            (head_user_id, restore_role_id, effective_from, effective_to, changed_by, changed_at, note)
-        VALUES (?, ?, ?, ?, ?, NOW(), ?)
-    `, p.HeadUserID, prevRoleID, st, en, changedBy, p.Note).Error; err != nil {
+		INSERT INTO dept_head_assignments
+			(head_user_id, restore_role_id, effective_from, effective_to, changed_by, changed_at, note)
+		VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), ?)
+	`, p.HeadUserID, prevRoleID, st, en, changedBy, p.Note).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "insert assignment failed"})
+		return
+	}
+
+	// 3) (ออปชัน) cleanup: ใครที่มี assignment สิ้นสุดแล้ว แต่ยังติด role 4 อยู่ ให้คืน role ให้ถูกต้อง
+	if err := tx.Exec(`
+		UPDATE users u
+		JOIN dept_head_assignments a ON a.head_user_id = u.user_id
+		SET u.role_id = a.restore_role_id
+		WHERE u.role_id = 4
+		  AND a.effective_to IS NOT NULL
+		  AND a.effective_to <= UTC_TIMESTAMP()
+	`).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "cleanup orphan heads failed"})
 		return
 	}
 
