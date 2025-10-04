@@ -108,14 +108,16 @@ func getUserIDAny(c *gin.Context) *int {
 	return nil
 }
 
-// fetchCurrentAnnAssignment: ดึง assignment ของ slot ที่ "กำลังมีผล"
+// fetchCurrentAnnAssignment: ดึง assignment ของ slot ที่ "กำลังมีผล" หรือ "กำลังจะมาถึง" (แก้ไขเพิ่มเติม)
 func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *time.Time, err error) {
 	var row struct {
 		AnnouncementID sql.NullInt64
 		StartDate      sql.NullTime
 		EndDate        sql.NullTime
 	}
-	q := `
+
+	// 1. Try to fetch the currently active assignment (start <= NOW() and (end IS NULL or end >= NOW()))
+	qActive := `
 		SELECT announcement_id, start_date, end_date
 		FROM announcement_assignments
 		WHERE slot_code = ?
@@ -124,21 +126,56 @@ func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *
 		ORDER BY changed_at DESC, start_date DESC
 		LIMIT 1
 	`
-	if err2 := config.DB.Raw(q, slot).Scan(&row).Error; err2 != nil && err2 != sql.ErrNoRows {
+
+	err2 := config.DB.Raw(qActive, slot).Scan(&row).Error
+	if err2 != nil && err2 != sql.ErrNoRows {
 		return nil, nil, nil, err2
 	}
+
+	// 2. If no active assignment is found, try to fetch the NEXT UPCOMING assignment (start > NOW())
+	if !row.AnnouncementID.Valid { // หากไม่พบรายการที่ Active
+		qUpcoming := `
+            SELECT announcement_id, start_date, end_date
+            FROM announcement_assignments
+            WHERE slot_code = ?
+              AND start_date > NOW()
+            ORDER BY start_date ASC, changed_at DESC
+            LIMIT 1
+        `
+		// Clear row struct to ensure accurate check after scan
+		row = struct {
+			AnnouncementID sql.NullInt64
+			StartDate      sql.NullTime
+			EndDate        sql.NullTime
+		}{}
+
+		err3 := config.DB.Raw(qUpcoming, slot).Scan(&row).Error
+		if err3 != nil && err3 != sql.ErrNoRows {
+			return nil, nil, nil, err3
+		}
+	}
+
+	// Process the found row (either active or upcoming)
 	if row.AnnouncementID.Valid {
 		x := int(row.AnnouncementID.Int64)
 		annID = &x
 	}
+
 	if row.StartDate.Valid {
 		t := row.StartDate.Time.UTC()
 		start = &t
 	}
+
 	if row.EndDate.Valid {
 		t := row.EndDate.Time.UTC()
 		end = &t
 	}
+
+	// Ensure we return if no assignment was found in either query
+	if annID == nil && start == nil && end == nil {
+		return nil, nil, nil, nil
+	}
+
 	return annID, start, end, nil
 }
 
