@@ -19,32 +19,50 @@ type AssignDeptHeadPayload struct {
 	Note       *string `json:"note"`                            // optional
 }
 
-// GetCurrentDeptHead returns the currently active head (effective_to IS NULL).
+// GetCurrentDeptHead returns the head whose window covers "now" (UTC).
 func GetCurrentDeptHead(c *gin.Context) {
 	var row struct {
-		HeadUserID    *int       `json:"head_user_id"`
-		EffectiveFrom *time.Time `json:"effective_from"`
+		HeadUserID    sql.NullInt64
+		EffectiveFrom sql.NullTime
+		EffectiveTo   sql.NullTime
 	}
 
+	// ใช้ UTC_TIMESTAMP() เพื่อให้เทียบกับค่า DATETIME ที่เราเก็บเป็น UTC
 	if err := config.DB.Raw(`
-		SELECT head_user_id, effective_from
+		SELECT head_user_id, effective_from, effective_to
 		FROM dept_head_assignments
-		WHERE effective_to IS NULL
-		ORDER BY assignment_id DESC
+		WHERE effective_from <= UTC_TIMESTAMP()
+		  AND (effective_to IS NULL OR effective_to >= UTC_TIMESTAMP())
+		ORDER BY effective_from DESC, assignment_id DESC
 		LIMIT 1
-	`).Row().Scan(&row.HeadUserID, &row.EffectiveFrom); err != nil {
-		// ถ้าไม่เจอ แค่คืนค่า null
+	`).Row().Scan(&row.HeadUserID, &row.EffectiveFrom, &row.EffectiveTo); err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "query current head failed"})
+		return
+	}
+
+	var headID *int
+	if row.HeadUserID.Valid {
+		v := int(row.HeadUserID.Int64)
+		headID = &v
 	}
 
 	var ef *string
-	if row.EffectiveFrom != nil {
-		v := row.EffectiveFrom.UTC().Format(time.RFC3339)
+	if row.EffectiveFrom.Valid {
+		v := row.EffectiveFrom.Time.UTC().Format(time.RFC3339)
 		ef = &v
 	}
 
+	// (ถ้าจะส่ง effective_to ไปด้วย ก็ได้ แต่ FE ตอนนี้ไม่ได้ใช้)
+	// var et *string
+	// if row.EffectiveTo.Valid {
+	// 	v := row.EffectiveTo.Time.UTC().Format(time.RFC3339)
+	// 	et = &v
+	// }
+
 	c.JSON(http.StatusOK, gin.H{
-		"head_user_id":   row.HeadUserID,
+		"head_user_id":   headID,
 		"effective_from": ef,
+		// "effective_to":   et,
 	})
 }
 
