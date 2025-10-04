@@ -470,6 +470,7 @@ func SetupRoutes(router *gin.Engine) {
 					systemConfig.GET("", controllers.GetSystemConfigAdmin)
 					systemConfig.PUT("", controllers.UpdateSystemConfigWindow)
 					systemConfig.PATCH("/announcements/:slot", controllers.UpdateSystemConfigAnnouncement)
+					systemConfig.GET("/announcements/:slot/history", controllers.ListAnnouncementHistory)
 					systemConfig.GET("/dept-head/history", controllers.ListDeptHeadHistory)
 					systemConfig.POST("/dept-head/assign", controllers.AssignDeptHead)
 				}
