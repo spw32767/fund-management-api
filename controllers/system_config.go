@@ -62,6 +62,42 @@ func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
 	return isOpen, isOpen
 }
 
+// fetchCurrentAnnAssignment returns the current-effective assignment (id + window) for a given slot
+func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *time.Time, err error) {
+	var row struct {
+		AnnouncementID sql.NullInt64
+		StartDate      sql.NullTime
+		EndDate        sql.NullTime
+	}
+	// เลือก assignment ที่กำลังมีผล ณ ตอนนี้ (start<=NOW() และ end IS NULL หรือ end>=NOW())
+	// ใช้ลำดับ changed_at DESC, start_date DESC เพื่อเอาแถวล่าสุด (ในกรณีมีหลายแถวทับกัน)
+	q := `
+		SELECT announcement_id, start_date, end_date
+		FROM announcement_assignments
+		WHERE slot_code = ? 
+		  AND start_date <= NOW() 
+		  AND (end_date IS NULL OR end_date >= NOW())
+		ORDER BY changed_at DESC, start_date DESC
+		LIMIT 1
+	`
+	if err2 := config.DB.Raw(q, slot).Scan(&row).Error; err2 != nil && err2 != sql.ErrNoRows {
+		return nil, nil, nil, err2
+	}
+	if row.AnnouncementID.Valid {
+		id := int(row.AnnouncementID.Int64)
+		annID = &id
+	}
+	if row.StartDate.Valid {
+		t := row.StartDate.Time.UTC()
+		start = &t
+	}
+	if row.EndDate.Valid {
+		t := row.EndDate.Time.UTC()
+		end = &t
+	}
+	return annID, start, end, nil
+}
+
 // ===== Handlers =====
 
 // GetSystemConfigCurrentYear returns only the latest current_year (as string or null)
@@ -156,6 +192,13 @@ func GetSystemConfigWindow(c *gin.Context) {
 		updBy = &v
 	}
 
+	// ดึง window ของประกาศที่ "กำลังมีผล" ราย slot
+	mainID, mainS, mainE, _ := fetchCurrentAnnAssignment("main")
+	rewardID, rewardS, rewardE, _ := fetchCurrentAnnAssignment("reward")
+	actID, actS, actE, _ := fetchCurrentAnnAssignment("activity_support")
+	confID, confS, confE, _ := fetchCurrentAnnAssignment("conference")
+	svcID, svcS, svcE, _ := fetchCurrentAnnAssignment("service")
+
 	c.JSON(http.StatusOK, gin.H{
 		"config_id": row.ConfigID,
 		"system_version": func() *string {
@@ -176,12 +219,31 @@ func GetSystemConfigWindow(c *gin.Context) {
 		"last_updated": formatPtrTime(lastPtr),
 		"updated_by":   updBy,
 
-		// announcements (IDs to system_config.config_id per your schema)
+		// announcements (IDs in system_config)
 		"main_annoucement":              toIntPtr(row.MainAnnoucement),
 		"reward_announcement":           toIntPtr(row.RewardAnnouncement),
 		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+
+		// + window ที่กำลังมีผลรายช่อง (ดึงจาก announcement_assignments)
+		"main_start_date":             formatPtrTime(mainS),
+		"main_end_date":               formatPtrTime(mainE),
+		"reward_start_date":           formatPtrTime(rewardS),
+		"reward_end_date":             formatPtrTime(rewardE),
+		"activity_support_start_date": formatPtrTime(actS),
+		"activity_support_end_date":   formatPtrTime(actE),
+		"conference_start_date":       formatPtrTime(confS),
+		"conference_end_date":         formatPtrTime(confE),
+		"service_start_date":          formatPtrTime(svcS),
+		"service_end_date":            formatPtrTime(svcE),
+
+		// (ทางเลือก) ส่ง id ของ assignment ปัจจุบันกลับด้วย (ถ้ามี)
+		"main_effective_announcement_id":             mainID,
+		"reward_effective_announcement_id":           rewardID,
+		"activity_support_effective_announcement_id": actID,
+		"conference_effective_announcement_id":       confID,
+		"service_effective_announcement_id":          svcID,
 
 		"kku_report_year": func() interface{} {
 			if row.KkuReportYear.Valid {
@@ -266,6 +328,13 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		updBy = &v
 	}
 
+	// ดึง window ของประกาศที่ "กำลังมีผล" ราย slot
+	mainID, mainS, mainE, _ := fetchCurrentAnnAssignment("main")
+	rewardID, rewardS, rewardE, _ := fetchCurrentAnnAssignment("reward")
+	actID, actS, actE, _ := fetchCurrentAnnAssignment("activity_support")
+	confID, confS, confE, _ := fetchCurrentAnnAssignment("conference")
+	svcID, svcS, svcE, _ := fetchCurrentAnnAssignment("service")
+
 	data := gin.H{
 		"config_id": row.ConfigID,
 		"system_version": func() *string {
@@ -291,6 +360,25 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+
+		// + window ที่กำลังมีผลรายช่อง (ดึงจาก announcement_assignments)
+		"main_start_date":             formatPtrTime(mainS),
+		"main_end_date":               formatPtrTime(mainE),
+		"reward_start_date":           formatPtrTime(rewardS),
+		"reward_end_date":             formatPtrTime(rewardE),
+		"activity_support_start_date": formatPtrTime(actS),
+		"activity_support_end_date":   formatPtrTime(actE),
+		"conference_start_date":       formatPtrTime(confS),
+		"conference_end_date":         formatPtrTime(confE),
+		"service_start_date":          formatPtrTime(svcS),
+		"service_end_date":            formatPtrTime(svcE),
+
+		// (ทางเลือก) ส่ง id ของ assignment ปัจจุบันกลับด้วย (ถ้ามี)
+		"main_effective_announcement_id":             mainID,
+		"reward_effective_announcement_id":           rewardID,
+		"activity_support_effective_announcement_id": actID,
+		"conference_effective_announcement_id":       confID,
+		"service_effective_announcement_id":          svcID,
 
 		"kku_report_year": func() interface{} {
 			if row.KkuReportYear.Valid {
@@ -384,9 +472,11 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// UpdateSystemConfigAnnouncement อัปเดตประกาศทีละช่องด้วย slot param
+// UpdateSystemConfigAnnouncement อัปเดตประกาศทีละช่องด้วย slot param + (บันทึกประวัติลง announcement_assignments)
 type setAnnouncementPayload struct {
-	AnnouncementID *int `json:"announcement_id"` // null = เคลียร์ค่า
+	AnnouncementID *int    `json:"announcement_id"` // null = เคลียร์ค่า
+	StartDate      *string `json:"start_date"`      // optional (จำเป็นเมื่อ AnnouncementID != nil)
+	EndDate        *string `json:"end_date"`        // optional (จำเป็นเมื่อ AnnouncementID != nil)
 }
 
 func UpdateSystemConfigAnnouncement(c *gin.Context) {
@@ -421,40 +511,69 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		}
 	}
 
-	// หาแถวล่าสุด
-	var cfgID sql.NullInt64
+	// หาแถวล่าสุด + ตรวจว่ามี window ครบแล้วหรือยัง (global)
+	var row struct {
+		ConfigID  sql.NullInt64
+		StartDate sql.NullTime
+		EndDate   sql.NullTime
+	}
 	if err := config.DB.Raw(`
-		SELECT config_id
+		SELECT config_id, start_date, end_date
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
-	`).Row().Scan(&cfgID); err != nil && err != sql.ErrNoRows {
+	`).Scan(&row).Error; err != nil && err != sql.ErrNoRows {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
 		return
 	}
 
-	if !cfgID.Valid {
-		// ถ้ายังไม่มี row เลย ให้สร้างใหม่ พร้อมกำหนดคอลัมน์ที่ต้องการ
-		q := `
-			INSERT INTO system_config (` + col + `, last_updated, updated_by)
-			VALUES (?, NOW(), ?)
-		`
-		if err := config.DB.Exec(q, p.AnnouncementID, updatedBy).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
+	// บังคับต้องมี window (manual start/end) ก่อน (ตาม requirement เดิมของคุณ)
+	if !row.ConfigID.Valid || !row.StartDate.Valid || !row.EndDate.Valid {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "กรุณาตั้งค่า start_date และ end_date ก่อนบันทึกประกาศ",
+		})
 		return
 	}
 
-	// อัปเดตคอลัมน์ที่เลือกในแถวล่าสุด
+	// อัปเดตคอลัมน์ที่เลือกในแถวล่าสุด (ความเข้ากันได้ย้อนหลัง)
 	q := `
 		UPDATE system_config
 		SET ` + col + ` = ?, last_updated = NOW(), updated_by = ?
 		WHERE config_id = ?
 	`
-	if err := config.DB.Exec(q, p.AnnouncementID, updatedBy, int(cfgID.Int64)).Error; err != nil {
+	if err := config.DB.Exec(q, p.AnnouncementID, updatedBy, int(row.ConfigID.Int64)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
+		return
+	}
+
+	// ถ้าไม่ได้ตั้งประกาศ (announcement_id == null) → เคลียร์ค่าอย่างเดียว ไม่บันทึกประวัติช่วงว่าง
+	if p.AnnouncementID == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+
+	// มีประกาศ → ต้องมีช่วงเวลา
+	stPtr, err1 := parseTimePtr(p.StartDate)
+	enPtr, err2 := parseTimePtr(p.EndDate)
+	if err1 != nil || err2 != nil || stPtr == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid or missing start/end date"})
+		return
+	}
+	// ตรวจตรรกะ start<=end (ถ้า end ไม่ว่าง)
+	if enPtr != nil && stPtr.After(*enPtr) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "start_date must be before or equal to end_date"})
+		return
+	}
+
+	// บันทึกประวัติลง announcement_assignments
+	if err := config.DB.Exec(`
+		INSERT INTO announcement_assignments
+			(slot_code, announcement_id, start_date, end_date, changed_by, changed_at)
+		VALUES
+			(?, ?, ?, ?, ?, NOW())
+	`, slot, p.AnnouncementID, stPtr, enPtr, updatedBy).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert announcement assignment"})
 		return
 	}
 

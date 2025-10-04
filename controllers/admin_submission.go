@@ -6,6 +6,7 @@ import (
 	"fund-management-api/models"
 	"fund-management-api/utils"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -195,7 +196,6 @@ func GetSubmissionDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// controllers/admin_submission.go
 func AdminListSubmissions(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	page, _ := strconv.Atoi(pageStr)
@@ -204,9 +204,10 @@ func AdminListSubmissions(c *gin.Context) {
 	}
 	perPage := 50
 
+	// 1) ดึงรายการคำร้อง
 	var submissions []models.Submission
 	q := config.DB.
-		Preload("User"). // << สำคัญ: โหลด owner เพื่อให้มีชื่อ
+		Preload("User"). // อาจไม่ทำงานเพราะโครงสร้าง model, เราจะ backfill ให้ด้วย
 		Preload("Year").
 		Preload("Status").
 		Preload("Category").
@@ -228,12 +229,86 @@ func AdminListSubmissions(c *gin.Context) {
 		return
 	}
 
-	// ถ้ากังวลเรื่องขนาด payload จะ map เหลือ field ที่ต้องใช้ก็ได้
+	// 2) หา user_id ที่ยังไม่มี s.User (Preload ไม่เติม)
+	missingIDs := make([]int, 0, len(submissions))
+	seen := map[int]struct{}{}
+	for _, s := range submissions {
+		if (s.User == nil || s.User.UserID == 0) && s.UserID > 0 {
+			if _, dup := seen[s.UserID]; !dup {
+				seen[s.UserID] = struct{}{}
+				missingIDs = append(missingIDs, s.UserID)
+			}
+		}
+	}
+	log.Printf("[AdminListSubmissions] page=%d items=%d preload_missing=%d", page, len(submissions), len(missingIDs))
+
+	// 3) ดึง users สำหรับ missingIDs ทีเดียว แล้วทำ map
+	usersByID := map[int]models.User{}
+	if len(missingIDs) > 0 {
+		var users []models.User
+		if err := config.DB.Where("user_id IN ?", missingIDs).Find(&users).Error; err == nil {
+			for _, u := range users {
+				usersByID[u.UserID] = u
+			}
+		}
+		log.Printf("[AdminListSubmissions] backfilled_users=%d", len(usersByID))
+	}
+
+	// 4) ประกอบ response: ใส่ userObj เสมอ (จาก s.User หรือ backfill)
+	out := make([]gin.H, 0, len(submissions))
+	for _, s := range submissions {
+		u := s.User
+		if (u == nil || u.UserID == 0) && s.UserID > 0 {
+			if v, ok := usersByID[s.UserID]; ok {
+				// ใช้ที่ backfill มา
+				u = &v
+			}
+		}
+
+		var userObj gin.H
+		if u != nil && u.UserID > 0 {
+			userObj = gin.H{
+				"user_id":    u.UserID,
+				"user_fname": u.UserFname,
+				"user_lname": u.UserLname,
+				"email":      u.Email,
+			}
+		}
+
+		out = append(out, gin.H{
+			"submission_id":     s.SubmissionID,
+			"submission_number": s.SubmissionNumber,
+			"submission_type":   s.SubmissionType,
+			"user_id":           s.UserID,
+			"year_id":           s.YearID,
+			"category_id":       s.CategoryID,
+			"subcategory_id":    s.SubcategoryID,
+			"status_id":         s.StatusID,
+			"submitted_at":      s.SubmittedAt,
+			"created_at":        s.CreatedAt,
+			"updated_at":        s.UpdatedAt,
+
+			// ให้ FE ใช้ชื่อได้ทุกแบบ (เผื่อโค้ดฝั่ง FE เรียก key ต่างกัน)
+			"User":      userObj,
+			"user":      userObj,
+			"applicant": userObj,
+
+			// ข้อมูลความสัมพันธ์อื่น ๆ (ตามที่ต้องการ)
+			"Category":    s.Category,
+			"Subcategory": s.Subcategory,
+			"Status":      s.Status,
+			"Year":        s.Year,
+		})
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(perPage)))
 	c.JSON(http.StatusOK, gin.H{
-		"submissions": submissions, // มี User ติดมาด้วย
+		"submissions": out,
 		"pagination": gin.H{
-			"page": page, "per_page": perPage,
-			"total": total, "total_pages": (total + int64(perPage) - 1) / int64(perPage),
+			"page":        page,
+			"per_page":    perPage,
+			"total":       total,
+			"total_pages": totalPages,
 		},
 	})
 }
