@@ -11,42 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
-
-// วางไว้ใน routes.go (import "net/http", "strconv", "github.com/gin-gonic/gin" ให้ครบ)
-func requireTeacherLike() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		v, ok := c.Get("role_id")
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
-		var role int
-		switch rv := v.(type) {
-		case int:
-			role = rv
-		case int64:
-			role = int(rv)
-		case float64:
-			role = int(rv)
-		case string:
-			if x, err := strconv.Atoi(rv); err == nil {
-				role = x
-			}
-		}
-
-		// ✅ อนุญาตเฉพาะ Teacher (1) และ Dept Head (4)
-		if role == 1 || role == 4 {
-			c.Next()
-			return
-		}
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-	}
-}
 
 func SetupRoutes(router *gin.Engine) {
 	// Add security headers middleware
@@ -165,7 +133,6 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Teacher-specific endpoints
 			teacher := protected.Group("/teacher")
-			teacher.Use(requireTeacherLike())
 			{
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
