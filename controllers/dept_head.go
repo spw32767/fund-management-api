@@ -11,12 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AssignDeptHeadPayload is the payload for assigning (or re-assigning) the department head.
-// department_code removed per requirement; we track a single current head across the system.
+// AssignDeptHeadPayload: รับค่าตามที่หน้า FE ส่งมา (start_date/end_date)
 type AssignDeptHeadPayload struct {
-	HeadUserID    int     `json:"head_user_id" binding:"required"`
-	EffectiveFrom *string `json:"effective_from"` // RFC3339; optional (defaults to now)
-	Note          *string `json:"note"`           // optional
+	HeadUserID int     `json:"head_user_id" binding:"required"`
+	StartDate  *string `json:"start_date"   binding:"required"` // ISO/RFC3339 หรือ "YYYY-MM-DDTHH:mm:ss"
+	EndDate    *string `json:"end_date"`                        // optional
+	Note       *string `json:"note"`                            // optional
 }
 
 // GetCurrentDeptHead returns the currently active head (effective_to IS NULL).
@@ -33,7 +33,7 @@ func GetCurrentDeptHead(c *gin.Context) {
 		ORDER BY assignment_id DESC
 		LIMIT 1
 	`).Row().Scan(&row.HeadUserID, &row.EffectiveFrom); err != nil {
-		// If no rows, scan may return nils; we'll just return null values below
+		// ถ้าไม่เจอ แค่คืนค่า null
 	}
 
 	var ef *string
@@ -100,7 +100,8 @@ func ListDeptHeadHistory(c *gin.Context) {
 }
 
 // AssignDeptHead closes the current active assignment (if any) and inserts a new one.
-// This always creates a new row, even if assigning back to a previous person.
+// - รับ start_date/end_date
+// - บันทึก changed_by ทั้งตอน UPDATE (ปิดของเดิม) และตอน INSERT (ของใหม่)
 func AssignDeptHead(c *gin.Context) {
 	var p AssignDeptHeadPayload
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -108,22 +109,20 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	effectiveFrom := time.Now().UTC()
-	if p.EffectiveFrom != nil && *p.EffectiveFrom != "" {
-		t, err := time.Parse(time.RFC3339, *p.EffectiveFrom)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid effective_from"})
-			return
-		}
-		effectiveFrom = t.UTC()
+	// แปลงเวลาแบบเดียวกับ helper ใน system_config.go
+	st, err1 := parseTimePtr(p.StartDate)
+	en, err2 := parseTimePtr(p.EndDate)
+	if st == nil || err1 != nil || err2 != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid start/end date"})
+		return
+	}
+	if en != nil && st.After(*en) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "start_date must be before or equal to end_date"})
+		return
 	}
 
-	var changedBy *int
-	if v, ok := c.Get("user_id"); ok {
-		if id, ok2 := v.(int); ok2 {
-			changedBy = &id
-		}
-	}
+	// ผู้ปฏิบัติ: ใช้ helper เดียวกับไฟล์ system_config.go (อ่านจาก context/header/JWT/cookie)
+	changedBy := getUserIDAny(c)
 
 	tx := config.DB.Begin()
 	if tx.Error != nil {
@@ -131,8 +130,7 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// 1) ปิดหัวหน้าปัจจุบัน (ถ้ามี) + ลดบทบาทกลับ
-	// หา assignment ปัจจุบัน (effective_to IS NULL)
+	// 1) ปิด assignment ที่ยังเปิดอยู่ (ถ้ามี) และบันทึก changed_by
 	var cur struct {
 		HeadUserID    *int
 		RestoreRoleID *int
@@ -150,27 +148,26 @@ func AssignDeptHead(c *gin.Context) {
 	}
 
 	if cur.HeadUserID != nil && cur.RestoreRoleID != nil {
-		// close assignment
+		// ปิด assignment เดิม: effective_to = start_date + อัปเดต changed_by/changed_at
 		if err := tx.Exec(`
             UPDATE dept_head_assignments
-            SET effective_to = ?
+            SET effective_to = ?, changed_by = ?, changed_at = NOW()
             WHERE effective_to IS NULL
-        `, effectiveFrom).Error; err != nil {
+        `, st, changedBy).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "close current assignment failed"})
 			return
 		}
-		// demote old head
-		if err := tx.Exec(`
-            UPDATE users SET role_id = ? WHERE user_id = ?
-        `, *cur.RestoreRoleID, *cur.HeadUserID).Error; err != nil {
+
+		// ลดบทบาทหัวหน้าคนเดิมกลับไปตาม restore_role_id
+		if err := tx.Exec(`UPDATE users SET role_id = ? WHERE user_id = ?`, *cur.RestoreRoleID, *cur.HeadUserID).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "demote current head failed"})
 			return
 		}
 	}
 
-	// 2) โปรโมตหัวหน้าคนใหม่ (อ่าน role เดิมเพื่อเก็บลง restore_role_id)
+	// 2) โปรโมตหัวหน้าคนใหม่ และบันทึกประวัติ
 	var prevRoleID int
 	if err := tx.Raw(`SELECT role_id FROM users WHERE user_id = ?`, p.HeadUserID).Row().Scan(&prevRoleID); err != nil {
 		tx.Rollback()
@@ -185,11 +182,12 @@ func AssignDeptHead(c *gin.Context) {
 		return
 	}
 
-	// สร้างแถว history ใหม่ (เก็บ role เดิมไว้ใน restore_role_id)
+	// แทรกแถวใหม่: effective_from = st, effective_to = en (อาจเป็น NULL), changed_by = user ปัจจุบัน
 	if err := tx.Exec(`
-        INSERT INTO dept_head_assignments (head_user_id, restore_role_id, effective_from, effective_to, changed_by, changed_at, note)
-        VALUES (?, ?, ?, NULL, ?, NOW(), ?)
-    `, p.HeadUserID, prevRoleID, effectiveFrom, changedBy, p.Note).Error; err != nil {
+        INSERT INTO dept_head_assignments
+            (head_user_id, restore_role_id, effective_from, effective_to, changed_by, changed_at, note)
+        VALUES (?, ?, ?, ?, ?, NOW(), ?)
+    `, p.HeadUserID, prevRoleID, st, en, changedBy, p.Note).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "insert assignment failed"})
 		return
