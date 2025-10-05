@@ -2,7 +2,12 @@ package controllers
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"fund-management-api/config"
@@ -10,23 +15,38 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ====== slot -> column map (ใช้ซ้ำหลาย handler) ======
+var announcementSlotColumns = map[string]string{
+	"main":             "main_annoucement", // สะกดตาม schema เดิม
+	"reward":           "reward_announcement",
+	"activity_support": "activity_support_announcement",
+	"conference":       "conference_announcement",
+	"service":          "service_announcement",
+}
+
+func isValidSlot(slot string) bool {
+	_, ok := announcementSlotColumns[slot]
+	return ok
+}
+
 // ===== Helpers =====
 
-// parseTimePtr takes a *string (possibly nil/empty) and parses it into *time.Time (or nil)
+// parseTimePtr ใช้แปลง string -> *time.Time (หรือ nil)
 func parseTimePtr(s *string) (*time.Time, error) {
 	if s == nil || *s == "" {
 		return nil, nil
 	}
 	layouts := []string{
-		"2006-01-02 15:04:05", // common MySQL DATETIME
+		"2006-01-02 15:04:05", // MySQL DATETIME
 		time.RFC3339,          // ISO8601
-		"2006-01-02T15:04:05", // datetime-local without TZ
+		"2006-01-02T15:04:05", // datetime-local (no TZ)
 		"2006-01-02",          // date only
 	}
 	var lastErr error
 	for _, layout := range layouts {
 		if tt, err := time.Parse(layout, *s); err == nil {
-			return &tt, nil
+			tu := tt.UTC()
+			return &tu, nil
 		} else {
 			lastErr = err
 		}
@@ -34,8 +54,7 @@ func parseTimePtr(s *string) (*time.Time, error) {
 	return nil, lastErr
 }
 
-// formatPtrTime converts *time.Time to *string with a standard layout ("YYYY-MM-DD HH:mm:ss")
-// returns nil if t is nil
+// formatPtrTime แปลง *time.Time -> *string ("YYYY-MM-DD HH:mm:ss") หรือ nil
 func formatPtrTime(t *time.Time) *string {
 	if t == nil {
 		return nil
@@ -44,9 +63,7 @@ func formatPtrTime(t *time.Time) *string {
 	return &s
 }
 
-// computeOpen takes start/end pointers and now, and returns (is_open_raw, is_open_effective)
-// is_open_raw: according to window only
-// is_open_effective: same as raw for now (reserved in case of future overrides)
+// computeOpen: is_open_raw / is_open_effective จาก window
 func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
 	isOpen := true
 	if start != nil && end != nil {
@@ -56,36 +73,188 @@ func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
 	} else if start == nil && end != nil {
 		isOpen = now.Equal(*end) || now.Before(*end)
 	} else {
-		// both nil => treat as open (as used in your prior logs)
+		// ทั้งคู่ว่าง = เปิดตลอด (ตามพฤติกรรมเดิม)
 		isOpen = true
 	}
 	return isOpen, isOpen
 }
 
-// fetchCurrentAnnAssignment returns the current-effective assignment (id + window) for a given slot
+// getUserIDAny: ดึง user id จากหลายแหล่ง (context -> header -> JWT -> cookies)
+// โดยไม่ต้องแก้โค้ดฝั่ง FE
+func getUserIDAny(c *gin.Context) *int {
+	// 1) ค่าใน Gin context (middleware อาจตั้งให้คีย์ต่างกัน)
+	for _, k := range []string{"user_id", "admin_id", "uid", "id"} {
+		if v, ok := c.Get(k); ok {
+			switch t := v.(type) {
+			case int:
+				id := t
+				return &id
+			case int64:
+				id := int(t)
+				return &id
+			case float64:
+				id := int(t)
+				return &id
+			case string:
+				if n, err := strconv.Atoi(t); err == nil {
+					return &n
+				}
+			case json.Number:
+				if n, err := t.Int64(); err == nil {
+					id := int(n)
+					return &id
+				}
+			case map[string]interface{}:
+				if id := extractIDFromMap(t); id != nil {
+					return id
+				}
+			}
+		}
+	}
+
+	// 2) Header สำรองแบบเดิม
+	if hv := c.GetHeader("X-User-Id"); hv != "" {
+		if n, err := strconv.Atoi(hv); err == nil {
+			return &n
+		}
+	}
+
+	// 3) บางระบบอาจยัด claims ทั้งก้อนลง context
+	if v, ok := c.Get("claims"); ok {
+		if m, ok := v.(map[string]interface{}); ok {
+			if id := extractIDFromMap(m); id != nil {
+				return id
+			}
+		}
+	}
+
+	// 4) Authorization: Bearer <JWT>  -> ถอด payload (base64url) แล้วอ่าน claims
+	if ah := c.GetHeader("Authorization"); strings.HasPrefix(strings.ToLower(ah), "bearer ") {
+		if id := extractIDFromJWT(ah[7:]); id != nil {
+			return id
+		}
+	}
+
+	// 5) ลองดูใน cookies ทั่วไปที่มักเก็บ JWT
+	for _, ck := range []string{"access_token", "jwt", "token"} {
+		if token, err := c.Cookie(ck); err == nil && token != "" {
+			if id := extractIDFromJWT(token); id != nil {
+				return id
+			}
+		}
+	}
+
+	return nil
+}
+
+// ===== helpers สำหรับ getUserIDAny =====
+
+func extractIDFromMap(m map[string]interface{}) *int {
+	for _, k := range []string{"user_id", "id", "uid", "sub"} {
+		if v, ok := m[k]; ok {
+			if n, ok := toInt(v); ok {
+				return &n
+			}
+		}
+	}
+	// บางระบบห่อไว้ใต้ "user"
+	if u, ok := m["user"]; ok {
+		if um, ok := u.(map[string]interface{}); ok {
+			return extractIDFromMap(um)
+		}
+	}
+	return nil
+}
+
+func toInt(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	case json.Number:
+		if n, err := t.Int64(); err == nil {
+			return int(n), true
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func extractIDFromJWT(token string) *int {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	payload := parts[1]
+	// pad base64url
+	if m := len(payload) % 4; m != 0 {
+		payload += strings.Repeat("=", 4-m)
+	}
+	b, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return nil
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(b, &claims); err != nil {
+		return nil
+	}
+	return extractIDFromMap(claims)
+}
+
+// fetchCurrentAnnAssignment: ดึง assignment ของ slot ที่ "กำลังมีผล" หรือ "กำลังจะมาถึง" (แก้ไขเพิ่มเติม)
 func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *time.Time, err error) {
 	var row struct {
 		AnnouncementID sql.NullInt64
 		StartDate      sql.NullTime
 		EndDate        sql.NullTime
 	}
-	// เลือก assignment ที่กำลังมีผล ณ ตอนนี้ (start<=NOW() และ end IS NULL หรือ end>=NOW())
-	// ใช้ลำดับ changed_at DESC, start_date DESC เพื่อเอาแถวล่าสุด (ในกรณีมีหลายแถวทับกัน)
-	q := `
+
+	// 1) แถวที่ Active ตอนนี้
+	qActive := `
 		SELECT announcement_id, start_date, end_date
 		FROM announcement_assignments
-		WHERE slot_code = ? 
-		  AND start_date <= NOW() 
+		WHERE slot_code = ?
+		  AND start_date <= NOW()
 		  AND (end_date IS NULL OR end_date >= NOW())
 		ORDER BY changed_at DESC, start_date DESC
 		LIMIT 1
 	`
-	if err2 := config.DB.Raw(q, slot).Scan(&row).Error; err2 != nil && err2 != sql.ErrNoRows {
+	err2 := config.DB.Raw(qActive, slot).Scan(&row).Error
+	if err2 != nil && err2 != sql.ErrNoRows {
 		return nil, nil, nil, err2
 	}
+
+	// 2) ถ้าไม่เจอ ให้หาแถวที่ "กำลังจะเริ่ม" อันถัดไป
+	if !row.AnnouncementID.Valid {
+		qUpcoming := `
+			SELECT announcement_id, start_date, end_date
+			FROM announcement_assignments
+			WHERE slot_code = ?
+			  AND start_date > NOW()
+			ORDER BY start_date ASC, changed_at DESC
+			LIMIT 1
+		`
+		row = struct {
+			AnnouncementID sql.NullInt64
+			StartDate      sql.NullTime
+			EndDate        sql.NullTime
+		}{}
+		err3 := config.DB.Raw(qUpcoming, slot).Scan(&row).Error
+		if err3 != nil && err3 != sql.ErrNoRows {
+			return nil, nil, nil, err3
+		}
+	}
+
+	// Process
 	if row.AnnouncementID.Valid {
-		id := int(row.AnnouncementID.Int64)
-		annID = &id
+		x := int(row.AnnouncementID.Int64)
+		annID = &x
 	}
 	if row.StartDate.Valid {
 		t := row.StartDate.Time.UTC()
@@ -95,19 +264,23 @@ func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *
 		t := row.EndDate.Time.UTC()
 		end = &t
 	}
+
+	// no assignment found
+	if annID == nil && start == nil && end == nil {
+		return nil, nil, nil, nil
+	}
 	return annID, start, end, nil
 }
 
 // ===== Handlers =====
 
-// GetSystemConfigCurrentYear returns only the latest current_year (as string or null)
+// GET /api/v1/system-config/current-year
 func GetSystemConfigCurrentYear(c *gin.Context) {
 	var row struct {
 		CurrentYear sql.NullString
 	}
 	if err := config.DB.Raw(`
-		SELECT current_year
-		FROM system_config
+		SELECT current_year FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
 	`).Scan(&row).Error; err != nil {
@@ -122,12 +295,10 @@ func GetSystemConfigCurrentYear(c *gin.Context) {
 		cur = nil
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"current_year": cur,
-	})
+	c.JSON(http.StatusOK, gin.H{"current_year": cur})
 }
 
-// GetSystemConfigWindow returns the window + all new columns (flat JSON)
+// GET /api/v1/system-config/window
 func GetSystemConfigWindow(c *gin.Context) {
 	now := time.Now().UTC()
 
@@ -150,14 +321,14 @@ func GetSystemConfigWindow(c *gin.Context) {
 	}
 
 	if err := config.DB.Raw(`
-                SELECT
-                  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
-                  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-                  kku_report_year, installment
-                FROM system_config
-                ORDER BY config_id DESC
-                LIMIT 1
-        `).Scan(&row).Error; err != nil {
+		SELECT
+		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
+		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
+		  kku_report_year, installment
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&row).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch system_config window"})
 		return
 	}
@@ -177,7 +348,7 @@ func GetSystemConfigWindow(c *gin.Context) {
 		lastPtr = &lu
 	}
 
-	isOpenRaw, isOpenEff := computeOpen(startPtr, endPtr, time.Now().UTC())
+	isOpenRaw, isOpenEff := computeOpen(startPtr, endPtr, now)
 
 	toIntPtr := func(n sql.NullInt64) *int {
 		if n.Valid {
@@ -192,7 +363,7 @@ func GetSystemConfigWindow(c *gin.Context) {
 		updBy = &v
 	}
 
-	// ดึง window ของประกาศที่ "กำลังมีผล" ราย slot
+	// window ของประกาศที่ "กำลังมีผล" ราย slot
 	mainID, mainS, mainE, _ := fetchCurrentAnnAssignment("main")
 	rewardID, rewardS, rewardE, _ := fetchCurrentAnnAssignment("reward")
 	actID, actS, actE, _ := fetchCurrentAnnAssignment("activity_support")
@@ -219,26 +390,23 @@ func GetSystemConfigWindow(c *gin.Context) {
 		"last_updated": formatPtrTime(lastPtr),
 		"updated_by":   updBy,
 
-		// announcements (IDs in system_config)
 		"main_annoucement":              toIntPtr(row.MainAnnoucement),
 		"reward_announcement":           toIntPtr(row.RewardAnnouncement),
 		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
 
-		// + window ที่กำลังมีผลรายช่อง (ดึงจาก announcement_assignments)
-		"main_start_date":             formatPtrTime(mainS),
-		"main_end_date":               formatPtrTime(mainE),
-		"reward_start_date":           formatPtrTime(rewardS),
-		"reward_end_date":             formatPtrTime(rewardE),
-		"activity_support_start_date": formatPtrTime(actS),
-		"activity_support_end_date":   formatPtrTime(actE),
-		"conference_start_date":       formatPtrTime(confS),
-		"conference_end_date":         formatPtrTime(confE),
-		"service_start_date":          formatPtrTime(svcS),
-		"service_end_date":            formatPtrTime(svcE),
-
-		// (ทางเลือก) ส่ง id ของ assignment ปัจจุบันกลับด้วย (ถ้ามี)
+		// window ปัจจุบันรายช่อง (จาก announcement_assignments)
+		"main_start_date":                            formatPtrTime(mainS),
+		"main_end_date":                              formatPtrTime(mainE),
+		"reward_start_date":                          formatPtrTime(rewardS),
+		"reward_end_date":                            formatPtrTime(rewardE),
+		"activity_support_start_date":                formatPtrTime(actS),
+		"activity_support_end_date":                  formatPtrTime(actE),
+		"conference_start_date":                      formatPtrTime(confS),
+		"conference_end_date":                        formatPtrTime(confE),
+		"service_start_date":                         formatPtrTime(svcS),
+		"service_end_date":                           formatPtrTime(svcE),
 		"main_effective_announcement_id":             mainID,
 		"reward_effective_announcement_id":           rewardID,
 		"activity_support_effective_announcement_id": actID,
@@ -264,7 +432,7 @@ func GetSystemConfigWindow(c *gin.Context) {
 	})
 }
 
-// GetSystemConfigAdmin returns all columns under {success:true, data:{...}}
+// GET /api/v1/admin/system-config
 func GetSystemConfigAdmin(c *gin.Context) {
 	now := time.Now().UTC()
 
@@ -287,14 +455,14 @@ func GetSystemConfigAdmin(c *gin.Context) {
 	}
 
 	if err := config.DB.Raw(`
-                SELECT
-                  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
-                  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-                  kku_report_year, installment
-                FROM system_config
-                ORDER BY config_id DESC
-                LIMIT 1
-        `).Scan(&row).Error; err != nil {
+		SELECT
+		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
+		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
+		  kku_report_year, installment
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&row).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to fetch system_config"})
 		return
 	}
@@ -328,7 +496,7 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		updBy = &v
 	}
 
-	// ดึง window ของประกาศที่ "กำลังมีผล" ราย slot
+	// window ปัจจุบันรายช่อง (จาก announcement_assignments)
 	mainID, mainS, mainE, _ := fetchCurrentAnnAssignment("main")
 	rewardID, rewardS, rewardE, _ := fetchCurrentAnnAssignment("reward")
 	actID, actS, actE, _ := fetchCurrentAnnAssignment("activity_support")
@@ -361,19 +529,16 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
 
-		// + window ที่กำลังมีผลรายช่อง (ดึงจาก announcement_assignments)
-		"main_start_date":             formatPtrTime(mainS),
-		"main_end_date":               formatPtrTime(mainE),
-		"reward_start_date":           formatPtrTime(rewardS),
-		"reward_end_date":             formatPtrTime(rewardE),
-		"activity_support_start_date": formatPtrTime(actS),
-		"activity_support_end_date":   formatPtrTime(actE),
-		"conference_start_date":       formatPtrTime(confS),
-		"conference_end_date":         formatPtrTime(confE),
-		"service_start_date":          formatPtrTime(svcS),
-		"service_end_date":            formatPtrTime(svcE),
-
-		// (ทางเลือก) ส่ง id ของ assignment ปัจจุบันกลับด้วย (ถ้ามี)
+		"main_start_date":                            formatPtrTime(mainS),
+		"main_end_date":                              formatPtrTime(mainE),
+		"reward_start_date":                          formatPtrTime(rewardS),
+		"reward_end_date":                            formatPtrTime(rewardE),
+		"activity_support_start_date":                formatPtrTime(actS),
+		"activity_support_end_date":                  formatPtrTime(actE),
+		"conference_start_date":                      formatPtrTime(confS),
+		"conference_end_date":                        formatPtrTime(confE),
+		"service_start_date":                         formatPtrTime(svcS),
+		"service_end_date":                           formatPtrTime(svcE),
 		"main_effective_announcement_id":             mainID,
 		"reward_effective_announcement_id":           rewardID,
 		"activity_support_effective_announcement_id": actID,
@@ -404,14 +569,13 @@ func GetSystemConfigAdmin(c *gin.Context) {
 	})
 }
 
-// UpdateSystemConfigWindow upserts current_year / start_date / end_date (admin use)
+// PUT /api/v1/admin/system-config
 type updateWindowPayload struct {
 	CurrentYear *string `json:"current_year"`
-	StartDate   *string `json:"start_date"` // string; we will parse to *time.Time
+	StartDate   *string `json:"start_date"`
 	EndDate     *string `json:"end_date"`
 }
 
-// UpdateSystemConfigWindow updates the latest row or inserts a new one
 func UpdateSystemConfigWindow(c *gin.Context) {
 	var p updateWindowPayload
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -426,15 +590,9 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
-	// Get user_id from context (if auth middleware sets it)
-	var updatedBy *int
-	if v, ok := c.Get("user_id"); ok {
-		if id, ok2 := v.(int); ok2 {
-			updatedBy = &id
-		}
-	}
+	updatedBy := getUserIDAny(c)
 
-	// Check if a row exists
+	// หาแถวล่าสุด
 	var cfgID sql.NullInt64
 	if err := config.DB.Raw(`
 		SELECT config_id
@@ -447,7 +605,7 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	}
 
 	if !cfgID.Valid {
-		// Insert new row
+		// insert
 		if err := config.DB.Exec(`
 			INSERT INTO system_config (current_year, start_date, end_date, last_updated, updated_by)
 			VALUES (?, ?, ?, NOW(), ?)
@@ -459,7 +617,7 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
-	// Update latest row
+	// update
 	if err := config.DB.Exec(`
 		UPDATE system_config
 		SET current_year = ?, start_date = ?, end_date = ?, last_updated = NOW(), updated_by = ?
@@ -472,26 +630,16 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// UpdateSystemConfigAnnouncement อัปเดตประกาศทีละช่องด้วย slot param + (บันทึกประวัติลง announcement_assignments)
+// PATCH /api/v1/admin/system-config/announcements/:slot
 type setAnnouncementPayload struct {
-	AnnouncementID *int    `json:"announcement_id"` // null = เคลียร์ค่า
-	StartDate      *string `json:"start_date"`      // optional (จำเป็นเมื่อ AnnouncementID != nil)
-	EndDate        *string `json:"end_date"`        // optional (จำเป็นเมื่อ AnnouncementID != nil)
+	AnnouncementID *int    `json:"announcement_id"` // null = เคลียร์
+	StartDate      *string `json:"start_date"`      // จำเป็นเมื่อ AnnouncementID != nil
+	EndDate        *string `json:"end_date"`        // จำเป็นเมื่อ AnnouncementID != nil
 }
 
 func UpdateSystemConfigAnnouncement(c *gin.Context) {
-	// slot: main | reward | activity_support | conference | service
 	slot := c.Param("slot")
-
-	// map slot -> column ในตาราง system_config
-	colMap := map[string]string{
-		"main":             "main_annoucement", // สะกดตาม schema เดิม
-		"reward":           "reward_announcement",
-		"activity_support": "activity_support_announcement",
-		"conference":       "conference_announcement",
-		"service":          "service_announcement",
-	}
-	col, ok := colMap[slot]
+	col, ok := announcementSlotColumns[slot]
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid slot"})
 		return
@@ -503,15 +651,9 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		return
 	}
 
-	// user_id (ถ้ามี auth middleware ใส่ไว้แล้ว)
-	var updatedBy *int
-	if v, ok := c.Get("user_id"); ok {
-		if id, ok2 := v.(int); ok2 {
-			updatedBy = &id
-		}
-	}
+	updatedBy := getUserIDAny(c)
 
-	// หาแถวล่าสุด + ตรวจว่ามี window ครบแล้วหรือยัง (global)
+	// ดู window ปัจจุบัน (global) ต้องมี start/end ก่อน
 	var row struct {
 		ConfigID  sql.NullInt64
 		StartDate sql.NullTime
@@ -526,8 +668,6 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
 		return
 	}
-
-	// บังคับต้องมี window (manual start/end) ก่อน (ตาม requirement เดิมของคุณ)
 	if !row.ConfigID.Valid || !row.StartDate.Valid || !row.EndDate.Valid {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -536,7 +676,7 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		return
 	}
 
-	// อัปเดตคอลัมน์ที่เลือกในแถวล่าสุด (ความเข้ากันได้ย้อนหลัง)
+	// อัปเดตคอลัมน์ใน system_config (compat เดิม)
 	q := `
 		UPDATE system_config
 		SET ` + col + ` = ?, last_updated = NOW(), updated_by = ?
@@ -547,26 +687,25 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 		return
 	}
 
-	// ถ้าไม่ได้ตั้งประกาศ (announcement_id == null) → เคลียร์ค่าอย่างเดียว ไม่บันทึกประวัติช่วงว่าง
+	// ถ้าเคลียร์ประกาศ => ไม่บันทึกประวัติช่วงว่าง
 	if p.AnnouncementID == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
 
-	// มีประกาศ → ต้องมีช่วงเวลา
+	// ต้องมีช่วงเวลา
 	stPtr, err1 := parseTimePtr(p.StartDate)
 	enPtr, err2 := parseTimePtr(p.EndDate)
 	if err1 != nil || err2 != nil || stPtr == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid or missing start/end date"})
 		return
 	}
-	// ตรวจตรรกะ start<=end (ถ้า end ไม่ว่าง)
 	if enPtr != nil && stPtr.After(*enPtr) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "start_date must be before or equal to end_date"})
 		return
 	}
 
-	// บันทึกประวัติลง announcement_assignments
+	// บันทึกประวัติลง announcement_assignments (changed_by อิงจาก updatedBy)
 	if err := config.DB.Exec(`
 		INSERT INTO announcement_assignments
 			(slot_code, announcement_id, start_date, end_date, changed_by, changed_at)
@@ -578,4 +717,125 @@ func UpdateSystemConfigAnnouncement(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// GET /api/v1/admin/system-config/announcements/:slot/history
+func ListAnnouncementHistory(c *gin.Context) {
+	slot := c.Param("slot")
+	if !isValidSlot(slot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slot"})
+		return
+	}
+
+	limit := 50
+	offset := 0
+	if qs := c.Query("limit"); qs != "" {
+		if v, err := strconv.Atoi(qs); err == nil && v > 0 && v <= 500 {
+			limit = v
+		}
+	}
+	if qs := c.Query("offset"); qs != "" {
+		if v, err := strconv.Atoi(qs); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	type rowT struct {
+		AssignmentID   int           `json:"assignment_id"`
+		SlotCode       string        `json:"slot_code"`
+		AnnouncementID sql.NullInt64 `json:"announcement_id"`
+		StartDate      time.Time     `json:"start_date"`
+		EndDate        sql.NullTime  `json:"end_date"`
+		ChangedBy      sql.NullInt64 `json:"changed_by"`
+		ChangedAt      time.Time     `json:"changed_at"`
+	}
+	var rows []rowT
+
+	q := `
+		SELECT assignment_id, slot_code, announcement_id, start_date, end_date, changed_by, changed_at
+		FROM announcement_assignments
+		WHERE slot_code = ?
+		ORDER BY changed_at DESC, start_date DESC
+		LIMIT ? OFFSET ?
+	`
+	if err := config.DB.Raw(q, slot, limit, offset).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch announcement history"})
+		return
+	}
+
+	items := make([]gin.H, 0, len(rows))
+	for _, r := range rows {
+		var annID *int
+		if r.AnnouncementID.Valid {
+			v := int(r.AnnouncementID.Int64)
+			annID = &v
+		}
+		var endStr *string
+		if r.EndDate.Valid {
+			s := r.EndDate.Time.UTC().Format("2006-01-02 15:04:05")
+			endStr = &s
+		}
+		var chBy *int
+		if r.ChangedBy.Valid {
+			v := int(r.ChangedBy.Int64)
+			chBy = &v
+		}
+		items = append(items, gin.H{
+			"assignment_id":   r.AssignmentID,
+			"slot_code":       r.SlotCode,
+			"announcement_id": annID,
+			"start_date":      r.StartDate.UTC().Format("2006-01-02 15:04:05"),
+			"end_date":        endStr,
+			"changed_by":      chBy,
+			"changed_at":      r.ChangedAt.UTC().Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// ===== New: GET /api/v1/system-config/dept-head/eligible-roles =====
+
+// คืนรายการ role key สำหรับการคัดกรองรายชื่อผู้ใช้ที่เลือกเป็น "หัวหน้าสาขา" ได้ (แบบไดนามิก)
+// แหล่งข้อมูล:
+//  1. ENV: DEPT_HEAD_ELIGIBLE_ROLES (เช่น "teacher,dept_head")
+//  2. Fallback: ["teacher", "dept_head"]
+func GetDeptHeadEligibleRoles(c *gin.Context) {
+	// อ่านจาก ENV
+	env := strings.TrimSpace(os.Getenv("DEPT_HEAD_ELIGIBLE_ROLES"))
+	var roles []string
+	if env != "" {
+		// รองรับตัวคั่นได้หลายแบบ: , ; |
+		parts := strings.FieldsFunc(env, func(r rune) bool {
+			return r == ',' || r == ';' || r == '|'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				roles = append(roles, strings.ToLower(p))
+			}
+		}
+	}
+
+	// fallback
+	if len(roles) == 0 {
+		roles = []string{"teacher", "dept_head"}
+	}
+
+	// dedupe
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		k := strings.ToLower(strings.TrimSpace(r))
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }
