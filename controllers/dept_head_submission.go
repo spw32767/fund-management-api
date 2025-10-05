@@ -312,8 +312,8 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 
 		"head_approved_at": gorm.Expr("NULL"),
 		"head_approved_by": gorm.Expr("NULL"),
+		"closed_at":        gorm.Expr("NULL"),
 
-		"closed_at":             now,
 		"head_rejected_by":      userID,
 		"head_rejected_at":      now,
 		"head_rejection_reason": strings.TrimSpace(req.RejectionReason),
