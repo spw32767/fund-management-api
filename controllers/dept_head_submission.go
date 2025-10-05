@@ -449,8 +449,18 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		}
 	}
 
-	// ---- documents (ถ้ามีระบบเอกสาร ค่อยเติม) ----
-	documents := []gin.H{}
+	// ---- documents ----
+	var documents []models.SubmissionDocument
+	if err := config.DB.
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.*, dt.document_type_name").
+		Preload("File").
+		Preload("DocumentType").
+		Where("submission_id = ? AND submission_documents.deleted_at IS NULL", submissionID).
+		Order("submission_documents.display_order, submission_documents.created_at").
+		Find(&documents).Error; err != nil {
+		documents = []models.SubmissionDocument{}
+	}
 
 	// ---- payload หลัก (เหมือนเดิม) ----
 	submissionPayload := gin.H{
@@ -512,7 +522,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"status": submission.Status,
 	}
 
-	// ---- response ครบชุด ----
+	// (ตอนสร้าง resp)
 	resp := gin.H{
 		"submission":        submissionPayload,
 		"details":           details,
