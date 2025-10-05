@@ -1114,7 +1114,7 @@ func GetSubmissionDocuments(c *gin.Context) {
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if roleID.(int) != 3 && roleID.(int) != 4 { // เดิมเช็คแค่ != 3
 		query = query.Where("user_id = ?", userID)
 	}
 
