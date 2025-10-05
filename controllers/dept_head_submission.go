@@ -199,7 +199,6 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		"head_rejected_by":      gorm.Expr("NULL"),
 		"head_rejected_at":      gorm.Expr("NULL"),
 		"head_rejection_reason": gorm.Expr("NULL"),
-		"closed_at":             gorm.Expr("NULL"),
 		// ไม่อัปเดตคอลัมน์ legacy: comment
 	}
 
@@ -312,7 +311,6 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 
 		"head_approved_at": gorm.Expr("NULL"),
 		"head_approved_by": gorm.Expr("NULL"),
-		"closed_at":        gorm.Expr("NULL"),
 
 		"head_rejected_by":      userID,
 		"head_rejected_at":      now,
