@@ -3,6 +3,7 @@
 package controllers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -293,7 +294,7 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearIDStr := c.Query("year_id")
@@ -309,8 +310,12 @@ func GetAdminSubmissions(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if limit < 1 || limit > 100 {
-		limit = 25
+	// Hardened limit handling: default to 50 if <= 0, and cap at 1000
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
 	}
 	offset := (page - 1) * limit
 	if sortOrder != "asc" && sortOrder != "desc" {
@@ -338,7 +343,11 @@ func GetAdminSubmissions(c *gin.Context) {
 	if !ok {
 		sortField = "submissions.created_at"
 	}
-	orderClause := sortField + " " + strings.ToUpper(sortOrder)
+	// Deterministic ordering (tie-breaker by primary key)
+	orderClause := fmt.Sprintf(
+		"%s %s, submissions.submission_id %s",
+		sortField, strings.ToUpper(sortOrder), strings.ToUpper(sortOrder),
+	)
 
 	// ---------- Base list query (with preloads) ----------
 	var submissions []models.Submission
