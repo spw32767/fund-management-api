@@ -115,6 +115,7 @@ func GetDeptHeadSubmissionDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
+// REPLACE WHOLE FUNCTION
 func DeptHeadRecommendSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -123,8 +124,10 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		return
 	}
 
+	// รองรับทั้ง head_comment (ใหม่) และ comment (เผื่อหน้าเก่าส่งมา)
 	var req struct {
-		Comment string `json:"comment"`
+		HeadComment *string `json:"head_comment"`
+		Comment     *string `json:"comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
@@ -152,12 +155,7 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 	}
 
 	allowed, err := utils.StatusMatchesCodes(submission.StatusID, utils.StatusCodeDeptHeadPending)
-	if err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify submission status"})
-		return
-	}
-	if !allowed {
+	if err != nil || !allowed {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not awaiting department review"})
 		return
@@ -170,6 +168,17 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		return
 	}
 
+	// รวมข้อความจาก head_comment หรือ comment (เลือกอันที่ไม่ว่าง)
+	pick := func(ptrs ...*string) string {
+		for _, p := range ptrs {
+			if p != nil && strings.TrimSpace(*p) != "" {
+				return strings.TrimSpace(*p)
+			}
+		}
+		return ""
+	}
+	headComment := pick(req.HeadComment, req.Comment)
+
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status_id":        targetStatus.ApplicationStatusID,
@@ -177,13 +186,21 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		"reviewed_at":      now,
 		"head_approved_at": now,
 		"head_approved_by": userID,
-	}
 
-	comment := strings.TrimSpace(req.Comment)
-	if comment != "" {
-		updates["comment"] = comment
-	} else {
-		updates["comment"] = gorm.Expr("NULL")
+		// บันทึกลงคอลัมน์ใหม่เท่านั้น
+		"head_comment": func() interface{} {
+			if headComment != "" {
+				return headComment
+			}
+			return gorm.Expr("NULL")
+		}(),
+
+		// เคลียร์ร่องรอย reject เก่า (ถ้ามี)
+		"head_rejected_by":      gorm.Expr("NULL"),
+		"head_rejected_at":      gorm.Expr("NULL"),
+		"head_rejection_reason": gorm.Expr("NULL"),
+		"closed_at":             gorm.Expr("NULL"),
+		// ไม่อัปเดตคอลัมน์ legacy: comment
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -194,7 +211,8 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		return
 	}
 
-	logDescription := comment
+	// (optional) บันทึก audit log แบบเดิม
+	logDescription := headComment
 	if logDescription == "" {
 		logDescription = "Department head recommended submission"
 	}
@@ -224,12 +242,10 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
-
 	payload["success"] = true
 	c.JSON(http.StatusOK, payload)
 }
 
-// ===== REPLACE WHOLE FUNCTION =====
 func DeptHeadRejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -239,8 +255,9 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 
 	var req struct {
-		RejectionReason string `json:"rejection_reason" binding:"required"`
-		Comment         string `json:"comment"`
+		RejectionReason string  `json:"rejection_reason" binding:"required"`
+		HeadComment     *string `json:"head_comment"`
+		Comment         *string `json:"comment"` // เผื่อของเก่าส่งมา
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
@@ -277,20 +294,32 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
+	pick := func(ptrs ...*string) string {
+		for _, p := range ptrs {
+			if p != nil && strings.TrimSpace(*p) != "" {
+				return strings.TrimSpace(*p)
+			}
+		}
+		return ""
+	}
+	headComment := pick(req.HeadComment, req.Comment)
+
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status_id":             rejectStatus.ApplicationStatusID,
-		"updated_at":            now,
-		"reviewed_at":           now,
-		"head_approved_at":      now, // ตัดสินใจแล้ว
-		"head_approved_by":      userID,
+		"status_id":   rejectStatus.ApplicationStatusID,
+		"updated_at":  now,
+		"reviewed_at": now,
+
+		"head_approved_at": gorm.Expr("NULL"),
+		"head_approved_by": gorm.Expr("NULL"),
+
 		"closed_at":             now,
 		"head_rejected_by":      userID,
 		"head_rejected_at":      now,
 		"head_rejection_reason": strings.TrimSpace(req.RejectionReason),
 	}
-	if strings.TrimSpace(req.Comment) != "" {
-		updates["head_comment"] = strings.TrimSpace(req.Comment)
+	if headComment != "" {
+		updates["head_comment"] = headComment
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -301,20 +330,18 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
-	// (ไม่อัปเดตตารางรายละเอียดอีกต่อไป)
-
-	// Audit
-	desc := req.RejectionReason
-	if err := tx.Create(&models.AuditLog{
+	desc := "Department head rejected submission"
+	auditLog := models.AuditLog{
 		UserID:       userID,
-		Action:       "reject",
+		Action:       "review",
 		EntityType:   "submission",
 		EntityID:     &submission.SubmissionID,
 		EntityNumber: &submission.SubmissionNumber,
 		Description:  &desc,
 		IPAddress:    c.ClientIP(),
 		CreatedAt:    now,
-	}).Error; err != nil {
+	}
+	if err := tx.Create(&auditLog).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record audit log"})
 		return
@@ -325,7 +352,6 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		return
 	}
 
-	// payload (ตามพฤติกรรมเดิม)
 	payload, err := buildSubmissionDetailPayload(submissionID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true})
@@ -334,8 +360,6 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	payload["success"] = true
 	c.JSON(http.StatusOK, payload)
 }
-
-// controllers/dept_head_submission.go
 
 // controllers/dept_head_submission.go
 
