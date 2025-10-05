@@ -488,6 +488,12 @@ func SetupRoutes(router *gin.Engine) {
 					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
 
+					researchFund := submissionManagement.Group("/:id/research-fund")
+					{
+						researchFund.GET("/events", controllers.ListResearchFundEvents)
+						researchFund.POST("/events", controllers.CreateResearchFundEvent)
+						researchFund.POST("/toggle-closure", controllers.ToggleResearchFundClosure)
+					}
 					// Approval flow (cleaned: only new endpoints)
 					submissionManagement.PATCH("/:id/publication-reward/approval-amounts", controllers.UpdatePublicationRewardApprovalAmounts)
 					submissionManagement.POST("/:id/approve", controllers.ApproveSubmission)

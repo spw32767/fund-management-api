@@ -65,6 +65,16 @@ func CreateSubmissionFolder(userFolderPath string, submissionType string, submis
 	return submissionPath, nil
 }
 
+// CreateAdminEventFolder builds the folder used to store admin event attachments under a submission.
+func CreateAdminEventFolder(submissionFolderPath string, eventID int) (string, error) {
+	folderName := fmt.Sprintf("event_%d", eventID)
+	adminFolderPath := filepath.Join(submissionFolderPath, "admin_events", folderName)
+	if err := os.MkdirAll(adminFolderPath, 0755); err != nil {
+		return "", err
+	}
+	return adminFolderPath, nil
+}
+
 // SanitizeForFilename ทำความสะอาดชื่อไฟล์
 func SanitizeForFilename(filename string) string {
 	// แทนที่อักขระพิเศษที่ไม่ปลอดภัย

@@ -68,6 +68,7 @@ type Submission struct {
 	SubmissionUsers         []SubmissionUser         `gorm:"foreignKey:SubmissionID" json:"submission_users,omitempty"`
 	FundApplicationDetail   *FundApplicationDetail   `json:"fund_application_detail,omitempty"`
 	PublicationRewardDetail *PublicationRewardDetail `json:"publication_reward_detail,omitempty"`
+	ResearchFundEvents      []ResearchFundAdminEvent `gorm:"foreignKey:SubmissionID" json:"research_fund_events,omitempty"`
 }
 
 // FundApplicationDetail represents fund application specific details
