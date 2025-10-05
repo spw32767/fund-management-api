@@ -423,10 +423,6 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 	})
 }
 
-// ==============================
-// REPLACED: ApproveSubmission (single source of truth)
-// ==============================
-
 // ===== REPLACE WHOLE FUNCTION =====
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
@@ -437,6 +433,7 @@ func ApproveSubmission(c *gin.Context) {
 	}
 	userID, _ := c.Get("userID")
 
+	// รองรับทั้ง PR และ Fund Application
 	var req struct {
 		// amounts (PR)
 		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
@@ -444,9 +441,9 @@ func ApproveSubmission(c *gin.Context) {
 		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
 		TotalApproveAmount          *float64 `json:"total_approve_amount"`
 		AnnounceReferenceNumber     string   `json:"announce_reference_number"`
-		// legacy fallback
+		// legacy / FA
 		ApprovedAmount  *float64 `json:"approved_amount"`
-		ApprovalComment string   `json:"approval_comment"` // จะเก็บที่ admin_comment ได้ถ้าต้องการ
+		ApprovalComment string   `json:"approval_comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
@@ -460,9 +457,11 @@ func ApproveSubmission(c *gin.Context) {
 		}
 	}()
 
-	// load
+	// โหลดข้อมูลคำร้อง + preload detail ทั้งสองแบบกันพลาด
 	var submission models.Submission
-	if err := tx.Preload("PublicationRewardDetail").
+	if err := tx.
+		Preload("PublicationRewardDetail").
+		Preload("FundApplicationDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
 		First(&submission).Error; err != nil {
 		tx.Rollback()
@@ -470,6 +469,7 @@ func ApproveSubmission(c *gin.Context) {
 		return
 	}
 
+	// อนุญาตอนุมัติได้เฉพาะสถานะรอตรวจ/รอความเห็นหัวหน้า ฯลฯ
 	allowed, err := utils.StatusMatchesCodes(
 		submission.StatusID,
 		utils.StatusCodePending,
@@ -489,27 +489,25 @@ func ApproveSubmission(c *gin.Context) {
 		adminID = &uid
 	}
 
-	// ✅ central truth
-	updates := map[string]interface{}{
+	// ✅ single source of truth บน submissions
+	submissionUpdates := map[string]interface{}{
 		"status_id":         2, // approved
 		"updated_at":        now,
 		"admin_approved_by": adminID,
 		"admin_approved_at": now,
 	}
-	// (ออปชัน) เก็บความเห็นของแอดมินตอนอนุมัติ
 	if strings.TrimSpace(req.ApprovalComment) != "" {
-		updates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
+		submissionUpdates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
 	}
-
 	if err := tx.Model(&models.Submission{}).
 		Where("submission_id = ?", submissionID).
-		Updates(updates).Error; err != nil {
+		Updates(submissionUpdates).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	// PR amounts
+	// ----- เส้นทาง Publication Reward (PR) -----
 	if submission.SubmissionType == "publication_reward" {
 		var d models.PublicationRewardDetail
 		if submission.PublicationRewardDetail != nil {
@@ -531,6 +529,7 @@ func ApproveSubmission(c *gin.Context) {
 		if req.TotalApproveAmount != nil {
 			d.TotalApproveAmount = *req.TotalApproveAmount
 		} else if req.ApprovedAmount != nil {
+			// เผื่อฝั่ง FE ส่ง approved_amount เดียวมา
 			d.TotalApproveAmount = *req.ApprovedAmount
 		} else {
 			d.TotalApproveAmount = d.RewardApproveAmount + d.RevisionFeeApproveAmount + d.PublicationFeeApproveAmount
@@ -550,13 +549,63 @@ func ApproveSubmission(c *gin.Context) {
 		}
 	}
 
+	// ----- เส้นทาง Fund Application (FA) -----
+	if submission.SubmissionType == "fund_application" {
+		// ตีความจำนวนเงินอนุมัติ: ใช้ approved_amount เป็นหลัก, ถ้าไม่ส่งมาให้ลองใช้ total_approve_amount
+		var approved float64
+		switch {
+		case req.ApprovedAmount != nil:
+			approved = *req.ApprovedAmount
+		case req.TotalApproveAmount != nil:
+			approved = *req.TotalApproveAmount
+		default:
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "approved_amount is required for fund applications"})
+			return
+		}
+		if approved < 0 {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "approved_amount must be non-negative"})
+			return
+		}
+
+		detailUpdates := map[string]interface{}{
+			"approved_amount":           approved,
+			"announce_reference_number": strings.TrimSpace(req.AnnounceReferenceNumber),
+			"updated_at":                now,
+		}
+
+		res := tx.Model(&models.FundApplicationDetail{}).
+			Where("submission_id = ?", submissionID).
+			Updates(detailUpdates)
+		if res.Error != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund_application_details"})
+			return
+		}
+		if res.RowsAffected == 0 {
+			tx.Rollback()
+			c.JSON(http.StatusNotFound, gin.H{"error": "Fund application detail not found"})
+			return
+		}
+
+		// sync ในหน่วยความจำ (ถ้าถูก preload)
+		if submission.FundApplicationDetail != nil {
+			submission.FundApplicationDetail.ApprovedAmount = approved
+			submission.FundApplicationDetail.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
+		}
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed"})
 		return
 	}
 
+	// รีเทิร์นข้อมูลล่าสุด พร้อม preload ทั้ง PR/FA detail
 	var out models.Submission
-	_ = config.DB.Preload("PublicationRewardDetail").
+	_ = config.DB.
+		Preload("PublicationRewardDetail").
+		Preload("FundApplicationDetail").
 		Where("submission_id = ?", submissionID).
 		First(&out).Error
 
@@ -567,11 +616,6 @@ func ApproveSubmission(c *gin.Context) {
 	})
 }
 
-// ==============================
-// REPLACED: RejectSubmission (single source of truth)
-// ==============================
-
-// ===== REPLACE WHOLE FUNCTION =====
 func RejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
