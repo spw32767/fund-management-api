@@ -681,22 +681,21 @@ func CreateFundForm(c *gin.Context) {
 	// 6) เขียน DB
 	now := time.Now()
 	form := models.FundForm{
-		Title:         req.Title,
-		Description:   req.Description,
-		FileName:      safeName,
-		FilePath:      dstPath,
-		FileSize:      &header.Size,
-		MimeType:      &ct,
-		FormType:      req.FormType,
-		FundCategory:  req.FundCategory,
-		IsRequired:    req.IsRequired,
-		DisplayOrder:  req.DisplayOrder,
-		Status:        req.Status,
-		YearID:        req.YearID,
-		DownloadCount: 0,
-		CreatedBy:     userID.(int),
-		CreateAt:      now,
-		UpdateAt:      now,
+		Title:        req.Title,
+		Description:  req.Description,
+		FileName:     safeName,
+		FilePath:     dstPath,
+		FileSize:     &header.Size,
+		MimeType:     &ct,
+		FormType:     req.FormType,
+		FundCategory: req.FundCategory,
+		IsRequired:   req.IsRequired,
+		DisplayOrder: req.DisplayOrder,
+		Status:       req.Status,
+		YearID:       req.YearID,
+		CreatedBy:    userID.(int),
+		CreateAt:     now,
+		UpdateAt:     now,
 	}
 	if err := config.DB.Create(&form).Error; err != nil {
 		_ = os.Remove(dstPath)
@@ -981,12 +980,12 @@ func GetAnnouncementStats(c *gin.Context) {
 
 	// Sum views and downloads
 	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL").Select("COALESCE(SUM(view_count), 0)").Scan(&stats.TotalViews)
-	config.DB.Model(&models.Announcement{}).Where("delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.TotalDownloads)
+	// download count removed in current schema
 
 	// Count forms
 	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL").Count(&stats.TotalForms)
 	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL AND status = 'active'").Count(&stats.ActiveForms)
-	config.DB.Model(&models.FundForm{}).Where("delete_at IS NULL").Select("COALESCE(SUM(download_count), 0)").Scan(&stats.FormDownloads)
+	// download count removed in current schema
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

@@ -60,11 +60,10 @@ type FundForm struct {
 	Status       string `gorm:"column:status;type:enum('active','inactive','archived');default:'active'" json:"status"`
 	YearID       *int   `gorm:"column:year_id" json:"year_id"`
 
-	DownloadCount int        `gorm:"column:download_count" json:"download_count"`
-	CreatedBy     int        `gorm:"column:created_by" json:"created_by"`
-	CreateAt      time.Time  `gorm:"column:create_at" json:"create_at"`
-	UpdateAt      time.Time  `gorm:"column:update_at" json:"update_at"`
-	DeleteAt      *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
+	CreatedBy int        `gorm:"column:created_by" json:"created_by"`
+	CreateAt  time.Time  `gorm:"column:create_at" json:"create_at"`
+	UpdateAt  time.Time  `gorm:"column:update_at" json:"update_at"`
+	DeleteAt  *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	Creator User `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
 	Year    Year `gorm:"foreignKey:YearID;references:YearID" json:"year_info,omitempty"`
@@ -133,7 +132,6 @@ func (f *FundForm) ToResponse() FundFormResponse {
 		Status:           f.Status,
 		StatusName:       f.GetStatusName(),
 		IsActive:         f.IsActive(),
-		DownloadCount:    f.DownloadCount,
 		YearID:           f.YearID,
 		CreatedBy:        f.CreatedBy,
 		CreateAt:         f.CreateAt,
@@ -386,7 +384,6 @@ type FundFormResponse struct {
 	ExpiryDate    *time.Time `json:"expiry_date"`
 	IsExpired     bool       `json:"is_expired"`
 	IsActive      bool       `json:"is_active"`
-	DownloadCount int        `json:"download_count"`
 	YearID        *int       `json:"year_id"`
 	Year          *string    `json:"year"`
 	CreatedBy     int        `json:"created_by"`
