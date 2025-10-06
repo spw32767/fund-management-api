@@ -1294,8 +1294,12 @@ func buildClosureComment(comment string, closing bool, submission *models.Submis
 	}
 
 	var requestNumber string
-	if submission != nil && submission.SubmissionID != 0 {
-		requestNumber = fmt.Sprintf("%d", submission.SubmissionID)
+	if submission != nil {
+		if number := strings.TrimSpace(submission.SubmissionNumber); number != "" {
+			requestNumber = number
+		} else if submission.SubmissionID != 0 {
+			requestNumber = fmt.Sprintf("%d", submission.SubmissionID)
+		}
 	}
 
 	if closing {
