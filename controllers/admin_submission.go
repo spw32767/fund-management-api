@@ -925,6 +925,24 @@ func ToggleResearchFundClosure(c *gin.Context) {
 	}
 
 	userID := c.GetInt("userID")
+	actorName := "ผู้ดูแลระบบ"
+	if userID > 0 {
+		var actor models.User
+		if qErr := config.DB.Select("user_id", "user_fname", "user_lname", "email").First(&actor, "user_id = ?", userID).Error; qErr == nil {
+			name := strings.TrimSpace(fmt.Sprintf("%s %s", actor.UserFname, actor.UserLname))
+			if name == "" {
+				name = strings.TrimSpace(actor.Email)
+			}
+			if name != "" {
+				actorName = name
+			} else {
+				actorName = fmt.Sprintf("ผู้ใช้รหัส %d", userID)
+			}
+		} else {
+			actorName = fmt.Sprintf("ผู้ใช้รหัส %d", userID)
+		}
+	}
+
 	now := time.Now()
 
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
@@ -955,7 +973,7 @@ func ToggleResearchFundClosure(c *gin.Context) {
 			}
 		}
 
-		submissionUpdates, detailUpdates, eventComment, statusAfterID, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed)
+		submissionUpdates, detailUpdates, eventComment, statusAfterID, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed, actorName)
 		if err != nil {
 			return err
 		}
@@ -1102,7 +1120,7 @@ func validateResearchFundEvent(submission *models.Submission, eventType string, 
 	return nil
 }
 
-func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool) (map[string]any, map[string]any, string, *int, error) {
+func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool, actorName string) (map[string]any, map[string]any, string, *int, error) {
 	if submission == nil {
 		return nil, nil, "", nil, fmt.Errorf("submission is required")
 	}
@@ -1117,7 +1135,7 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 		}
 		detailUpdates := map[string]any{"closed_at": nil}
 		statusAfter := approvedStatusID
-		return submissionUpdates, detailUpdates, buildClosureComment(comment, false), &statusAfter, nil
+		return submissionUpdates, detailUpdates, buildClosureComment(comment, false, submission, actorName), &statusAfter, nil
 	}
 
 	if !closingAllowed {
@@ -1130,7 +1148,7 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 	}
 	detailUpdates := map[string]any{"closed_at": now}
 	statusAfter := closedStatusID
-	return submissionUpdates, detailUpdates, buildClosureComment(comment, true), &statusAfter, nil
+	return submissionUpdates, detailUpdates, buildClosureComment(comment, true, submission, actorName), &statusAfter, nil
 }
 
 func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gin.H {
@@ -1264,13 +1282,31 @@ func isValidResearchFundEventType(eventType string) bool {
 	}
 }
 
-func buildClosureComment(comment string, closing bool) string {
+func buildClosureComment(comment string, closing bool, submission *models.Submission, actorName string) string {
 	trimmed := strings.TrimSpace(comment)
 	if trimmed != "" {
 		return trimmed
 	}
-	if closing {
-		return "Submission closed by admin"
+
+	name := strings.TrimSpace(actorName)
+	if name == "" {
+		name = "ผู้ดูแลระบบ"
 	}
-	return "Submission reopened by admin"
+
+	var requestNumber string
+	if submission != nil && submission.SubmissionID != 0 {
+		requestNumber = fmt.Sprintf("%d", submission.SubmissionID)
+	}
+
+	if closing {
+		if requestNumber != "" {
+			return fmt.Sprintf("คำร้อง %s ถูกปิดโดย %s", requestNumber, name)
+		}
+		return fmt.Sprintf("คำร้องถูกปิดโดย %s", name)
+	}
+
+	if requestNumber != "" {
+		return fmt.Sprintf("คำร้อง %s ถูกเปิดอีกครั้งโดย %s", requestNumber, name)
+	}
+	return fmt.Sprintf("คำร้องถูกเปิดอีกครั้งโดย %s", name)
 }
