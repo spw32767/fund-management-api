@@ -2,7 +2,6 @@
 package controllers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -830,16 +829,10 @@ func CreateResearchFundEvent(c *gin.Context) {
 				return err
 			}
 
-			metadataBytes, _ := json.Marshal(map[string]any{
-				"submission_id": submission.SubmissionID,
-				"event_id":      event.EventID,
-			})
-
 			fileUpload := models.FileUpload{
 				OriginalName: fh.Filename,
 				StoredPath:   destPath,
 				FolderType:   models.FileFolderTypeAdminEvent,
-				Metadata:     string(metadataBytes),
 				FileSize:     stat.Size(),
 				MimeType:     fh.Header.Get("Content-Type"),
 				UploadedBy:   userID,
@@ -847,7 +840,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 				CreateAt:     now,
 				UpdateAt:     now,
 			}
-			if err := tx.Create(&fileUpload).Error; err != nil {
+			if err := tx.Omit("Metadata").Create(&fileUpload).Error; err != nil {
 				return err
 			}
 
