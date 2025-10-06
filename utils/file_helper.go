@@ -89,7 +89,8 @@ func SanitizeForFilename(filename string) string {
 	// ลบอักขระที่ไม่ปลอดภัยสำหรับ filesystem
 	var result strings.Builder
 	for _, r := range filename {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' ||
+			unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r) {
 			result.WriteRune(r)
 		} else if unicode.IsSpace(r) {
 			result.WriteRune('_')
