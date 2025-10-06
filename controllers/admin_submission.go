@@ -695,6 +695,15 @@ func CreateResearchFundEvent(c *gin.Context) {
 
 	amountStr := strings.TrimSpace(c.PostForm("amount"))
 	eventType := strings.TrimSpace(c.PostForm("event_type"))
+	statusInputs := []string{
+		strings.TrimSpace(c.PostForm("status")),
+		strings.TrimSpace(c.PostForm("status_code")),
+		strings.TrimSpace(c.PostForm("status_after")),
+	}
+	statusIDInputs := []string{
+		strings.TrimSpace(c.PostForm("status_id")),
+		strings.TrimSpace(c.PostForm("status_after_id")),
+	}
 	if eventType == "" {
 		if amountStr != "" {
 			eventType = models.ResearchFundEventTypePayment
@@ -755,6 +764,50 @@ func CreateResearchFundEvent(c *gin.Context) {
 		if err != nil {
 			return err
 		}
+
+		parseStatusID := func(values ...string) (int, bool) {
+			for _, candidate := range values {
+				if candidate == "" {
+					continue
+				}
+				if id, err := utils.GetStatusIDByCode(candidate); err == nil && id > 0 {
+					return id, true
+				}
+				if parsed, err := strconv.Atoi(candidate); err == nil && parsed > 0 {
+					return parsed, true
+				}
+			}
+			return 0, false
+		}
+
+		statusValue, hasStatus := parseStatusID(append(statusInputs, statusIDInputs...)...)
+		var desiredStatusID *int
+		if hasStatus {
+			desiredStatusID = &statusValue
+		}
+
+		approvedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeApproved)
+		if err != nil {
+			return err
+		}
+		closedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeAdminClosed)
+		if err != nil {
+			return err
+		}
+
+		closing := false
+		reopening := false
+		if desiredStatusID != nil {
+			switch statusValue {
+			case closedStatusID:
+				closing = true
+			case approvedStatusID:
+				reopening = true
+			default:
+				return fmt.Errorf("unsupported status transition")
+			}
+		}
+
 		if eventType == models.ResearchFundEventTypePayment {
 			if submission.FundApplicationDetail == nil {
 				return errMissingFundDetail
@@ -766,7 +819,11 @@ func CreateResearchFundEvent(c *gin.Context) {
 			}
 		}
 
-		if err := validateResearchFundEvent(submission, eventType, amountPtr, len(files), totalPaid, closed); err != nil {
+		effectiveClosed := closed
+		if reopening {
+			effectiveClosed = false
+		}
+		if err := validateResearchFundEvent(submission, eventType, amountPtr, len(files), totalPaid, effectiveClosed); err != nil {
 			return err
 		}
 
@@ -777,6 +834,55 @@ func CreateResearchFundEvent(c *gin.Context) {
 			CreatedBy:    userID,
 			CreatedAt:    now,
 		}
+
+		if desiredStatusID != nil {
+			event.StatusAfterID = desiredStatusID
+
+			if closing {
+				if !closed {
+					if err := utils.EnsureStatusIn(current.StatusID, utils.StatusCodeApproved); err != nil {
+						return fmt.Errorf("submission must be approved before closure")
+					}
+				}
+
+				updates := map[string]any{
+					"status_id": closedStatusID,
+					"closed_at": now,
+				}
+				if err := tx.Model(&models.Submission{}).
+					Where("submission_id = ?", submission.SubmissionID).
+					Updates(updates).Error; err != nil {
+					return err
+				}
+
+				if err := tx.Model(&models.FundApplicationDetail{}).
+					Where("submission_id = ?", submission.SubmissionID).
+					Updates(map[string]any{"closed_at": now}).Error; err != nil {
+					return err
+				}
+
+				submission.StatusID = closedStatusID
+			} else if reopening {
+				updates := map[string]any{
+					"status_id": approvedStatusID,
+					"closed_at": nil,
+				}
+				if err := tx.Model(&models.Submission{}).
+					Where("submission_id = ?", submission.SubmissionID).
+					Updates(updates).Error; err != nil {
+					return err
+				}
+
+				if err := tx.Model(&models.FundApplicationDetail{}).
+					Where("submission_id = ?", submission.SubmissionID).
+					Updates(map[string]any{"closed_at": nil}).Error; err != nil {
+					return err
+				}
+
+				submission.StatusID = approvedStatusID
+			}
+		}
+
 		if err := tx.Create(&event).Error; err != nil {
 			return err
 		}
@@ -1250,6 +1356,14 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 		"remaining_amount":  remaining,
 		"is_closed":         closed,
 		"closed_at":         submission.ClosedAt,
+		"status_id":         submission.StatusID,
+	}
+
+	if status, err := utils.GetApplicationStatusByID(submission.StatusID); err == nil {
+		summary["status_code"] = status.StatusCode
+		summary["status_name"] = status.StatusName
+		summary["status_label"] = status.StatusName
+		summary["status"] = status.StatusCode
 	}
 
 	if submission.FundApplicationDetail != nil {
