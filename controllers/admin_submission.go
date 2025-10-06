@@ -69,6 +69,7 @@ func GetSubmissionDetails(c *gin.Context) {
 			return db.Order("created_at ASC")
 		}).
 		Preload("ResearchFundEvents.Creator").
+		Preload("ResearchFundEvents.StatusAfter").
 		Preload("ResearchFundEvents.Files").
 		Preload("ResearchFundEvents.Files.File")
 
@@ -423,6 +424,11 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 	})
 }
 
+// ==============================
+// REPLACED: ApproveSubmission (single source of truth)
+// ==============================
+
+// ===== REPLACE WHOLE FUNCTION =====
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -432,18 +438,16 @@ func ApproveSubmission(c *gin.Context) {
 	}
 	userID, _ := c.Get("userID")
 
-	// payload รวมทั้งเคส fund_application และ publication_reward
 	var req struct {
-		// สำหรับ fund_application
-		ApprovedAmount          *float64 `json:"approved_amount"`
-		AnnounceReferenceNumber string   `json:"announce_reference_number"`
-		ApprovalComment         string   `json:"approval_comment"`
-
-		// สำหรับ publication_reward
+		// amounts (PR)
 		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
 		RevisionFeeApproveAmount    *float64 `json:"revision_fee_approve_amount"`
 		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
 		TotalApproveAmount          *float64 `json:"total_approve_amount"`
+		AnnounceReferenceNumber     string   `json:"announce_reference_number"`
+		// legacy fallback
+		ApprovedAmount  *float64 `json:"approved_amount"`
+		ApprovalComment string   `json:"approval_comment"` // จะเก็บที่ admin_comment ได้ถ้าต้องการ
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
@@ -457,21 +461,18 @@ func ApproveSubmission(c *gin.Context) {
 		}
 	}()
 
-	// โหลด submission พร้อม preload รายละเอียดทั้งสองแบบ
-	var s models.Submission
-	if err := tx.
-		Preload("FundApplicationDetail").
-		Preload("PublicationRewardDetail").
+	// load
+	var submission models.Submission
+	if err := tx.Preload("PublicationRewardDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
-		First(&s).Error; err != nil {
+		First(&submission).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
 
-	// อนุญาตเฉพาะสถานะที่รอพิจารณา
 	allowed, err := utils.StatusMatchesCodes(
-		s.StatusID,
+		submission.StatusID,
 		utils.StatusCodePending,
 		utils.StatusCodeDraft,
 		utils.StatusCodeDeptHeadPending,
@@ -489,137 +490,65 @@ func ApproveSubmission(c *gin.Context) {
 		adminID = &uid
 	}
 
-	// อัปเดตสถานะใน submissions -> approved
-	subUpdates := map[string]any{
-		"status_id":         2,   // approved
-		"updated_at":        now, // มีในตาราง submissions
+	// ✅ central truth
+	updates := map[string]interface{}{
+		"status_id":         2, // approved
+		"updated_at":        now,
 		"admin_approved_by": adminID,
 		"admin_approved_at": now,
 	}
+	// (ออปชัน) เก็บความเห็นของแอดมินตอนอนุมัติ
 	if strings.TrimSpace(req.ApprovalComment) != "" {
-		subUpdates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
+		updates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
 	}
+
 	if err := tx.Model(&models.Submission{}).
 		Where("submission_id = ?", submissionID).
-		Updates(subUpdates).Error; err != nil {
+		Updates(updates).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission status"})
 		return
 	}
 
-	switch s.SubmissionType {
-	// ======== เคสทุนวิจัย (fund_application) ========
-	case "fund_application":
-		var d models.FundApplicationDetail
-		if s.FundApplicationDetail != nil {
-			d = *s.FundApplicationDetail
-		} else {
-			_ = tx.Where("submission_id = ?", submissionID).First(&d).Error
-		}
-		// ถ้าไม่มี detail ให้สร้างเปล่า ๆ แล้วค่อย UPDATE
-		if d.DetailID == 0 {
-			d.SubmissionID = s.SubmissionID
-			if err := tx.Create(&d).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create fund_application_details"})
-				return
-			}
-		}
-
-		// ✅ อัปเดตเฉพาะคอลัมน์ที่มีจริงใน fund_application_details (ห้ามใส่ updated_at)
-		detailUpdates := map[string]any{}
-		if req.ApprovedAmount != nil {
-			if *req.ApprovedAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "approved_amount must be non-negative"})
-				return
-			}
-			detailUpdates["approved_amount"] = *req.ApprovedAmount
-		} else if req.TotalApproveAmount != nil {
-			// รองรับ payload ที่ FE ส่ง total_approve_amount มาแทน
-			if *req.TotalApproveAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "total_approve_amount must be non-negative"})
-				return
-			}
-			detailUpdates["approved_amount"] = *req.TotalApproveAmount
-		}
-		if v := strings.TrimSpace(req.AnnounceReferenceNumber); v != "" {
-			detailUpdates["announce_reference_number"] = v
-		}
-
-		if len(detailUpdates) > 0 {
-			if err := tx.Model(&models.FundApplicationDetail{}).
-				Where("submission_id = ?", submissionID).
-				Updates(detailUpdates).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund_application_details"})
-				return
-			}
-		}
-
-	// ======== เคสรางวัลตีพิมพ์ (publication_reward) ========
-	case "publication_reward":
+	// PR amounts
+	if submission.SubmissionType == "publication_reward" {
 		var d models.PublicationRewardDetail
-		if s.PublicationRewardDetail != nil {
-			d = *s.PublicationRewardDetail
+		if submission.PublicationRewardDetail != nil {
+			d = *submission.PublicationRewardDetail
 		} else {
 			_ = tx.Where("submission_id = ?", submissionID).First(&d).Error
 		}
-		d.SubmissionID = s.SubmissionID
+		d.SubmissionID = submissionID
 
-		// map amounts + fallback
 		if req.RewardApproveAmount != nil {
-			if *req.RewardApproveAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "reward_approve_amount must be non-negative"})
-				return
-			}
 			d.RewardApproveAmount = *req.RewardApproveAmount
 		}
 		if req.RevisionFeeApproveAmount != nil {
-			if *req.RevisionFeeApproveAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "revision_fee_approve_amount must be non-negative"})
-				return
-			}
 			d.RevisionFeeApproveAmount = *req.RevisionFeeApproveAmount
 		}
 		if req.PublicationFeeApproveAmount != nil {
-			if *req.PublicationFeeApproveAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "publication_fee_approve_amount must be non-negative"})
-				return
-			}
 			d.PublicationFeeApproveAmount = *req.PublicationFeeApproveAmount
 		}
 		if req.TotalApproveAmount != nil {
-			if *req.TotalApproveAmount < 0 {
-				tx.Rollback()
-				c.JSON(http.StatusBadRequest, gin.H{"error": "total_approve_amount must be non-negative"})
-				return
-			}
 			d.TotalApproveAmount = *req.TotalApproveAmount
+		} else if req.ApprovedAmount != nil {
+			d.TotalApproveAmount = *req.ApprovedAmount
 		} else {
 			d.TotalApproveAmount = d.RewardApproveAmount + d.RevisionFeeApproveAmount + d.PublicationFeeApproveAmount
 		}
 		d.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
 
-		// ตาราง PR มี timestamp fields อยู่ ใช้ Save/Create ได้ตามปกติ
-		var saveErr error
 		if d.DetailID == 0 {
-			saveErr = tx.Create(&d).Error
-		} else {
-			saveErr = tx.Save(&d).Error
-		}
-		if saveErr != nil {
+			if err := tx.Create(&d).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create detail"})
+				return
+			}
+		} else if err := tx.Save(&d).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publication_reward_details"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update detail"})
 			return
 		}
-
-	// ประเภทอื่น ๆ: อนุมัติสถานะอย่างเดียว
-	default:
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -628,9 +557,7 @@ func ApproveSubmission(c *gin.Context) {
 	}
 
 	var out models.Submission
-	_ = config.DB.
-		Preload("FundApplicationDetail").
-		Preload("PublicationRewardDetail").
+	_ = config.DB.Preload("PublicationRewardDetail").
 		Where("submission_id = ?", submissionID).
 		First(&out).Error
 
@@ -641,6 +568,11 @@ func ApproveSubmission(c *gin.Context) {
 	})
 }
 
+// ==============================
+// REPLACED: RejectSubmission (single source of truth)
+// ==============================
+
+// ===== REPLACE WHOLE FUNCTION =====
 func RejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -762,10 +694,14 @@ func CreateResearchFundEvent(c *gin.Context) {
 		return
 	}
 
+	amountStr := strings.TrimSpace(c.PostForm("amount"))
 	eventType := strings.TrimSpace(c.PostForm("event_type"))
 	if eventType == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "event_type is required"})
-		return
+		if amountStr != "" {
+			eventType = models.ResearchFundEventTypePayment
+		} else {
+			eventType = models.ResearchFundEventTypeNote
+		}
 	}
 	if !isValidResearchFundEventType(eventType) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported event type"})
@@ -775,7 +711,6 @@ func CreateResearchFundEvent(c *gin.Context) {
 	comment := strings.TrimSpace(c.PostForm("comment"))
 
 	var amountPtr *float64
-	amountStr := strings.TrimSpace(c.PostForm("amount"))
 	if eventType == models.ResearchFundEventTypePayment {
 		if amountStr == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "amount is required for payment events"})
@@ -826,7 +761,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 				return errMissingFundDetail
 			}
 			if err := tx.Model(&models.ResearchFundAdminEvent{}).
-				Where("submission_id = ? AND event_type = ?", submission.SubmissionID, models.ResearchFundEventTypePayment).
+				Where("submission_id = ? AND amount IS NOT NULL", submission.SubmissionID).
 				Select("COALESCE(SUM(amount),0)").Scan(&totalPaid).Error; err != nil {
 				return err
 			}
@@ -838,12 +773,10 @@ func CreateResearchFundEvent(c *gin.Context) {
 
 		event := models.ResearchFundAdminEvent{
 			SubmissionID: submission.SubmissionID,
-			EventType:    eventType,
 			Comment:      comment,
 			Amount:       amountPtr,
 			CreatedBy:    userID,
 			CreatedAt:    now,
-			UpdatedAt:    now,
 		}
 		if err := tx.Create(&event).Error; err != nil {
 			return err
@@ -922,7 +855,6 @@ func CreateResearchFundEvent(c *gin.Context) {
 				EventID:   event.EventID,
 				FileID:    fileUpload.FileID,
 				CreatedAt: now,
-				UpdatedAt: now,
 			}
 			if err := tx.Create(&link).Error; err != nil {
 				return err
@@ -1023,7 +955,7 @@ func ToggleResearchFundClosure(c *gin.Context) {
 			}
 		}
 
-		submissionUpdates, detailUpdates, eventComment, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed)
+		submissionUpdates, detailUpdates, eventComment, statusAfterID, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed)
 		if err != nil {
 			return err
 		}
@@ -1040,12 +972,11 @@ func ToggleResearchFundClosure(c *gin.Context) {
 		}
 
 		event := models.ResearchFundAdminEvent{
-			SubmissionID: submission.SubmissionID,
-			EventType:    models.ResearchFundEventTypeClosure,
-			Comment:      eventComment,
-			CreatedBy:    userID,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			SubmissionID:  submission.SubmissionID,
+			StatusAfterID: statusAfterID,
+			Comment:       eventComment,
+			CreatedBy:     userID,
+			CreatedAt:     now,
 		}
 		if err := tx.Create(&event).Error; err != nil {
 			return err
@@ -1093,6 +1024,7 @@ func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*mode
 				return db.Order("created_at ASC")
 			}).
 			Preload("ResearchFundEvents.Creator").
+			Preload("ResearchFundEvents.StatusAfter").
 			Preload("ResearchFundEvents.Files").
 			Preload("ResearchFundEvents.Files.File")
 	}
@@ -1170,12 +1102,12 @@ func validateResearchFundEvent(submission *models.Submission, eventType string, 
 	return nil
 }
 
-func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool) (map[string]any, map[string]any, string, error) {
+func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool) (map[string]any, map[string]any, string, *int, error) {
 	if submission == nil {
-		return nil, nil, "", fmt.Errorf("submission is required")
+		return nil, nil, "", nil, fmt.Errorf("submission is required")
 	}
 	if !isResearchFundSubmission(submission) {
-		return nil, nil, "", errSubmissionNotResearchFund
+		return nil, nil, "", nil, errSubmissionNotResearchFund
 	}
 
 	if currentlyClosed {
@@ -1184,11 +1116,12 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 			"closed_at": nil,
 		}
 		detailUpdates := map[string]any{"closed_at": nil}
-		return submissionUpdates, detailUpdates, buildClosureComment(comment, false), nil
+		statusAfter := approvedStatusID
+		return submissionUpdates, detailUpdates, buildClosureComment(comment, false), &statusAfter, nil
 	}
 
 	if !closingAllowed {
-		return nil, nil, "", fmt.Errorf("submission must be approved before closure")
+		return nil, nil, "", nil, fmt.Errorf("submission must be approved before closure")
 	}
 
 	submissionUpdates := map[string]any{
@@ -1196,7 +1129,8 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 		"closed_at": now,
 	}
 	detailUpdates := map[string]any{"closed_at": now}
-	return submissionUpdates, detailUpdates, buildClosureComment(comment, true), nil
+	statusAfter := closedStatusID
+	return submissionUpdates, detailUpdates, buildClosureComment(comment, true), &statusAfter, nil
 }
 
 func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gin.H {
@@ -1209,14 +1143,23 @@ func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gi
 		payload := gin.H{
 			"event_id":      evt.EventID,
 			"submission_id": evt.SubmissionID,
-			"event_type":    evt.EventType,
+			"event_type":    deriveResearchFundEventType(evt),
 			"comment":       evt.Comment,
 			"created_by":    evt.CreatedBy,
 			"created_at":    evt.CreatedAt,
-			"updated_at":    evt.UpdatedAt,
 		}
 		if evt.Amount != nil {
 			payload["amount"] = *evt.Amount
+		}
+		if evt.StatusAfterID != nil {
+			payload["status_after_id"] = *evt.StatusAfterID
+		}
+		if evt.StatusAfter != nil && evt.StatusAfter.ApplicationStatusID != 0 {
+			payload["status_after"] = gin.H{
+				"application_status_id": evt.StatusAfter.ApplicationStatusID,
+				"status_code":           evt.StatusAfter.StatusCode,
+				"status_name":           evt.StatusAfter.StatusName,
+			}
 		}
 		if evt.Creator != nil && evt.Creator.UserID != 0 {
 			payload["creator"] = gin.H{
@@ -1230,11 +1173,10 @@ func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gi
 		files := make([]gin.H, 0, len(evt.Files))
 		for _, ef := range evt.Files {
 			filePayload := gin.H{
-				"id":         ef.ID,
-				"event_id":   ef.EventID,
-				"file_id":    ef.FileID,
-				"created_at": ef.CreatedAt,
-				"updated_at": ef.UpdatedAt,
+				"event_file_id": ef.EventFileID,
+				"event_id":      ef.EventID,
+				"file_id":       ef.FileID,
+				"created_at":    ef.CreatedAt,
 			}
 			if ef.File.FileID != 0 {
 				filePayload["file"] = gin.H{
@@ -1257,6 +1199,16 @@ func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gi
 	return out
 }
 
+func deriveResearchFundEventType(evt models.ResearchFundAdminEvent) string {
+	if evt.StatusAfterID != nil {
+		return models.ResearchFundEventTypeClosure
+	}
+	if evt.IsPayment() {
+		return models.ResearchFundEventTypePayment
+	}
+	return models.ResearchFundEventTypeNote
+}
+
 func buildResearchFundSummary(submission *models.Submission) gin.H {
 	if submission == nil || !isResearchFundSubmission(submission) {
 		return nil
@@ -1264,7 +1216,7 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 
 	totalPaid := 0.0
 	for _, evt := range submission.ResearchFundEvents {
-		if evt.EventType == models.ResearchFundEventTypePayment && evt.Amount != nil {
+		if evt.IsPayment() && evt.Amount != nil {
 			totalPaid += *evt.Amount
 		}
 	}
