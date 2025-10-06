@@ -126,8 +126,9 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 
 	// รองรับทั้ง head_comment (ใหม่) และ comment (เผื่อหน้าเก่าส่งมา)
 	var req struct {
-		HeadComment *string `json:"head_comment"`
-		Comment     *string `json:"comment"`
+		HeadComment   *string `json:"head_comment"`
+		Comment       *string `json:"comment"`
+		HeadSignature string  `json:"head_signature"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
@@ -202,6 +203,13 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		// ไม่อัปเดตคอลัมน์ legacy: comment
 	}
 
+	signature := strings.TrimSpace(req.HeadSignature)
+	if signature != "" {
+		updates["head_signature"] = signature
+	} else {
+		updates["head_signature"] = gorm.Expr("NULL")
+	}
+
 	if err := tx.Model(&models.Submission{}).
 		Where("submission_id = ?", submissionID).
 		Updates(updates).Error; err != nil {
@@ -257,6 +265,7 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		RejectionReason string  `json:"rejection_reason" binding:"required"`
 		HeadComment     *string `json:"head_comment"`
 		Comment         *string `json:"comment"` // เผื่อของเก่าส่งมา
+		HeadSignature   string  `json:"head_signature"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
@@ -318,6 +327,11 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 	if headComment != "" {
 		updates["head_comment"] = headComment
+	}
+
+	signature := strings.TrimSpace(req.HeadSignature)
+	if signature != "" {
+		updates["head_signature"] = signature
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -504,6 +518,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"head_rejected_at":       submission.HeadRejectedAt,
 		"head_rejection_reason":  submission.HeadRejectionReason,
 		"head_comment":           submission.HeadComment,
+		"head_signature":         submission.HeadSignature,
 		"admin_approved_by":      submission.AdminApprovedBy,
 		"admin_approved_at":      submission.AdminApprovedAt,
 		"admin_rejected_by":      submission.AdminRejectedBy,

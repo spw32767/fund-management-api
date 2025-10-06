@@ -36,6 +36,7 @@ type Submission struct {
 	HeadRejectedAt      *time.Time `gorm:"column:head_rejected_at" json:"head_rejected_at,omitempty"`
 	HeadRejectionReason *string    `gorm:"column:head_rejection_reason" json:"head_rejection_reason,omitempty"`
 	HeadComment         *string    `gorm:"column:head_comment" json:"head_comment,omitempty"`
+	HeadSignature       *string    `gorm:"column:head_signature" json:"head_signature,omitempty"`
 
 	// ===== ADD: Admin rejection (split) =====
 	AdminRejectedBy      *int       `gorm:"column:admin_rejected_by" json:"admin_rejected_by,omitempty"`
