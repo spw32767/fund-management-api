@@ -65,14 +65,15 @@ func CreateSubmissionFolder(userFolderPath string, submissionType string, submis
 	return submissionPath, nil
 }
 
-// CreateAdminEventFolder builds the folder used to store admin event attachments under a submission.
+// CreateAdminEventFolder builds (or reuses) the shared folder that stores research fund evidence files under a submission.
 func CreateAdminEventFolder(submissionFolderPath string, eventID int) (string, error) {
-	folderName := fmt.Sprintf("event_%d", eventID)
-	adminFolderPath := filepath.Join(submissionFolderPath, "admin_events", folderName)
-	if err := os.MkdirAll(adminFolderPath, 0755); err != nil {
+	// Keep the signature compatible but ignore the event ID because all events now share the same folder.
+	folderName := SanitizeForFilename(models.ResearchFundEvidenceFolderName)
+	evidenceFolderPath := filepath.Join(submissionFolderPath, folderName)
+	if err := os.MkdirAll(evidenceFolderPath, 0755); err != nil {
 		return "", err
 	}
-	return adminFolderPath, nil
+	return evidenceFolderPath, nil
 }
 
 // SanitizeForFilename ทำความสะอาดชื่อไฟล์
@@ -88,8 +89,7 @@ func SanitizeForFilename(filename string) string {
 	// ลบอักขระที่ไม่ปลอดภัยสำหรับ filesystem
 	var result strings.Builder
 	for _, r := range filename {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' ||
-			unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' {
 			result.WriteRune(r)
 		} else if unicode.IsSpace(r) {
 			result.WriteRune('_')
