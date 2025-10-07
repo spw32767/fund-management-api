@@ -517,6 +517,7 @@ func SubmitSubmission(c *gin.Context) {
 		fileUpload := models.FileUpload{
 			OriginalName: uniqueFilename,
 			StoredPath:   outputPath,
+			FolderType:   models.FileFolderTypeSubmission,
 			FileSize:     stat.Size(),
 			MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			FileHash:     "",
