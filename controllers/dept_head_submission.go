@@ -524,6 +524,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	fileUpload := models.FileUpload{
 		OriginalName: filename,
 		StoredPath:   targetPath,
+		FolderType:   models.FileFolderTypeSubmission,
 		FileSize:     stat.Size(),
 		MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		FileHash:     "",

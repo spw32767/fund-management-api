@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+const (
+	FileFolderTypeTemp       = "temp"
+	FileFolderTypeSubmission = "submission"
+	FileFolderTypeProfile    = "profile"
+	FileFolderTypeOther      = "other"
+)
+
 // FileUpload represents the file_uploads table
 type FileUpload struct {
 	FileID       int        `gorm:"primaryKey;column:file_id" json:"file_id"`
