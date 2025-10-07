@@ -817,7 +817,7 @@ func UploadFile(c *gin.Context) {
 		UpdateAt:     now,
 	}
 
-	if err := config.DB.Create(&fileUpload).Error; err != nil {
+	if err := config.DB.Omit("Metadata").Create(&fileUpload).Error; err != nil {
 		// Delete uploaded file if database save fails
 		os.Remove(storedPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
