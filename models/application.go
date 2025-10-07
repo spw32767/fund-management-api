@@ -89,6 +89,7 @@ type SubcategoryBudget struct {
 	AllocatedAmount     float64    `gorm:"column:allocated_amount" json:"allocated_amount"`
 	UsedAmount          float64    `gorm:"column:used_amount" json:"used_amount"`
 	RemainingBudget     float64    `gorm:"column:remaining_budget" json:"remaining_budget"`
+	MaxAmountPerYear    *float64   `gorm:"column:max_amount_per_year" json:"max_amount_per_year"`
 	MaxGrants           int        `gorm:"column:max_grants" json:"max_grants"`
 	MaxAmountPerGrant   float64    `gorm:"column:max_amount_per_grant" json:"max_amount_per_grant"`
 	RemainingGrant      int        `gorm:"column:remaining_grant" json:"remaining_grant"`

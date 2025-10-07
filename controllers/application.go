@@ -140,28 +140,85 @@ func CreateApplication(c *gin.Context) {
 
 	// Check if subcategory exists and has budget
 	var subcategory models.FundSubcategory
-	if err := config.DB.Preload("SubcategoryBudget").
+	if err := config.DB.
 		Where("subcategory_id = ? AND status = 'active'", req.SubcategoryID).
 		First(&subcategory).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory"})
 		return
 	}
 
-	// Check budget constraints
-	budget := subcategory.SubcategoryBudget
-	if budget.RemainingGrant <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No remaining grants available"})
+	// Load overall budget row for the subcategory
+	var overallBudget models.SubcategoryBudget
+	if err := config.DB.
+		Where("subcategory_id = ? AND status = 'active' AND delete_at IS NULL AND record_scope = 'overall'",
+			req.SubcategoryID).
+		First(&overallBudget).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No active budget configured for this subcategory"})
 		return
 	}
 
-	if req.RequestedAmount > budget.MaxAmountPerGrant {
+	userIDVal := userID.(int)
+
+	// Check yearly quota usage from aggregated approvals
+	type yearlyUsage struct {
+		UsedGrants int     `gorm:"column:used_grants"`
+		UsedAmount float64 `gorm:"column:used_amount"`
+	}
+
+	usage := yearlyUsage{}
+	if err := config.DB.Table("v_subcategory_user_usage_total").
+		Select("used_grants, used_amount").
+		Where("subcategory_id = ? AND user_id = ? AND year_id = ?", req.SubcategoryID, userIDVal, req.YearID).
+		Scan(&usage).Error; err != nil {
+		// If the view is unavailable fall back to legacy behaviour
+		fmt.Printf("warning: failed to read v_subcategory_user_usage_total: %v\n", err)
+		usage = yearlyUsage{}
+	}
+
+	if overallBudget.MaxGrants > 0 && usage.UsedGrants >= overallBudget.MaxGrants {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No remaining grants available for this year"})
+		return
+	}
+
+	if overallBudget.MaxAmountPerYear != nil {
+		yearlyLimit := *overallBudget.MaxAmountPerYear
+		if usage.UsedAmount+req.RequestedAmount > yearlyLimit {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Requested amount exceeds yearly quota"})
+			return
+		}
+	}
+
+	// Enforce per-grant cap if defined
+	if overallBudget.MaxAmountPerGrant > 0 && req.RequestedAmount > overallBudget.MaxAmountPerGrant {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Requested amount exceeds maximum allowed (%.2f)", budget.MaxAmountPerGrant),
+			"error": fmt.Sprintf("Requested amount exceeds maximum allowed (%.2f)", overallBudget.MaxAmountPerGrant),
 		})
 		return
 	}
 
-	if req.RequestedAmount > budget.RemainingBudget {
+	// Validate against remaining fund budget (aggregate view preferred, fallback to stored column)
+	effectiveRemaining := overallBudget.RemainingBudget
+
+	type budgetSummary struct {
+		RemainingBudget float64 `gorm:"column:remaining_budget"`
+	}
+
+	summary := budgetSummary{}
+	if err := config.DB.Table("v_budget_summary").
+		Select("remaining_budget").
+		Where("subcategory_id = ?", req.SubcategoryID).
+		Scan(&summary).Error; err == nil && summary.RemainingBudget > 0 {
+		effectiveRemaining = summary.RemainingBudget
+	} else if err != nil {
+		fmt.Printf("warning: failed to read v_budget_summary: %v\n", err)
+	}
+
+	if effectiveRemaining <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient budget remaining"})
+		return
+	}
+
+	if req.RequestedAmount > effectiveRemaining {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient budget remaining"})
 		return
 	}
@@ -528,9 +585,10 @@ func GetTeacherSubcategories(c *gin.Context) {
 			sb.subcategory_budget_id,
 			sb.allocated_amount,
 			sb.used_amount,
-			sb.remaining_budget,
-			sb.max_grants,
-			sb.max_amount_per_grant,
+                        sb.remaining_budget,
+                        sb.max_amount_per_year,
+                        sb.max_grants,
+                        sb.max_amount_per_grant,
 			sb.remaining_grant,
 			sb.level,
 			sb.fund_description,
@@ -603,6 +661,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 			allocatedAmount      *float64
 			usedAmount           *float64
 			remainingBudget      *float64
+			maxAmountPerYear     *float64
 			maxGrants            *int
 			maxAmountPerGrant    *float64
 			remainingGrant       *int
@@ -625,6 +684,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 			&allocatedAmount,
 			&usedAmount,
 			&remainingBudget,
+			&maxAmountPerYear,
 			&maxGrants,
 			&maxAmountPerGrant,
 			&remainingGrant,
@@ -691,6 +751,11 @@ func GetTeacherSubcategories(c *gin.Context) {
 			if remainingBudget != nil {
 				result["remaining_budget"] = *remainingBudget
 			}
+			if maxAmountPerYear != nil {
+				result["max_amount_per_year"] = *maxAmountPerYear
+			} else {
+				result["max_amount_per_year"] = nil
+			}
 			if maxAmountPerGrant != nil {
 				result["max_amount_per_grant"] = *maxAmountPerGrant
 			}
@@ -715,6 +780,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 			result["allocated_amount"] = 0.0
 			result["used_amount"] = 0.0
 			result["remaining_budget"] = 0.0
+			result["max_amount_per_year"] = nil
 			result["max_grants"] = nil
 			result["max_amount_per_grant"] = 0.0
 			result["remaining_grant"] = nil

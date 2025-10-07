@@ -1143,9 +1143,10 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
                         sb.allocated_amount,
                         sb.used_amount,
                         sb.remaining_budget,
-			sb.max_grants,
-			sb.max_amount_per_grant,
-			sb.remaining_grant,
+                        sb.max_amount_per_year,
+                        sb.max_grants,
+                        sb.max_amount_per_grant,
+                        sb.remaining_grant,
 			sb.level,
 			sb.status,
 			sb.fund_description,
@@ -1194,6 +1195,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			allocatedAmount   float64
 			usedAmount        float64
 			remainingBudget   float64
+			maxAmountPerYear  *float64
 			maxGrants         *int
 			maxAmountPerGrant float64
 			remainingGrant    *int
@@ -1214,6 +1216,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			&allocatedAmount,
 			&usedAmount,
 			&remainingBudget,
+			&maxAmountPerYear,
 			&maxGrants,
 			&maxAmountPerGrant,
 			&remainingGrant,
@@ -1237,6 +1240,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			"allocated_amount":      allocatedAmount,
 			"used_amount":           usedAmount,
 			"remaining_budget":      remainingBudget,
+			"max_amount_per_year":   maxAmountPerYear,
 			"max_grants":            maxGrants,
 			"max_amount_per_grant":  maxAmountPerGrant,
 			"remaining_grant":       remainingGrant,
@@ -1281,11 +1285,12 @@ func GetSubcategoryBudget(c *gin.Context) {
                         sb.subcategory_id,
                         sb.record_scope,
                         sb.allocated_amount,
-			sb.used_amount,
-			sb.remaining_budget,
-			sb.max_grants,
-			sb.max_amount_per_grant,
-			sb.remaining_grant,
+                        sb.used_amount,
+                        sb.remaining_budget,
+                        sb.max_amount_per_year,
+                        sb.max_grants,
+                        sb.max_amount_per_grant,
+                        sb.remaining_grant,
 			sb.level,
 			sb.status,
 			sb.fund_description,
@@ -1307,6 +1312,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 		allocatedAmount   float64
 		usedAmount        float64
 		remainingBudget   float64
+		maxAmountPerYear  *float64
 		maxGrants         *int
 		maxAmountPerGrant float64
 		remainingGrant    *int
@@ -1328,6 +1334,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 		&allocatedAmount,
 		&usedAmount,
 		&remainingBudget,
+		&maxAmountPerYear,
 		&maxGrants,
 		&maxAmountPerGrant,
 		&remainingGrant,
@@ -1354,6 +1361,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 		"allocated_amount":      allocatedAmount,
 		"used_amount":           usedAmount,
 		"remaining_budget":      remainingBudget,
+		"max_amount_per_year":   maxAmountPerYear,
 		"max_grants":            maxGrants,
 		"max_amount_per_grant":  maxAmountPerGrant,
 		"remaining_grant":       remainingGrant,
@@ -1389,6 +1397,7 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	type CreateBudgetRequest struct {
 		SubcategoryID     int         `json:"subcategory_id" binding:"required"`
 		AllocatedAmount   float64     `json:"allocated_amount"`
+		MaxAmountPerYear  *float64    `json:"max_amount_per_year"`
 		MaxGrants         interface{} `json:"max_grants"`
 		MaxAmountPerGrant *float64    `json:"max_amount_per_grant"`
 		Level             string      `json:"level"`
@@ -1418,6 +1427,8 @@ func CreateSubcategoryBudget(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "max_amount_per_grant must be provided for rule scope"})
 			return
 		}
+		// Yearly cap ใช้เฉพาะ overall เท่านั้น
+		req.MaxAmountPerYear = nil
 	}
 
 	// Validate subcategory exists
@@ -1433,9 +1444,9 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	insertQuery := `
                 INSERT INTO subcategory_budgets (
                         subcategory_id, record_scope, allocated_amount, used_amount, remaining_budget,
-                        max_grants, max_amount_per_grant, remaining_grant, level,
+                        max_amount_per_year, max_grants, max_amount_per_grant, remaining_grant, level,
                         status, fund_description, comment, create_at, update_at
-                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`
+                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`
 
 	var level, fundDescription, comment interface{}
 	if scope == "rule" && req.Level != "" {
@@ -1446,6 +1457,11 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	}
 	if req.Comment != "" {
 		comment = req.Comment
+	}
+
+	var maxAmountPerYear interface{}
+	if req.MaxAmountPerYear != nil && *req.MaxAmountPerYear > 0 {
+		maxAmountPerYear = *req.MaxAmountPerYear
 	}
 
 	var maxGrants interface{}
@@ -1483,7 +1499,8 @@ func CreateSubcategoryBudget(c *gin.Context) {
 		scope,
 		req.AllocatedAmount,
 		req.AllocatedAmount, // remaining_budget = allocated_amount initially
-		maxGrants,           // ใช้ตัวแปรที่ process แล้ว
+		maxAmountPerYear,
+		maxGrants, // ใช้ตัวแปรที่ process แล้ว
 		maxAmountPerGrant,
 		remainingGrant, // ใช้ตัวแปรที่ process แล้ว
 		level,
@@ -1522,14 +1539,16 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 
 	jsonData, _ := c.GetRawData()
 
-	// ตรวจสอบว่ามี "max_grants" field ใน JSON หรือไม่
+	// ตรวจสอบว่ามี field สำคัญใน JSON หรือไม่
 	hasMaxGrantsField := strings.Contains(string(jsonData), `"max_grants"`)
+	hasMaxAmountPerYearField := strings.Contains(string(jsonData), `"max_amount_per_year"`)
 
 	// Parse JSON อีกครั้งเพื่อใช้งาน
 	c.Request.Body = io.NopCloser(strings.NewReader(string(jsonData)))
 
 	type UpdateBudgetRequest struct {
 		AllocatedAmount   *float64    `json:"allocated_amount"`
+		MaxAmountPerYear  *float64    `json:"max_amount_per_year"`
 		MaxGrants         interface{} `json:"max_grants"`
 		MaxAmountPerGrant *float64    `json:"max_amount_per_grant"`
 		Level             string      `json:"level"`
@@ -1553,15 +1572,18 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		SubcategoryBudgetID int
 		AllocatedAmount     float64
 		UsedAmount          float64
+		RecordScope         string
 	}
 
-	err := config.DB.Raw("SELECT subcategory_budget_id, allocated_amount, used_amount FROM subcategory_budgets WHERE subcategory_budget_id = ? AND delete_at IS NULL", budgetID).
+	err := config.DB.Raw("SELECT subcategory_budget_id, allocated_amount, used_amount, record_scope FROM subcategory_budgets WHERE subcategory_budget_id = ? AND delete_at IS NULL", budgetID).
 		Scan(&existingBudget).Error
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory budget not found"})
 		return
 	}
+
+	effectiveScope := strings.ToLower(existingBudget.RecordScope)
 
 	// Build update query dynamically
 	setParts := []string{}
@@ -1584,11 +1606,15 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		}
 		setParts = append(setParts, "record_scope = ?")
 		args = append(args, scopeValue)
+		effectiveScope = scopeValue
 
 		if scopeValue == "overall" {
 			// สำหรับแถวสรุป ไม่จำเป็นต้องมี level
 			setParts = append(setParts, "level = NULL")
 			// max_amount_per_grant/remaining_grant จะถูกอัปเดตตามข้อมูลที่ส่งมาภายหลัง (ถ้ามี)
+		} else {
+			// rule scope ไม่ควรมี yearly cap
+			setParts = append(setParts, "max_amount_per_year = NULL")
 		}
 	}
 
@@ -1622,7 +1648,16 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		setParts = append(setParts, "max_amount_per_grant = NULL")
 	}
 
-	if req.Level != "" && scopeValue != "overall" {
+	if hasMaxAmountPerYearField {
+		setParts = append(setParts, "max_amount_per_year = ?")
+		if req.MaxAmountPerYear != nil && *req.MaxAmountPerYear > 0 && effectiveScope == "overall" {
+			args = append(args, *req.MaxAmountPerYear)
+		} else {
+			args = append(args, nil)
+		}
+	}
+
+	if req.Level != "" && effectiveScope != "overall" {
 		setParts = append(setParts, "level = ?")
 		args = append(args, req.Level)
 	}
