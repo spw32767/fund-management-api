@@ -1128,15 +1128,21 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 	}
 
 	subcategoryID := c.Query("subcategory_id")
+	recordScope := c.Query("record_scope")
+	scopeIsAll := strings.EqualFold(recordScope, "all")
+	if recordScope == "" {
+		recordScope = "rule"
+	}
 
 	// Use raw SQL to get budget data with subcategory info
 	baseQuery := `
-		SELECT 
-			sb.subcategory_budget_id,
-			sb.subcategory_id,
-			sb.allocated_amount,
-			sb.used_amount,
-			sb.remaining_budget,
+                SELECT
+                        sb.subcategory_budget_id,
+                        sb.subcategory_id,
+                        sb.record_scope,
+                        sb.allocated_amount,
+                        sb.used_amount,
+                        sb.remaining_budget,
 			sb.max_grants,
 			sb.max_amount_per_grant,
 			sb.remaining_grant,
@@ -1160,6 +1166,11 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 		args = append(args, subcategoryID)
 	}
 
+	if !scopeIsAll {
+		baseQuery += " AND sb.record_scope = ?"
+		args = append(args, recordScope)
+	}
+
 	baseQuery += " ORDER BY sb.subcategory_budget_id DESC"
 
 	// Execute query
@@ -1179,6 +1190,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 		var (
 			budgetID          int
 			subcategoryID     int
+			recordScope       string
 			allocatedAmount   float64
 			usedAmount        float64
 			remainingBudget   float64
@@ -1198,6 +1210,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 		err := rows.Scan(
 			&budgetID,
 			&subcategoryID,
+			&recordScope,
 			&allocatedAmount,
 			&usedAmount,
 			&remainingBudget,
@@ -1220,6 +1233,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 		budget := map[string]interface{}{
 			"subcategory_budget_id": budgetID,
 			"subcategory_id":        subcategoryID,
+			"record_scope":          recordScope,
 			"allocated_amount":      allocatedAmount,
 			"used_amount":           usedAmount,
 			"remaining_budget":      remainingBudget,
@@ -1262,10 +1276,11 @@ func GetSubcategoryBudget(c *gin.Context) {
 
 	// Use raw SQL to get budget data with subcategory info
 	query := `
-		SELECT 
-			sb.subcategory_budget_id,
-			sb.subcategory_id,
-			sb.allocated_amount,
+                SELECT
+                        sb.subcategory_budget_id,
+                        sb.subcategory_id,
+                        sb.record_scope,
+                        sb.allocated_amount,
 			sb.used_amount,
 			sb.remaining_budget,
 			sb.max_grants,
@@ -1288,6 +1303,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 	var (
 		budgetIDInt       int
 		subcategoryID     int
+		recordScope       string
 		allocatedAmount   float64
 		usedAmount        float64
 		remainingBudget   float64
@@ -1308,6 +1324,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 	err := config.DB.Raw(query, budgetID).Row().Scan(
 		&budgetIDInt,
 		&subcategoryID,
+		&recordScope,
 		&allocatedAmount,
 		&usedAmount,
 		&remainingBudget,
@@ -1333,6 +1350,7 @@ func GetSubcategoryBudget(c *gin.Context) {
 	budget := map[string]interface{}{
 		"subcategory_budget_id": budgetIDInt,
 		"subcategory_id":        subcategoryID,
+		"record_scope":          recordScope,
 		"allocated_amount":      allocatedAmount,
 		"used_amount":           usedAmount,
 		"remaining_budget":      remainingBudget,
@@ -1371,17 +1389,35 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	type CreateBudgetRequest struct {
 		SubcategoryID     int         `json:"subcategory_id" binding:"required"`
 		AllocatedAmount   float64     `json:"allocated_amount"`
-		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
-		MaxAmountPerGrant float64     `json:"max_amount_per_grant" binding:"required"`
+		MaxGrants         interface{} `json:"max_grants"`
+		MaxAmountPerGrant *float64    `json:"max_amount_per_grant"`
 		Level             string      `json:"level"`
 		FundDescription   string      `json:"fund_description"`
 		Comment           string      `json:"comment"`
+		RecordScope       string      `json:"record_scope"`
 	}
 
 	var req CreateBudgetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Normalize scope
+	scope := strings.ToLower(req.RecordScope)
+	if scope == "" {
+		scope = "rule"
+	}
+	if scope != "rule" && scope != "overall" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "record_scope must be either 'rule' or 'overall'"})
+		return
+	}
+
+	if scope == "rule" {
+		if req.MaxAmountPerGrant == nil || *req.MaxAmountPerGrant <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "max_amount_per_grant must be provided for rule scope"})
+			return
+		}
 	}
 
 	// Validate subcategory exists
@@ -1395,14 +1431,14 @@ func CreateSubcategoryBudget(c *gin.Context) {
 	// Create new budget using raw SQL
 	now := time.Now()
 	insertQuery := `
-		INSERT INTO subcategory_budgets (
-			subcategory_id, allocated_amount, used_amount, remaining_budget,
-			max_grants, max_amount_per_grant, remaining_grant, level,
-			status, fund_description, comment, create_at, update_at
-		) VALUES (?, ?, 0, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`
+                INSERT INTO subcategory_budgets (
+                        subcategory_id, record_scope, allocated_amount, used_amount, remaining_budget,
+                        max_grants, max_amount_per_grant, remaining_grant, level,
+                        status, fund_description, comment, create_at, update_at
+                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`
 
 	var level, fundDescription, comment interface{}
-	if req.Level != "" {
+	if scope == "rule" && req.Level != "" {
 		level = req.Level
 	}
 	if req.FundDescription != "" {
@@ -1437,12 +1473,18 @@ func CreateSubcategoryBudget(c *gin.Context) {
 		remainingGrant = nil
 	}
 
+	var maxAmountPerGrant interface{}
+	if scope == "rule" {
+		maxAmountPerGrant = *req.MaxAmountPerGrant
+	}
+
 	result := config.DB.Exec(insertQuery,
 		req.SubcategoryID,
+		scope,
 		req.AllocatedAmount,
 		req.AllocatedAmount, // remaining_budget = allocated_amount initially
 		maxGrants,           // ใช้ตัวแปรที่ process แล้ว
-		req.MaxAmountPerGrant,
+		maxAmountPerGrant,
 		remainingGrant, // ใช้ตัวแปรที่ process แล้ว
 		level,
 		fundDescription,
@@ -1488,14 +1530,14 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 
 	type UpdateBudgetRequest struct {
 		AllocatedAmount   *float64    `json:"allocated_amount"`
-		MaxGrants         interface{} `json:"max_grants"` // เปลี่ยนเป็น interface{} เพื่อรับทั้ง int และ null
+		MaxGrants         interface{} `json:"max_grants"`
 		MaxAmountPerGrant *float64    `json:"max_amount_per_grant"`
 		Level             string      `json:"level"`
 		Status            string      `json:"status"`
 		FundDescription   string      `json:"fund_description"`
 		Comment           string      `json:"comment"`
-		// เพิ่มฟิลด์นี้เพื่อระบุว่า Frontend ส่ง max_grants มาหรือไม่
-		HasMaxGrants bool `json:"has_max_grants"`
+		RecordScope       string      `json:"record_scope"`
+		HasMaxGrants      bool        `json:"has_max_grants"`
 	}
 
 	var req UpdateBudgetRequest
@@ -1503,6 +1545,8 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	scopeValue := strings.ToLower(req.RecordScope)
 
 	// Check if budget exists
 	var existingBudget struct {
@@ -1533,6 +1577,21 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 		args = append(args, newRemainingBudget)
 	}
 
+	if req.RecordScope != "" {
+		if scopeValue != "rule" && scopeValue != "overall" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "record_scope must be either 'rule' or 'overall'"})
+			return
+		}
+		setParts = append(setParts, "record_scope = ?")
+		args = append(args, scopeValue)
+
+		if scopeValue == "overall" {
+			// สำหรับแถวสรุป ไม่จำเป็นต้องมี level
+			setParts = append(setParts, "level = NULL")
+			// max_amount_per_grant/remaining_grant จะถูกอัปเดตตามข้อมูลที่ส่งมาภายหลัง (ถ้ามี)
+		}
+	}
+
 	if hasMaxGrantsField {
 		setParts = append(setParts, "max_grants = ?")
 		setParts = append(setParts, "remaining_grant = ?")
@@ -1558,9 +1617,12 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 	if req.MaxAmountPerGrant != nil {
 		setParts = append(setParts, "max_amount_per_grant = ?")
 		args = append(args, *req.MaxAmountPerGrant)
+	} else if scopeValue == "overall" {
+		// หากสลับเป็น overall แล้วไม่มีค่าใหม่ ให้ล้างค่า max_amount_per_grant
+		setParts = append(setParts, "max_amount_per_grant = NULL")
 	}
 
-	if req.Level != "" {
+	if req.Level != "" && scopeValue != "overall" {
 		setParts = append(setParts, "level = ?")
 		args = append(args, req.Level)
 	}

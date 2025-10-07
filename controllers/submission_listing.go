@@ -77,7 +77,7 @@ func GetAllSubmissions(c *gin.Context) {
 		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
+		query = query.Where("submissions.year_id = ?", yearID)
 	}
 	// if priority != "" {
 	// 	query = query.Where("priority = ?", priority)
@@ -174,7 +174,7 @@ func GetTeacherSubmissions(c *gin.Context) {
 		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
+		query = query.Where("submissions.year_id = ?", yearID)
 	}
 
 	var totalCount int64
@@ -564,7 +564,7 @@ func SearchSubmissions(c *gin.Context) {
 		query = query.Where("status_id = ?", status)
 	}
 	if yearID != "" {
-		query = query.Where("year_id = ?", yearID)
+		query = query.Where("submissions.year_id = ?", yearID)
 	}
 
 	// Get total count

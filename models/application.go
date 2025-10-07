@@ -85,6 +85,7 @@ type FundSubcategory struct {
 type SubcategoryBudget struct {
 	SubcategoryBudgetID int        `gorm:"primaryKey;column:subcategory_budget_id" json:"subcategory_budget_id"`
 	SubcategoryID       int        `gorm:"column:subcategory_id" json:"subcategory_id"` // Note: typo in DB
+	RecordScope         string     `gorm:"column:record_scope" json:"record_scope"`
 	AllocatedAmount     float64    `gorm:"column:allocated_amount" json:"allocated_amount"`
 	UsedAmount          float64    `gorm:"column:used_amount" json:"used_amount"`
 	RemainingBudget     float64    `gorm:"column:remaining_budget" json:"remaining_budget"`
