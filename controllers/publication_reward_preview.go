@@ -727,7 +727,7 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 		Preload("DocumentType").
 		Preload("File").
 		Where("submission_id = ?", submissionID).
-		Order("display_order ASC, document_id ASC").
+		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
 		Find(&documents).Error; err != nil {
 		return nil, err
 	}

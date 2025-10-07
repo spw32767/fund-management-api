@@ -99,9 +99,12 @@ func GetSubmissionDetails(c *gin.Context) {
 	// 4) เอกสารแนบ
 	var docs []models.SubmissionDocument
 	if err := config.DB.
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.*, dt.document_type_name").
 		Where("submission_id = ?", sid).
 		Preload("DocumentType").
 		Preload("File").
+		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
 		Find(&docs).Error; err != nil {
 		log.Printf("[GetSubmissionDetails] load documents error: %v", err)
 	}
