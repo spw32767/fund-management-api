@@ -527,7 +527,7 @@ func SubmitSubmission(c *gin.Context) {
 			UpdateAt:     now,
 		}
 
-		if err := tx.Create(&fileUpload).Error; err != nil {
+		if err := tx.Omit("Metadata").Create(&fileUpload).Error; err != nil {
 			os.Remove(outputPath)
 			return fmt.Errorf("failed to persist generated docx: %w", err)
 		}

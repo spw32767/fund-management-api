@@ -534,7 +534,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		UpdateAt:     timestamp,
 	}
 
-	if err := tx.Create(&fileUpload).Error; err != nil {
+	if err := tx.Omit("Metadata").Create(&fileUpload).Error; err != nil {
 		os.Remove(targetPath)
 		return fmt.Errorf("failed to persist regenerated docx: %w", err)
 	}
