@@ -172,6 +172,7 @@ type SubmissionDocument struct {
 	FileID           int        `gorm:"column:file_id" json:"file_id"`
 	DocumentTypeID   int        `gorm:"column:document_type_id" json:"document_type_id"`
 	DocumentTypeName string     `gorm:"->;column:document_type_name" json:"document_type_name"`
+	DocumentTypeCode string     `gorm:"->;column:document_type_code" json:"document_type_code,omitempty"`
 	Description      string     `gorm:"column:description" json:"description"`
 	DisplayOrder     int        `gorm:"column:display_order" json:"display_order"`
 	IsRequired       bool       `gorm:"column:is_required" json:"is_required"`

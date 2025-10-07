@@ -119,7 +119,8 @@ func GetSubmission(c *gin.Context) {
 		Preload("Status").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-				Select("submission_documents.*, dt.document_type_name").
+				Select("submission_documents.*, dt.document_type_name, dt.code AS document_type_code").
+				Where("submission_documents.deleted_at IS NULL").
 				Order("submission_documents.display_order, submission_documents.created_at")
 		}).
 		Preload("Documents.File").
@@ -1206,11 +1207,11 @@ func GetSubmissionDocuments(c *gin.Context) {
 	// Get documents
 	var documents []models.SubmissionDocument
 	if err := config.DB.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Select("submission_documents.*, dt.document_type_name").
+		Select("submission_documents.*, dt.document_type_name, dt.code AS document_type_code").
 		Preload("File").
 		Preload("DocumentType").
-		Where("submission_id = ?", submissionID).
-		Order("display_order, created_at").
+		Where("submission_id = ? AND submission_documents.deleted_at IS NULL", submissionID).
+		Order("submission_documents.display_order, submission_documents.created_at").
 		Find(&documents).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch documents"})
 		return
