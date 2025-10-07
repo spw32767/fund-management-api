@@ -97,7 +97,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 	// Query ที่ดึงข้อมูล subcategories และใช้ budget จากรายการแรกที่พบ (ไม่รวม)
 	// เพราะ budget ที่มี subcategory_id เดียวกันใช้เงินก้อนเดียวกัน
 	query := `
-        SELECT 
+        SELECT
             fs.subcategory_id,
             fs.subcategory_name,
             fs.fund_condition,
@@ -105,18 +105,20 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
             fs.form_type,
             fs.form_url,
             fs.status,
-            -- ใช้ค่าแรกที่พบ ไม่ใช้ SUM เพราะเป็นเงินก้อนเดียวกัน
-            (SELECT sb1.allocated_amount 
-             FROM subcategory_budgets sb1 
-             WHERE sb1.subcategory_id = fs.subcategory_id 
-                AND sb1.delete_at IS NULL 
-                AND sb1.status = 'active' 
+            -- ใช้ค่า first overall budget เพื่อแสดงภาพรวม
+            (SELECT sb1.allocated_amount
+             FROM subcategory_budgets sb1
+             WHERE sb1.subcategory_id = fs.subcategory_id
+                AND sb1.delete_at IS NULL
+                AND sb1.status = 'active'
+                AND sb1.record_scope = 'overall'
              LIMIT 1) as allocated_amount,
-            (SELECT sb2.remaining_budget 
-             FROM subcategory_budgets sb2 
-             WHERE sb2.subcategory_id = fs.subcategory_id 
-                AND sb2.delete_at IS NULL 
-                AND sb2.status = 'active' 
+            (SELECT sb2.remaining_budget
+             FROM subcategory_budgets sb2
+             WHERE sb2.subcategory_id = fs.subcategory_id
+                AND sb2.delete_at IS NULL
+                AND sb2.status = 'active'
+                AND sb2.record_scope = 'overall'
              LIMIT 1) as remaining_budget,
             COUNT(DISTINCT sb.subcategory_budget_id) as budget_count,
             GROUP_CONCAT(DISTINCT sb.level) as levels,
@@ -125,7 +127,8 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
         LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id
             AND sb.delete_at IS NULL
             AND sb.status = 'active'
-        WHERE fs.delete_at IS NULL 
+            AND sb.record_scope = 'rule'
+        WHERE fs.delete_at IS NULL
             AND fs.status = 'active'
             AND fs.category_id = ?`
 
@@ -249,19 +252,23 @@ func GetFundStructureAlternative(c *gin.Context) {
             fs.form_type,
             fs.form_url,
             fs.status as subcategory_status,
-            -- ใช้ MIN หรือ MAX เพื่อเอาค่าเดียว (เพราะทุก budget ของ subcategory_id เดียวกันใช้เงินก้อนเดียวกัน)
-            MIN(sb.allocated_amount) as allocated_amount,
-            MIN(sb.remaining_budget) as remaining_budget,
-            COUNT(DISTINCT sb.subcategory_budget_id) as budget_count,
-            GROUP_CONCAT(DISTINCT sb.level) as levels
+            COALESCE(sb_overall.allocated_amount, 0) as allocated_amount,
+            COALESCE(sb_overall.remaining_budget, 0) as remaining_budget,
+            COUNT(DISTINCT sb_rule.subcategory_budget_id) as budget_count,
+            GROUP_CONCAT(DISTINCT sb_rule.level) as levels
         FROM fund_categories fc
         INNER JOIN fund_subcategories fs ON fc.category_id = fs.category_id
             AND fs.delete_at IS NULL
             AND fs.status = 'active'
-        LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id
-            AND sb.delete_at IS NULL
-            AND sb.status = 'active'
-        WHERE fc.delete_at IS NULL 
+        LEFT JOIN subcategory_budgets sb_overall ON fs.subcategory_id = sb_overall.subcategory_id
+            AND sb_overall.delete_at IS NULL
+            AND sb_overall.status = 'active'
+            AND sb_overall.record_scope = 'overall'
+        LEFT JOIN subcategory_budgets sb_rule ON fs.subcategory_id = sb_rule.subcategory_id
+            AND sb_rule.delete_at IS NULL
+            AND sb_rule.status = 'active'
+            AND sb_rule.record_scope = 'rule'
+        WHERE fc.delete_at IS NULL
             AND fc.status = 'active'`
 
 	var args []interface{}
@@ -284,8 +291,9 @@ func GetFundStructureAlternative(c *gin.Context) {
 	}
 
 	query += ` GROUP BY fc.category_id, fc.category_name, fc.status, fc.year_id,
-               fs.subcategory_id, fs.subcategory_name, fs.fund_condition, 
-               fs.target_roles, fs.form_type, fs.form_url, fs.status
+               fs.subcategory_id, fs.subcategory_name, fs.fund_condition,
+               fs.target_roles, fs.form_type, fs.form_url, fs.status,
+               sb_overall.allocated_amount, sb_overall.remaining_budget
                ORDER BY fc.category_id, fs.subcategory_id`
 
 	rows, err := config.DB.Raw(query, args...).Rows()
