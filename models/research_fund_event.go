@@ -7,7 +7,8 @@ const (
 	ResearchFundEventTypePayment = "payment"
 	ResearchFundEventTypeClosure = "closure"
 
-	FileFolderTypeAdminEvent = "admin_event"
+	FileFolderTypeAdminEvent       = "submission"
+	ResearchFundEvidenceFolderName = "หลักฐานการปิดทุน"
 )
 
 // ResearchFundAdminEvent captures administrative actions taken against a research fund submission.
