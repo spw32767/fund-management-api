@@ -469,7 +469,7 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to load submission documents: %w", err)
 		}
 
-		replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents)
+		replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents, nil)
 		if err != nil {
 			return err
 		}
@@ -601,7 +601,7 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 	return &docType, nil
 }
 
-func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
+func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument, headUser *models.User) (map[string]string, error) {
 	if submission == nil {
 		return nil, fmt.Errorf("submission is required")
 	}
@@ -630,6 +630,30 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		positionName = strings.TrimSpace(submission.User.Position.PositionName)
 	}
 
+	headComment := ""
+	if submission.HeadComment != nil {
+		headComment = strings.TrimSpace(*submission.HeadComment)
+	}
+
+	headSignature := ""
+	if submission.HeadSignature != nil {
+		headSignature = strings.TrimSpace(*submission.HeadSignature)
+	}
+
+	headName := ""
+	if headUser != nil {
+		headName = buildApplicantName(headUser)
+	}
+
+	if headName == "" && headSignature != "" {
+		headName = headSignature
+	}
+
+	headApprovedDate := ""
+	if submission.HeadApprovedAt != nil {
+		headApprovedDate = utils.FormatThaiDate(*submission.HeadApprovedAt)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(documentDate),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
@@ -649,6 +673,10 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		"{{document_line}}":      buildDocumentLine(documents),
 		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
 		"{{signature}}":          strings.TrimSpace(detail.Signature),
+		"{{head_comment}}":       headComment,
+		"{{head_signature}}":     headSignature,
+		"{{head_name}}":          headName,
+		"{{head_approved_date}}": headApprovedDate,
 	}
 
 	return replacements, nil

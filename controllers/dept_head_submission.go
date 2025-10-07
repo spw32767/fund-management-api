@@ -1,7 +1,10 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -180,6 +183,22 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 	}
 	headComment := pick(req.HeadComment, req.Comment)
 
+	signature := strings.TrimSpace(req.HeadSignature)
+
+	isPublicationReward := strings.EqualFold(submission.SubmissionType, "publication_reward")
+	if isPublicationReward {
+		if headComment == "" {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Head comment is required for publication reward approvals"})
+			return
+		}
+		if signature == "" {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Head signature is required for publication reward approvals"})
+			return
+		}
+	}
+
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status_id":        targetStatus.ApplicationStatusID,
@@ -203,7 +222,6 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		// ไม่อัปเดตคอลัมน์ legacy: comment
 	}
 
-	signature := strings.TrimSpace(req.HeadSignature)
 	if signature != "" {
 		updates["head_signature"] = signature
 	} else {
@@ -216,6 +234,45 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
 		return
+	}
+
+	submission.StatusID = targetStatus.ApplicationStatusID
+	submission.UpdatedAt = now
+	submission.ReviewedAt = &now
+	submission.HeadApprovedAt = &now
+	headApproverID := userID
+	submission.HeadApprovedBy = &headApproverID
+	submission.HeadRejectedBy = nil
+	submission.HeadRejectedAt = nil
+	submission.HeadRejectionReason = nil
+	if headComment != "" {
+		headCommentCopy := headComment
+		submission.HeadComment = &headCommentCopy
+	} else {
+		submission.HeadComment = nil
+	}
+	if signature != "" {
+		signatureCopy := signature
+		submission.HeadSignature = &signatureCopy
+	} else {
+		submission.HeadSignature = nil
+	}
+
+	var headUser *models.User
+	if isPublicationReward {
+		var headProfile models.User
+		if err := tx.First(&headProfile, userID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load department head profile"})
+			return
+		}
+		headUser = &headProfile
+
+		if err := regenerateHeadApprovedPublicationDoc(tx, &submission, headUser, now); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// (optional) บันทึก audit log แบบเดิม
@@ -371,6 +428,179 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 	payload["success"] = true
 	c.JSON(http.StatusOK, payload)
+}
+
+func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submission, headUser *models.User, approvedAt time.Time) error {
+	if submission == nil {
+		return fmt.Errorf("submission is required")
+	}
+	if !strings.EqualFold(submission.SubmissionType, "publication_reward") {
+		return nil
+	}
+
+	if tx == nil {
+		tx = config.DB
+	}
+
+	var applicant models.User
+	if submission.User != nil && submission.User.UserID == submission.UserID {
+		applicant = *submission.User
+	} else {
+		if err := tx.Preload("Position").Where("user_id = ?", submission.UserID).First(&applicant).Error; err != nil {
+			return fmt.Errorf("failed to load applicant: %w", err)
+		}
+	}
+	submission.User = &applicant
+
+	var detail models.PublicationRewardDetail
+	if err := tx.Where("submission_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", submission.SubmissionID).
+		First(&detail).Error; err != nil {
+		return fmt.Errorf("failed to load publication reward detail: %w", err)
+	}
+
+	sysConfig, err := fetchLatestSystemConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load system configuration: %w", err)
+	}
+
+	documents, err := fetchSubmissionDocuments(tx, submission.SubmissionID)
+	if err != nil {
+		return fmt.Errorf("failed to load submission documents: %w", err)
+	}
+
+	replacements, err := buildSubmissionPreviewReplacements(submission, &detail, sysConfig, documents, headUser)
+	if err != nil {
+		return err
+	}
+
+	docType, err := ensurePublicationRewardFormDocumentType(tx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare document type: %w", err)
+	}
+
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
+	userFolderPath, err := utils.CreateUserFolderIfNotExists(*submission.User, uploadPath)
+	if err != nil {
+		return fmt.Errorf("failed to prepare user directory: %w", err)
+	}
+
+	submissionFolderPath, err := utils.CreateSubmissionFolder(userFolderPath, submission.SubmissionType, submission.SubmissionID, submission.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to prepare submission folder: %w", err)
+	}
+
+	var docToUpdate *models.SubmissionDocument
+	for i := range documents {
+		if documents[i].DocumentTypeID == docType.DocumentTypeID {
+			docToUpdate = &documents[i]
+			break
+		}
+	}
+
+	baseFilename := "publication_reward_form.docx"
+	if submission.SubmissionNumber != "" {
+		baseFilename = fmt.Sprintf("%s_publication_reward_form.docx", submission.SubmissionNumber)
+	}
+
+	targetPath := ""
+	originalName := ""
+	existingFileID := 0
+
+	if docToUpdate != nil {
+		existingFileID = docToUpdate.FileID
+		if docToUpdate.File.OriginalName != "" {
+			originalName = docToUpdate.File.OriginalName
+		}
+		if docToUpdate.File.StoredPath != "" {
+			targetPath = docToUpdate.File.StoredPath
+		}
+	}
+
+	if originalName == "" {
+		originalName = baseFilename
+	}
+
+	if targetPath == "" {
+		filename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
+		targetPath = filepath.Join(submissionFolderPath, filename)
+		originalName = filename
+	}
+
+	if err := renderPublicationRewardDocx(targetPath, replacements); err != nil {
+		return err
+	}
+
+	stat, err := os.Stat(targetPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat generated docx: %w", err)
+	}
+
+	uploaderID := submission.UserID
+	if headUser != nil && headUser.UserID != 0 {
+		uploaderID = headUser.UserID
+	}
+
+	timestamp := approvedAt
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	if existingFileID != 0 {
+		updates := map[string]interface{}{
+			"file_size":   stat.Size(),
+			"uploaded_at": timestamp,
+			"update_at":   timestamp,
+			"uploaded_by": uploaderID,
+			"stored_path": targetPath,
+			"mime_type":   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		}
+		if originalName != "" {
+			updates["original_name"] = originalName
+		}
+		if err := tx.Model(&models.FileUpload{}).Where("file_id = ?", existingFileID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update regenerated document metadata: %w", err)
+		}
+	} else {
+		fileUpload := models.FileUpload{
+			OriginalName: originalName,
+			StoredPath:   targetPath,
+			FileSize:     stat.Size(),
+			MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			FileHash:     "",
+			IsPublic:     false,
+			UploadedBy:   uploaderID,
+			UploadedAt:   timestamp,
+			CreateAt:     timestamp,
+			UpdateAt:     timestamp,
+		}
+
+		if err := tx.Create(&fileUpload).Error; err != nil {
+			os.Remove(targetPath)
+			return fmt.Errorf("failed to persist regenerated docx: %w", err)
+		}
+
+		displayOrder := nextDocumentDisplayOrder(documents)
+		submissionDocument := models.SubmissionDocument{
+			SubmissionID:   submission.SubmissionID,
+			FileID:         fileUpload.FileID,
+			DocumentTypeID: docType.DocumentTypeID,
+			DisplayOrder:   displayOrder,
+			IsRequired:     false,
+			IsVerified:     false,
+			CreatedAt:      timestamp,
+		}
+
+		if err := tx.Create(&submissionDocument).Error; err != nil {
+			os.Remove(targetPath)
+			return fmt.Errorf("failed to register regenerated docx: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // controllers/dept_head_submission.go
