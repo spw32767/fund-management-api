@@ -1301,6 +1301,7 @@ func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gi
 					"original_name": ef.File.OriginalName,
 					"stored_path":   ef.File.StoredPath,
 					"folder_type":   ef.File.FolderType,
+					"metadata":      ef.File.Metadata,
 					"mime_type":     ef.File.MimeType,
 					"file_size":     ef.File.FileSize,
 					"uploaded_at":   ef.File.UploadedAt,
