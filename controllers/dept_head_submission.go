@@ -473,12 +473,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		return err
 	}
 
-	formDocType, err := ensurePublicationRewardFormDocumentType(tx)
-	if err != nil {
-		return fmt.Errorf("failed to prepare base document type: %w", err)
-	}
-
-	headDocType, err := ensurePublicationRewardHeadSignedDocumentType(tx)
+	docType, err := ensurePublicationRewardHeadSignedDocumentType(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare document type: %w", err)
 	}
@@ -498,7 +493,11 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		return fmt.Errorf("failed to prepare submission folder: %w", err)
 	}
 
-	baseFilename := deriveHeadSignedFilename(submission, documents, formDocType.DocumentTypeID)
+	baseFilename := "publication_reward_form_head_signed.docx"
+	if submission.SubmissionNumber != "" {
+		baseFilename = fmt.Sprintf("%s_publication_reward_form_head_signed.docx", submission.SubmissionNumber)
+	}
+
 	filename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
 	targetPath := filepath.Join(submissionFolderPath, filename)
 
@@ -524,7 +523,6 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	fileUpload := models.FileUpload{
 		OriginalName: filename,
 		StoredPath:   targetPath,
-		FolderType:   models.FileFolderTypeSubmission,
 		FileSize:     stat.Size(),
 		MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		FileHash:     "",
@@ -535,7 +533,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		UpdateAt:     timestamp,
 	}
 
-	if err := tx.Omit("Metadata").Create(&fileUpload).Error; err != nil {
+	if err := tx.Create(&fileUpload).Error; err != nil {
 		os.Remove(targetPath)
 		return fmt.Errorf("failed to persist regenerated docx: %w", err)
 	}
@@ -544,7 +542,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	submissionDocument := models.SubmissionDocument{
 		SubmissionID:   submission.SubmissionID,
 		FileID:         fileUpload.FileID,
-		DocumentTypeID: headDocType.DocumentTypeID,
+		DocumentTypeID: docType.DocumentTypeID,
 		DisplayOrder:   displayOrder,
 		IsRequired:     false,
 		IsVerified:     false,
@@ -557,62 +555,6 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	}
 
 	return nil
-}
-
-func deriveHeadSignedFilename(submission *models.Submission, documents []models.SubmissionDocument, sourceDocumentTypeID int) string {
-	submissionNumber := ""
-	if submission != nil {
-		submissionNumber = strings.TrimSpace(submission.SubmissionNumber)
-	}
-
-	baseName := "publication_reward_form_head_signed"
-	if submissionNumber != "" {
-		baseName = fmt.Sprintf("%s_%s", submissionNumber, baseName)
-	}
-
-	extension := ".docx"
-
-	if sourceDocumentTypeID > 0 {
-		for _, doc := range documents {
-			if doc.DocumentTypeID != sourceDocumentTypeID {
-				continue
-			}
-
-			storedName := filepath.Base(strings.TrimSpace(doc.File.StoredPath))
-			if storedName == "" {
-				storedName = strings.TrimSpace(doc.File.OriginalName)
-			}
-			if storedName == "" {
-				continue
-			}
-
-			ext := filepath.Ext(storedName)
-			if ext != "" {
-				extension = ext
-			}
-
-			base := strings.TrimSuffix(storedName, ext)
-			if base == "" {
-				continue
-			}
-
-			if strings.HasSuffix(base, "_head_signed") {
-				return storedName
-			}
-
-			if submissionNumber != "" {
-				return fmt.Sprintf("%s%s", baseName, extension)
-			}
-
-			if ext == "" {
-				ext = ".docx"
-			}
-
-			return fmt.Sprintf("%s_head_signed%s", base, ext)
-		}
-	}
-
-	return fmt.Sprintf("%s%s", baseName, extension)
 }
 
 // controllers/dept_head_submission.go
@@ -731,7 +673,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	var documents []models.SubmissionDocument
 	if err := config.DB.
 		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Select("submission_documents.*, dt.document_type_name, dt.code AS document_type_code").
+		Select("submission_documents.*, dt.document_type_name").
 		Preload("File").
 		Preload("DocumentType").
 		Where("submission_id = ? AND submission_documents.deleted_at IS NULL", submissionID).
