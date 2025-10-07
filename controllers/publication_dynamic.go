@@ -2,11 +2,13 @@
 package controllers
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -170,6 +172,17 @@ func ResolvePublicationBudget(c *gin.Context) {
 		return
 	}
 
+	userIDVal, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user context missing"})
+		return
+	}
+	userID, ok := userIDVal.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+
 	// Resolve year string from year_id
 	var year models.Year
 	if err := config.DB.First(&year, "year_id = ? AND delete_at IS NULL", yearID).Error; err != nil {
@@ -188,47 +201,210 @@ func ResolvePublicationBudget(c *gin.Context) {
 
 	// Load budgets for the category/year
 	type budgetRow struct {
-		SubcategoryID   int
-		BudgetID        int
-		FundDescription string
-		RemainingBudget float64
+		SubcategoryID     int
+		BudgetID          int
+		FundDescription   string
+		RecordScope       string
+		AllocatedAmount   sql.NullFloat64
+		MaxAmountPerGrant sql.NullFloat64
+		MaxAmountPerYear  sql.NullFloat64
+		MaxGrants         sql.NullInt64
 	}
 	var budgets []budgetRow
 	err := config.DB.Table("fund_subcategories fs").
-		Select("fs.subcategory_id, sb.subcategory_budget_id AS budget_id, sb.fund_description, sb.remaining_budget").
+		Select(`
+                        fs.subcategory_id,
+                        sb.subcategory_budget_id AS budget_id,
+                        sb.fund_description,
+                        sb.record_scope,
+                        sb.allocated_amount,
+                        sb.max_amount_per_grant,
+                        sb.max_amount_per_year,
+                        sb.max_grants
+                `).
 		Joins(`
-			JOIN subcategory_budgets sb
-			  ON sb.subcategory_id = fs.subcategory_id
-			 AND sb.status = 'active'
-			 AND sb.delete_at IS NULL
-		`).
+                        JOIN subcategory_budgets sb
+                          ON sb.subcategory_id = fs.subcategory_id
+                         AND sb.status = 'active'
+                         AND sb.delete_at IS NULL
+                `).
 		Where(`
-			fs.delete_at IS NULL
-			AND fs.status = 'active'
-			AND fs.category_id = ?
-			AND fs.year_id = ?
-			AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
-		`, categoryID, yearID).
+                        fs.delete_at IS NULL
+                        AND fs.status = 'active'
+                        AND fs.category_id = ?
+                        AND fs.year_id = ?
+                        AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
+                `, categoryID, yearID).
 		Find(&budgets).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch budgets"})
 		return
 	}
 
-	for _, b := range budgets {
-		if matchesFund(b.FundDescription, authorStatus, quartile) {
-			c.JSON(http.StatusOK, gin.H{
-				"subcategory_id":        b.SubcategoryID,
-				"subcategory_budget_id": b.BudgetID,
-				"fund_description":      b.FundDescription,
-				"reward_amount":         rate.RewardAmount,
-				"remaining_budget":      b.RemainingBudget,
-			})
-			return
+	var overallRow *budgetRow
+	var ruleRow *budgetRow
+	for i, b := range budgets {
+		if b.RecordScope == "overall" && overallRow == nil {
+			overallRow = &budgets[i]
+		}
+		if b.RecordScope == "rule" && matchesFund(b.FundDescription, authorStatus, quartile) {
+			ruleRow = &budgets[i]
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "no matching fund"})
+	if overallRow == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no overall budget found"})
+		return
+	}
+
+	chosenRow := overallRow
+	if ruleRow != nil {
+		chosenRow = ruleRow
+	}
+
+	approvedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeApproved)
+	if err != nil || approvedStatusID <= 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to resolve approved status"})
+		return
+	}
+
+	// Budget usage for the pool (all submission types)
+	type poolUsage struct {
+		Used float64
+	}
+	var pool poolUsage
+	if err := config.DB.Table("submissions s").
+		Select(`COALESCE(SUM(
+                        CASE
+                                WHEN s.submission_type = 'fund_application' THEN fad.approved_amount
+                                WHEN s.submission_type = 'publication_reward' THEN prd.total_approve_amount
+                                ELSE 0
+                        END
+                ), 0) AS used`).
+		Joins("LEFT JOIN fund_application_details fad ON fad.submission_id = s.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON prd.submission_id = s.submission_id").
+		Where("s.year_id = ? AND s.subcategory_id = ? AND s.status_id = ? AND s.deleted_at IS NULL", yearID, overallRow.SubcategoryID, approvedStatusID).
+		Scan(&pool).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute budget usage"})
+		return
+	}
+
+	allocated := 0.0
+	if overallRow.AllocatedAmount.Valid {
+		allocated = overallRow.AllocatedAmount.Float64
+	}
+	remainingAmount := allocated - pool.Used
+	if remainingAmount < 0 {
+		remainingAmount = 0
+	}
+
+	type userTotals struct {
+		TotalGrants int64
+		TotalAmount float64
+	}
+	var totals userTotals
+	if err := config.DB.Table("submissions s").
+		Select(`COUNT(*) AS total_grants, COALESCE(SUM(
+                        CASE
+                                WHEN s.submission_type = 'fund_application' THEN fad.approved_amount
+                                WHEN s.submission_type = 'publication_reward' THEN prd.total_approve_amount
+                                ELSE 0
+                        END
+                ), 0) AS total_amount`).
+		Joins("LEFT JOIN fund_application_details fad ON fad.submission_id = s.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON prd.submission_id = s.submission_id").
+		Where("s.user_id = ? AND s.year_id = ? AND s.subcategory_id = ? AND s.status_id = ? AND s.deleted_at IS NULL", userID, yearID, overallRow.SubcategoryID, approvedStatusID).
+		Scan(&totals).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute user totals"})
+		return
+	}
+
+	type publicationUsage struct {
+		Grants int64
+		Amount float64
+	}
+	var pubUsage publicationUsage
+	if err := config.DB.Table("submissions s").
+		Select("COUNT(*) AS grants, COALESCE(SUM(prd.total_approve_amount), 0) AS amount").
+		Joins("JOIN publication_reward_details prd ON prd.submission_id = s.submission_id").
+		Where("s.user_id = ? AND s.year_id = ? AND s.subcategory_id = ? AND s.submission_type = 'publication_reward' AND s.status_id = ? AND s.deleted_at IS NULL", userID, yearID, overallRow.SubcategoryID, approvedStatusID).
+		Scan(&pubUsage).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute publication usage"})
+		return
+	}
+
+	var remainingGrants interface{}
+	if overallRow.MaxGrants.Valid {
+		rem := overallRow.MaxGrants.Int64 - totals.TotalGrants
+		if rem < 0 {
+			rem = 0
+		}
+		remainingGrants = rem
+	}
+
+	var remainingUserAmount interface{}
+	if overallRow.MaxAmountPerYear.Valid {
+		rem := overallRow.MaxAmountPerYear.Float64 - totals.TotalAmount
+		if rem < 0 {
+			rem = 0
+		}
+		remainingUserAmount = rem
+	}
+
+	response := gin.H{
+		"subcategory_id":        chosenRow.SubcategoryID,
+		"subcategory_budget_id": chosenRow.BudgetID,
+		"fund_description":      chosenRow.FundDescription,
+		"reward_amount":         rate.RewardAmount,
+		"policy": gin.H{
+			"overall": gin.H{
+				"subcategory_budget_id": overallRow.BudgetID,
+				"allocated_amount":      allocated,
+				"used_amount":           pool.Used,
+				"remaining_amount":      remainingAmount,
+				"max_amount_per_year": func() interface{} {
+					if overallRow.MaxAmountPerYear.Valid {
+						return overallRow.MaxAmountPerYear.Float64
+					}
+					return nil
+				}(),
+				"max_grants": func() interface{} {
+					if overallRow.MaxGrants.Valid {
+						return overallRow.MaxGrants.Int64
+					}
+					return nil
+				}(),
+				"max_amount_per_grant": func() interface{} {
+					if overallRow.MaxAmountPerGrant.Valid {
+						return overallRow.MaxAmountPerGrant.Float64
+					}
+					return nil
+				}(),
+			},
+			"rule": gin.H{
+				"subcategory_budget_id": chosenRow.BudgetID,
+				"fund_description":      chosenRow.FundDescription,
+				"max_amount_per_grant": func() interface{} {
+					if chosenRow.MaxAmountPerGrant.Valid {
+						return chosenRow.MaxAmountPerGrant.Float64
+					}
+					return nil
+				}(),
+			},
+			"user_usage": gin.H{
+				"total_grants":       totals.TotalGrants,
+				"total_amount":       totals.TotalAmount,
+				"publication_grants": pubUsage.Grants,
+				"publication_amount": pubUsage.Amount,
+			},
+			"user_remaining": gin.H{
+				"grants": remainingGrants,
+				"amount": remainingUserAmount,
+			},
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // CheckBudgetAvailability returns basic availability info
