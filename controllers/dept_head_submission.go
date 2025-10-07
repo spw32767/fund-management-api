@@ -493,42 +493,13 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		return fmt.Errorf("failed to prepare submission folder: %w", err)
 	}
 
-	var docToUpdate *models.SubmissionDocument
-	for i := range documents {
-		if documents[i].DocumentTypeID == docType.DocumentTypeID {
-			docToUpdate = &documents[i]
-			break
-		}
-	}
-
-	baseFilename := "publication_reward_form.docx"
+	baseFilename := "publication_reward_form_head_signed.docx"
 	if submission.SubmissionNumber != "" {
-		baseFilename = fmt.Sprintf("%s_publication_reward_form.docx", submission.SubmissionNumber)
+		baseFilename = fmt.Sprintf("%s_publication_reward_form_head_signed.docx", submission.SubmissionNumber)
 	}
 
-	targetPath := ""
-	originalName := ""
-	existingFileID := 0
-
-	if docToUpdate != nil {
-		existingFileID = docToUpdate.FileID
-		if docToUpdate.File.OriginalName != "" {
-			originalName = docToUpdate.File.OriginalName
-		}
-		if docToUpdate.File.StoredPath != "" {
-			targetPath = docToUpdate.File.StoredPath
-		}
-	}
-
-	if originalName == "" {
-		originalName = baseFilename
-	}
-
-	if targetPath == "" {
-		filename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
-		targetPath = filepath.Join(submissionFolderPath, filename)
-		originalName = filename
-	}
+	filename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
+	targetPath := filepath.Join(submissionFolderPath, filename)
 
 	if err := renderPublicationRewardDocx(targetPath, replacements); err != nil {
 		return err
@@ -549,55 +520,38 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		timestamp = time.Now()
 	}
 
-	if existingFileID != 0 {
-		updates := map[string]interface{}{
-			"file_size":   stat.Size(),
-			"uploaded_at": timestamp,
-			"update_at":   timestamp,
-			"uploaded_by": uploaderID,
-			"stored_path": targetPath,
-			"mime_type":   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		}
-		if originalName != "" {
-			updates["original_name"] = originalName
-		}
-		if err := tx.Model(&models.FileUpload{}).Where("file_id = ?", existingFileID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to update regenerated document metadata: %w", err)
-		}
-	} else {
-		fileUpload := models.FileUpload{
-			OriginalName: originalName,
-			StoredPath:   targetPath,
-			FileSize:     stat.Size(),
-			MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			FileHash:     "",
-			IsPublic:     false,
-			UploadedBy:   uploaderID,
-			UploadedAt:   timestamp,
-			CreateAt:     timestamp,
-			UpdateAt:     timestamp,
-		}
+	fileUpload := models.FileUpload{
+		OriginalName: filename,
+		StoredPath:   targetPath,
+		FileSize:     stat.Size(),
+		MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		FileHash:     "",
+		IsPublic:     false,
+		UploadedBy:   uploaderID,
+		UploadedAt:   timestamp,
+		CreateAt:     timestamp,
+		UpdateAt:     timestamp,
+	}
 
-		if err := tx.Create(&fileUpload).Error; err != nil {
-			os.Remove(targetPath)
-			return fmt.Errorf("failed to persist regenerated docx: %w", err)
-		}
+	if err := tx.Create(&fileUpload).Error; err != nil {
+		os.Remove(targetPath)
+		return fmt.Errorf("failed to persist regenerated docx: %w", err)
+	}
 
-		displayOrder := nextDocumentDisplayOrder(documents)
-		submissionDocument := models.SubmissionDocument{
-			SubmissionID:   submission.SubmissionID,
-			FileID:         fileUpload.FileID,
-			DocumentTypeID: docType.DocumentTypeID,
-			DisplayOrder:   displayOrder,
-			IsRequired:     false,
-			IsVerified:     false,
-			CreatedAt:      timestamp,
-		}
+	displayOrder := nextDocumentDisplayOrder(documents)
+	submissionDocument := models.SubmissionDocument{
+		SubmissionID:   submission.SubmissionID,
+		FileID:         fileUpload.FileID,
+		DocumentTypeID: docType.DocumentTypeID,
+		DisplayOrder:   displayOrder,
+		IsRequired:     false,
+		IsVerified:     false,
+		CreatedAt:      timestamp,
+	}
 
-		if err := tx.Create(&submissionDocument).Error; err != nil {
-			os.Remove(targetPath)
-			return fmt.Errorf("failed to register regenerated docx: %w", err)
-		}
+	if err := tx.Create(&submissionDocument).Error; err != nil {
+		os.Remove(targetPath)
+		return fmt.Errorf("failed to register regenerated docx: %w", err)
 	}
 
 	return nil
