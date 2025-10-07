@@ -850,6 +850,7 @@ func UploadPublicationDocument(c *gin.Context) {
 			fileUpload := models.FileUpload{
 				OriginalName: fileHeader.Filename,
 				StoredPath:   dst,
+				FolderType:   models.FileFolderTypeSubmission,
 				FileSize:     fileHeader.Size,
 				MimeType:     fileHeader.Header.Get("Content-Type"),
 				FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
