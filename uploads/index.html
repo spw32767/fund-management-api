@@ -248,8 +248,15 @@
       margin-bottom: 2rem;
     }
 
+    .search-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+    }
+
     .search-input {
-      width: 100%;
+      flex: 1 1 280px;
       padding: 1rem 1.5rem;
       border: 2px solid rgba(102, 126, 234, 0.2);
       border-radius: 50px;
@@ -267,6 +274,77 @@
 
     .search-input::placeholder {
       color: #999;
+    }
+
+    .search-clear-btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 50px;
+      border: none;
+      background: #f1f2f6;
+      color: #667eea;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .search-clear-btn:hover {
+      background: rgba(102, 126, 234, 0.15);
+      color: #4458c7;
+    }
+
+    .filters {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-width: 160px;
+    }
+
+    .filter-group label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .filter-select {
+      padding: 0.75rem 1rem;
+      border-radius: 40px;
+      border: 2px solid rgba(102, 126, 234, 0.2);
+      background: rgba(255, 255, 255, 0.9);
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .filter-select:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 15px rgba(102, 126, 234, 0.15);
+    }
+
+    .clear-filters-btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 50px;
+      border: none;
+      background: rgba(255, 107, 107, 0.12);
+      color: #ee5a24;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .clear-filters-btn:hover {
+      background: rgba(255, 107, 107, 0.2);
+      color: #d64a15;
     }
 
     /* Bulk Actions */
@@ -352,11 +430,38 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
       font-size: 0.9rem;
+      position: relative;
     }
 
     th:first-child {
       width: 50px;
       text-align: center;
+    }
+
+    .sortable {
+      cursor: pointer;
+      user-select: none;
+      padding-right: 2.5rem;
+    }
+
+    .sort-indicator {
+      position: absolute;
+      right: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1rem;
+      opacity: 0.6;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    th.sorted-asc .sort-indicator {
+      opacity: 1;
+      transform: translateY(-50%) rotate(0deg);
+    }
+
+    th.sorted-desc .sort-indicator {
+      opacity: 1;
+      transform: translateY(-50%) rotate(180deg);
     }
 
     td {
@@ -402,6 +507,25 @@
       transform: translateX(5px);
     }
 
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: rgba(102, 126, 234, 0.15);
+      color: #4458c7;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .type-badge.folder {
+      background: rgba(40, 167, 69, 0.12);
+      color: #1f8a41;
+    }
+
     .folder-link {
       color: #28a745;
       text-decoration: none;
@@ -442,6 +566,13 @@
     .delete-btn:hover {
       transform: translateY(-2px);
       box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+    }
+
+    mark {
+      background: rgba(102, 126, 234, 0.2);
+      color: inherit;
+      padding: 0 0.2rem;
+      border-radius: 4px;
     }
 
     .empty-state {
@@ -611,9 +742,29 @@
       </div>
     </div>
 
-    <!-- Search -->
+    <!-- Search & Filters -->
     <div class="search-section">
-      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search files and folders..." />
+      <div class="search-wrapper">
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search by name, type, or extension..." />
+        <button type="button" id="clearSearchBtn" class="search-clear-btn">Clear</button>
+      </div>
+      <div class="filters">
+        <div class="filter-group">
+          <label for="typeFilter">Filter by</label>
+          <select id="typeFilter" class="filter-select">
+            <option value="all">All items</option>
+            <option value="folder">Folders</option>
+            <option value="file">Files</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="extensionFilter">Extension</label>
+          <select id="extensionFilter" class="filter-select">
+            <option value="all">All extensions</option>
+          </select>
+        </div>
+        <button type="button" id="clearFiltersBtn" class="clear-filters-btn">Reset Filters</button>
+      </div>
     </div>
 
     <!-- Bulk Actions -->
@@ -632,14 +783,15 @@
             <th>
               <input type="checkbox" id="masterCheckbox" onchange="toggleAllFiles()" class="file-checkbox">
             </th>
-            <th>Name</th>
-            <th>Size</th>
+            <th class="sortable" data-sort="name">Name <span class="sort-indicator">↕</span></th>
+            <th class="sortable" data-sort="type">Type <span class="sort-indicator">↕</span></th>
+            <th class="sortable" data-sort="size">Size <span class="sort-indicator">↕</span></th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody id="fileList">
           <tr>
-            <td colspan="4" class="loading">Loading files...</td>
+            <td colspan="5" class="loading">Loading files...</td>
           </tr>
         </tbody>
       </table>
@@ -648,8 +800,11 @@
 
   <script>
     let allItems = [];
+    let filteredItems = [];
     let selectedItems = new Set();
     let currentPath = '';
+    let currentSort = { column: 'name', direction: 'asc' };
+    const activeFilters = { search: '', type: 'all', extension: 'all' };
 
     // File type icons mapping
     const fileIcons = {
@@ -673,6 +828,153 @@
 
     function getFolderIcon() {
       return '📁';
+    }
+
+    function getFileExtension(fileName) {
+      const parts = fileName.split('.');
+      return parts.length > 1 ? parts.pop().toLowerCase() : '';
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes || bytes <= 0) {
+        return '—';
+      }
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      const value = bytes / Math.pow(1024, exponent);
+      return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+    }
+
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value;
+      return div.innerHTML;
+    }
+
+    function escapeRegExp(value) {
+      return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function highlightMatches(text, query) {
+      if (!query) {
+        return escapeHtml(text);
+      }
+      const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (!tokens.length) {
+        return escapeHtml(text);
+      }
+      let highlighted = escapeHtml(text);
+      tokens.forEach(token => {
+        const pattern = new RegExp(escapeRegExp(token), 'gi');
+        highlighted = highlighted.replace(pattern, match => `<mark>${match}</mark>`);
+      });
+      return highlighted;
+    }
+
+    function debounce(fn, delay = 250) {
+      let timeoutId;
+      return function (...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+      };
+    }
+
+    function sortItems(items) {
+      const sorted = [...items].sort((a, b) => {
+        let comparison = 0;
+        switch (currentSort.column) {
+          case 'type':
+            comparison = a.type.localeCompare(b.type);
+            break;
+          case 'size':
+            comparison = (a.size || 0) - (b.size || 0);
+            break;
+          case 'name':
+          default:
+            if (a.type !== b.type) {
+              // Keep folders grouped together when sorting by name
+              comparison = a.type === 'folder' ? -1 : 1;
+            } else {
+              comparison = a.name.localeCompare(b.name);
+            }
+            break;
+        }
+
+        if (comparison === 0 && currentSort.column !== 'name') {
+          comparison = a.name.localeCompare(b.name);
+        }
+
+        return currentSort.direction === 'asc' ? comparison : -comparison;
+      });
+
+      return sorted;
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll('th.sortable').forEach(th => {
+        const indicator = th.querySelector('.sort-indicator');
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === currentSort.column) {
+          th.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+          if (indicator) {
+            indicator.textContent = '▲';
+          }
+        } else if (indicator) {
+          indicator.textContent = '↕';
+        }
+      });
+    }
+
+    function applyFilters() {
+      const searchTerm = activeFilters.search.trim().toLowerCase();
+      filteredItems = allItems.filter(item => {
+        if (activeFilters.type !== 'all' && item.type !== activeFilters.type) {
+          return false;
+        }
+
+        if (activeFilters.extension !== 'all') {
+          if (item.type !== 'file' || item.extension !== activeFilters.extension) {
+            return false;
+          }
+        }
+
+        if (searchTerm) {
+          const tokens = searchTerm.split(/\s+/).filter(Boolean);
+          const haystack = `${item.name.toLowerCase()} ${item.type} ${item.extension || ''}`;
+          return tokens.every(token => haystack.includes(token));
+        }
+
+        return true;
+      });
+
+      renderItemList(filteredItems);
+    }
+
+    function populateExtensionFilter() {
+      const extensionFilter = document.getElementById('extensionFilter');
+      if (!extensionFilter) return;
+
+      const currentValue = extensionFilter.value;
+      const extensions = Array.from(new Set(
+        allItems
+          .filter(item => item.type === 'file' && item.extension)
+          .map(item => item.extension)
+      )).sort();
+
+      extensionFilter.innerHTML = '<option value="all">All extensions</option>';
+      extensions.forEach(ext => {
+        const option = document.createElement('option');
+        option.value = ext;
+        option.textContent = ext.toUpperCase();
+        extensionFilter.appendChild(option);
+      });
+
+      if (extensions.includes(currentValue)) {
+        extensionFilter.value = currentValue;
+      } else {
+        extensionFilter.value = 'all';
+        activeFilters.extension = 'all';
+      }
     }
 
     // Breadcrumb navigation
@@ -862,7 +1164,7 @@
     }
 
     function selectAllFiles() {
-      allItems.forEach(item => selectedItems.add(item.name));
+      (filteredItems.length ? filteredItems : allItems).forEach(item => selectedItems.add(item.name));
       document.querySelectorAll('.item-row-checkbox').forEach(cb => cb.checked = true);
       document.getElementById('masterCheckbox').checked = true;
       updateBulkActions();
@@ -931,24 +1233,29 @@
             allItems.push({
               name: folder.name,
               type: 'folder',
-              size: 0
+              size: 0,
+              extension: ''
             });
           });
         }
-        
+
         // Add files
         if (data.files) {
           data.files.forEach(file => {
+            const extension = getFileExtension(file.name);
             allItems.push({
               name: file.name,
               type: 'file',
               size: file.size,
-              url: file.url
+              url: file.url,
+              extension
             });
           });
         }
-        
-        renderItemList(allItems);
+
+        populateExtensionFilter();
+        applyFilters();
+        updateSortIndicators();
       } catch (error) {
         console.error('Error fetching files:', error);
         showError('Failed to load files and folders');
@@ -957,85 +1264,81 @@
 
     function renderItemList(items) {
       const tbody = document.getElementById("fileList");
-      
+
       if (items.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="4" class="empty-state">
+            <td colspan="5" class="empty-state">
               No files or folders found
             </td>
           </tr>
         `;
+        updateMasterCheckbox();
+        updateBulkActions();
+        updateSortIndicators();
         return;
       }
 
       tbody.innerHTML = "";
-      
-      // Sort items: folders first, then files
-      const sortedItems = [...items].sort((a, b) => {
-        if (a.type === 'folder' && b.type === 'file') return -1;
-        if (a.type === 'file' && b.type === 'folder') return 1;
-        return a.name.localeCompare(b.name);
-      });
-      
+
+      const sortedItems = sortItems(items);
+
       sortedItems.forEach(item => {
         const row = document.createElement("tr");
         const isSelected = selectedItems.has(item.name);
-        
+
         if (item.type === 'folder') {
           row.classList.add('folder-row');
-          row.innerHTML = `
-            <td>
-              <input type="checkbox" class="file-checkbox item-row-checkbox" 
-                     data-itemname="${item.name}" 
-                     onchange="toggleItemSelection('${item.name}', this)"
-                     ${isSelected ? 'checked' : ''}>
-            </td>
-            <td>
+        }
+
+        const nameContent = item.type === 'folder'
+          ? `
               <span class="folder-link" onclick="navigateToFolder('${item.name}')">
                 <span class="file-icon">${getFolderIcon()}</span>
-                ${item.name}
+                ${highlightMatches(item.name, activeFilters.search)}
               </span>
-            </td>
-            <td>
-              <span class="file-size">—</span>
-            </td>
-            <td>
-              <button onclick="deleteItem('${item.name}', 'folder')" class="delete-btn">
-                🗑️ Delete
-              </button>
-            </td>
-          `;
-        } else {
-          const sizeKB = (item.size / 1024).toFixed(2);
-          row.innerHTML = `
-            <td>
-              <input type="checkbox" class="file-checkbox item-row-checkbox" 
-                     data-itemname="${item.name}" 
-                     onchange="toggleItemSelection('${item.name}', this)"
-                     ${isSelected ? 'checked' : ''}>
-            </td>
-            <td>
+            `
+          : `
               <a href="${item.url}" target="_blank" class="file-link">
                 <span class="file-icon">${getFileIcon(item.name)}</span>
-                ${item.name}
+                ${highlightMatches(item.name, activeFilters.search)}
               </a>
-            </td>
-            <td>
-              <span class="file-size">${sizeKB} KB</span>
-            </td>
-            <td>
-              <button onclick="deleteItem('${item.name}', 'file')" class="delete-btn">
-                🗑️ Delete
-              </button>
-            </td>
-          `;
-        }
+            `;
+
+        const typeLabel = item.type === 'folder'
+          ? 'Folder'
+          : `${item.extension ? item.extension.toUpperCase() + ' ' : ''}File`;
+        const typeClass = item.type === 'folder' ? 'type-badge folder' : 'type-badge';
+        const sizeLabel = item.type === 'folder' ? '—' : formatFileSize(item.size);
+
+        row.innerHTML = `
+          <td>
+            <input type="checkbox" class="file-checkbox item-row-checkbox"
+                   data-itemname="${item.name}"
+                   onchange="toggleItemSelection('${item.name}', this)"
+                   ${isSelected ? 'checked' : ''}>
+          </td>
+          <td>
+            ${nameContent}
+          </td>
+          <td>
+            <span class="${typeClass}">${typeLabel}</span>
+          </td>
+          <td>
+            <span class="file-size">${sizeLabel}</span>
+          </td>
+          <td>
+            <button onclick="deleteItem('${item.name}', '${item.type}')" class="delete-btn">
+              🗑️ Delete
+            </button>
+          </td>
+        `;
         tbody.appendChild(row);
       });
-      
+
       updateMasterCheckbox();
       updateBulkActions();
+      updateSortIndicators();
     }
 
     async function deleteItem(name, type) {
@@ -1059,7 +1362,7 @@
       const tbody = document.getElementById("fileList");
       tbody.innerHTML = `
         <tr>
-          <td colspan="4" style="text-align: center; color: #ff6b6b; padding: 2rem;">
+          <td colspan="5" style="text-align: center; color: #ff6b6b; padding: 2rem;">
             ❌ ${message}
           </td>
         </tr>
@@ -1134,11 +1437,61 @@
       }
     });
 
-    // Search Handler - now searches both files and folders
-    document.getElementById("searchInput").addEventListener("input", e => {
-      const keyword = e.target.value.toLowerCase();
-      const filtered = allItems.filter(item => item.name.toLowerCase().includes(keyword));
-      renderItemList(filtered);
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+    const typeFilter = document.getElementById('typeFilter');
+    const extensionFilter = document.getElementById('extensionFilter');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+    const handleSearchInput = debounce(value => {
+      activeFilters.search = value.trim();
+      applyFilters();
+    }, 200);
+
+    searchInput.addEventListener('input', e => {
+      handleSearchInput(e.target.value);
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+      if (searchInput.value) {
+        searchInput.value = '';
+        activeFilters.search = '';
+        applyFilters();
+      }
+    });
+
+    typeFilter.addEventListener('change', e => {
+      activeFilters.type = e.target.value;
+      applyFilters();
+    });
+
+    extensionFilter.addEventListener('change', e => {
+      activeFilters.extension = e.target.value;
+      applyFilters();
+    });
+
+    clearFiltersBtn.addEventListener('click', () => {
+      activeFilters.type = 'all';
+      activeFilters.extension = 'all';
+      typeFilter.value = 'all';
+      extensionFilter.value = 'all';
+      applyFilters();
+    });
+
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const sortKey = th.dataset.sort;
+        if (!sortKey) return;
+
+        if (currentSort.column === sortKey) {
+          currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          currentSort.column = sortKey;
+          currentSort.direction = 'asc';
+        }
+
+        renderItemList(filteredItems.length ? filteredItems : allItems);
+      });
     });
 
     // Initialize

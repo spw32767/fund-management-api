@@ -473,7 +473,12 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		return err
 	}
 
-	docType, err := ensurePublicationRewardFormDocumentType(tx)
+	formDocType, err := ensurePublicationRewardFormDocumentType(tx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare base document type: %w", err)
+	}
+
+	headDocType, err := ensurePublicationRewardHeadSignedDocumentType(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare document type: %w", err)
 	}
@@ -493,11 +498,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 		return fmt.Errorf("failed to prepare submission folder: %w", err)
 	}
 
-	baseFilename := "publication_reward_form_head_signed.docx"
-	if submission.SubmissionNumber != "" {
-		baseFilename = fmt.Sprintf("%s_publication_reward_form_head_signed.docx", submission.SubmissionNumber)
-	}
-
+	baseFilename := deriveHeadSignedFilename(submission, documents, formDocType.DocumentTypeID)
 	filename := utils.GenerateUniqueFilename(submissionFolderPath, baseFilename)
 	targetPath := filepath.Join(submissionFolderPath, filename)
 
@@ -542,7 +543,7 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	submissionDocument := models.SubmissionDocument{
 		SubmissionID:   submission.SubmissionID,
 		FileID:         fileUpload.FileID,
-		DocumentTypeID: docType.DocumentTypeID,
+		DocumentTypeID: headDocType.DocumentTypeID,
 		DisplayOrder:   displayOrder,
 		IsRequired:     false,
 		IsVerified:     false,
@@ -555,6 +556,51 @@ func regenerateHeadApprovedPublicationDoc(tx *gorm.DB, submission *models.Submis
 	}
 
 	return nil
+}
+
+func deriveHeadSignedFilename(submission *models.Submission, documents []models.SubmissionDocument, sourceDocumentTypeID int) string {
+	fallback := "publication_reward_form_head_signed.docx"
+	if submission != nil {
+		if number := strings.TrimSpace(submission.SubmissionNumber); number != "" {
+			fallback = fmt.Sprintf("%s_publication_reward_form_head_signed.docx", number)
+		}
+	}
+
+	if sourceDocumentTypeID <= 0 {
+		return fallback
+	}
+
+	for _, doc := range documents {
+		if doc.DocumentTypeID != sourceDocumentTypeID {
+			continue
+		}
+
+		storedName := filepath.Base(strings.TrimSpace(doc.File.StoredPath))
+		if storedName == "" {
+			storedName = strings.TrimSpace(doc.File.OriginalName)
+		}
+		if storedName == "" {
+			continue
+		}
+
+		ext := filepath.Ext(storedName)
+		base := strings.TrimSuffix(storedName, ext)
+		if base == "" {
+			break
+		}
+
+		if strings.HasSuffix(base, "_head_signed") {
+			return storedName
+		}
+
+		if ext == "" {
+			ext = ".docx"
+		}
+
+		return fmt.Sprintf("%s_head_signed%s", base, ext)
+	}
+
+	return fallback
 }
 
 // controllers/dept_head_submission.go

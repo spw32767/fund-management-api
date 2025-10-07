@@ -24,7 +24,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const publicationRewardFormDocumentCode = "publication_reward_form_docx"
+const (
+	publicationRewardFormDocumentCode       = "publication_reward_form_docx"
+	publicationRewardHeadSignedDocumentCode = "publication_reward_form_head_signed_docx"
+)
 
 // ===================== SUBMISSION MANAGEMENT =====================
 
@@ -601,6 +604,37 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 	return &docType, nil
 }
 
+func ensurePublicationRewardHeadSignedDocumentType(tx *gorm.DB) (*models.DocumentType, error) {
+	var docType models.DocumentType
+	if err := tx.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", publicationRewardHeadSignedDocumentCode).
+		First(&docType).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		now := time.Now()
+		category := "publication_reward"
+		fundTypes := "[\"publication_reward\"]"
+		docType = models.DocumentType{
+			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (หัวหน้าภาคลงนาม DOCX)",
+			Code:             publicationRewardHeadSignedDocumentCode,
+			Category:         category,
+			Required:         false,
+			Multiple:         true,
+			DocumentOrder:    0,
+			CreateAt:         now,
+			UpdateAt:         now,
+			FundTypes:        &fundTypes,
+		}
+
+		if err := tx.Create(&docType).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	return &docType, nil
+}
+
 func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument, headUser *models.User) (map[string]string, error) {
 	if submission == nil {
 		return nil, fmt.Errorf("submission is required")
@@ -830,12 +864,29 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 		return err
 	}
 
-	// ===== ตั้งชื่อไฟล์ใหม่: <original-name>_<submission-number><ext>
-	orig := fileUpload.OriginalName
-	ext := filepath.Ext(orig)
-	base := strings.TrimSuffix(orig, ext)
+	// ===== ตั้งชื่อไฟล์ใหม่: <submission-number>_<original-name>
+	originalName := strings.TrimSpace(fileUpload.OriginalName)
+	if originalName == "" {
+		originalName = filepath.Base(fileUpload.StoredPath)
+	}
+	ext := filepath.Ext(originalName)
+	base := strings.TrimSuffix(originalName, ext)
+	if base == "" {
+		base = "attachment"
+	}
+	if ext == "" {
+		ext = filepath.Ext(fileUpload.StoredPath)
+	}
+	if ext == "" {
+		ext = ".dat"
+	}
 
-	desiredName := fmt.Sprintf("%s_%s%s", base, submission.SubmissionNumber, ext)
+	var desiredName string
+	if strings.TrimSpace(submission.SubmissionNumber) != "" {
+		desiredName = fmt.Sprintf("%s_%s%s", strings.TrimSpace(submission.SubmissionNumber), base, ext)
+	} else {
+		desiredName = fmt.Sprintf("%s%s", base, ext)
+	}
 
 	// ให้ utils.GenerateUniqueFilename ช่วยกันชื่อซ้ำ (ส่ง desiredName เข้าไปให้เป็น "ต้นฉบับ")
 	newFilename := utils.GenerateUniqueFilename(submissionFolderPath, desiredName)
