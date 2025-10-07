@@ -802,11 +802,24 @@ func UploadFile(c *gin.Context) {
 		return
 	}
 
+	// Determine folder type - default to temp if not provided/invalid
+	requestedFolderType := strings.TrimSpace(c.PostForm("folder_type"))
+	switch requestedFolderType {
+	case models.FileFolderTypeTemp,
+		models.FileFolderTypeSubmission,
+		models.FileFolderTypeProfile,
+		models.FileFolderTypeOther:
+		// keep requested value
+	default:
+		requestedFolderType = models.FileFolderTypeTemp
+	}
+
 	// Save to database
 	now := time.Now()
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   storedPath,
+		FolderType:   requestedFolderType,
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
 		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
@@ -883,6 +896,7 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 
 	// Update DB path (เก็บ OriginalName ตามเดิมไว้ เพื่อแสดงชื่อไฟล์เดิมใน UI ได้ถ้าต้องการ)
 	fileUpload.StoredPath = newPath
+	fileUpload.FolderType = models.FileFolderTypeSubmission
 	fileUpload.UpdateAt = time.Now()
 	return config.DB.Save(&fileUpload).Error
 }
