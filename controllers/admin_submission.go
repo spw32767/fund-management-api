@@ -99,12 +99,16 @@ func GetSubmissionDetails(c *gin.Context) {
 	// 4) เอกสารแนบ
 	var docs []models.SubmissionDocument
 	if err := config.DB.
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.*, dt.document_type_name").
 		Where("submission_id = ?", sid).
 		Preload("DocumentType").
 		Preload("File").
+		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
 		Find(&docs).Error; err != nil {
 		log.Printf("[GetSubmissionDetails] load documents error: %v", err)
 	}
+	enrichSubmissionDocumentsWithFileMetadata(docs)
 
 	// 5) จัด details ตามประเภท (กัน nil)
 	var details gin.H
@@ -160,6 +164,18 @@ func GetSubmissionDetails(c *gin.Context) {
 			"display_order":    d.DisplayOrder,
 			"is_required":      d.IsRequired,
 			"created_at":       d.CreatedAt,
+		}
+		if d.OriginalName != "" {
+			item["original_name"] = d.OriginalName
+		}
+		if d.OriginalFilename != "" {
+			item["original_filename"] = d.OriginalFilename
+		}
+		if d.FileName != "" {
+			item["file_name"] = d.FileName
+		}
+		if d.FilePath != "" {
+			item["file_path"] = d.FilePath
 		}
 		if d.DocumentType.DocumentTypeID != 0 {
 			item["document_type"] = gin.H{

@@ -723,14 +723,15 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 	var documents []models.SubmissionDocument
 	if err := db.
 		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Select("submission_documents.*, dt.document_type_name, dt.code AS document_type_code").
+		Select("submission_documents.*, dt.document_type_name").
 		Preload("DocumentType").
 		Preload("File").
-		Where("submission_id = ? AND submission_documents.deleted_at IS NULL", submissionID).
-		Order("submission_documents.display_order ASC, submission_documents.created_at ASC").
+		Where("submission_id = ?", submissionID).
+		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
 		Find(&documents).Error; err != nil {
 		return nil, err
 	}
+	enrichSubmissionDocumentsWithFileMetadata(documents)
 	return documents, nil
 }
 
