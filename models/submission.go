@@ -181,6 +181,13 @@ type SubmissionDocument struct {
 	VerifiedAt       *time.Time `gorm:"column:verified_at" json:"verified_at"`
 	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
 
+	// Derived metadata that we populate from the related file to make the API payload
+	// easier for the frontend to consume when the association is missing or trimmed.
+	OriginalName     string `gorm:"-" json:"original_name,omitempty"`
+	OriginalFilename string `gorm:"-" json:"original_filename,omitempty"`
+	FileName         string `gorm:"-" json:"file_name,omitempty"`
+	FilePath         string `gorm:"-" json:"file_path,omitempty"`
+
 	// Relations
 	Submission   Submission   `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
 	File         FileUpload   `gorm:"foreignKey:FileID" json:"file,omitempty"`
