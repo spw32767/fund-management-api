@@ -2,6 +2,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"fund-management-api/config"
@@ -1805,6 +1806,316 @@ func ToggleSubcategoryBudgetStatus(c *gin.Context) {
 		"success":    true,
 		"message":    fmt.Sprintf("Budget status changed to %s", newStatus),
 		"new_status": newStatus,
+	})
+}
+
+// CopyFundConfigurationToYear - Admin duplicates categories, subcategories, and budgets to a new year
+func CopyFundConfigurationToYear(c *gin.Context) {
+	// Ensure admin role
+	roleID, _ := c.Get("roleID")
+	if roleID.(int) != 3 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type CopyRequest struct {
+		SourceYearID int      `json:"source_year_id" binding:"required"`
+		TargetYear   string   `json:"target_year" binding:"required"`
+		TargetBudget *float64 `json:"target_budget"`
+	}
+
+	var req CopyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	targetYearValue := strings.TrimSpace(req.TargetYear)
+	if targetYearValue == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_year is required"})
+		return
+	}
+
+	// Validate source year
+	var sourceYear models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", req.SourceYearID).
+		First(&sourceYear).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Source year not found"})
+		return
+	}
+
+	// Ensure target year does not exist
+	var existingYear models.Year
+	if err := config.DB.Where("year = ? AND delete_at IS NULL", targetYearValue).
+		First(&existingYear).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Target year already exists"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+
+	// Helper for rollback with response
+	rollbackWithError := func(status int, message string, debug string) {
+		tx.Rollback()
+		payload := gin.H{"error": message}
+		if debug != "" {
+			payload["debug"] = debug
+		}
+		c.JSON(status, payload)
+	}
+
+	targetBudget := sourceYear.Budget
+	if req.TargetBudget != nil {
+		targetBudget = *req.TargetBudget
+	}
+
+	now := time.Now()
+	newYear := models.Year{
+		Year:   targetYearValue,
+		Budget: targetBudget,
+		Status: sourceYear.Status,
+	}
+	if newYear.Status == "" {
+		newYear.Status = "active"
+	}
+	newYear.CreateAt = &now
+	newYear.UpdateAt = &now
+
+	if err := tx.Create(&newYear).Error; err != nil {
+		rollbackWithError(http.StatusInternalServerError, "Failed to create target year", err.Error())
+		return
+	}
+
+	// Copy categories
+	var categories []models.FundCategory
+	if err := tx.Where("year_id = ? AND delete_at IS NULL", req.SourceYearID).
+		Find(&categories).Error; err != nil {
+		rollbackWithError(http.StatusInternalServerError, "Failed to load categories", err.Error())
+		return
+	}
+
+	categoryMap := make(map[int]int)
+	for _, category := range categories {
+		currentTime := time.Now()
+		newCategory := models.FundCategory{
+			CategoryName: category.CategoryName,
+			Status:       category.Status,
+			YearID:       newYear.YearID,
+			CreateAt:     &currentTime,
+			UpdateAt:     &currentTime,
+		}
+		if newCategory.Status == "" {
+			newCategory.Status = "active"
+		}
+
+		if err := tx.Create(&newCategory).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "Failed to copy categories", err.Error())
+			return
+		}
+		categoryMap[category.CategoryID] = newCategory.CategoryID
+	}
+
+	// Copy subcategories
+	subcategoryMap := make(map[int]int)
+	if len(categoryMap) > 0 {
+		originalCategoryIDs := make([]int, 0, len(categoryMap))
+		for originalID := range categoryMap {
+			originalCategoryIDs = append(originalCategoryIDs, originalID)
+		}
+
+		var subcategories []models.FundSubcategory
+		if err := tx.Where("category_id IN (?) AND delete_at IS NULL", originalCategoryIDs).
+			Find(&subcategories).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "Failed to load subcategories", err.Error())
+			return
+		}
+
+		for _, subcategory := range subcategories {
+			mappedCategoryID, ok := categoryMap[subcategory.CategoryID]
+			if !ok {
+				continue
+			}
+
+			currentTime := time.Now()
+			newSubcategory := models.FundSubcategory{
+				CategoryID:      mappedCategoryID,
+				SubcategoryName: subcategory.SubcategoryName,
+				FundCondition:   subcategory.FundCondition,
+				TargetRoles:     subcategory.TargetRoles,
+				FormType:        subcategory.FormType,
+				FormURL:         subcategory.FormURL,
+				Status:          subcategory.Status,
+				Comment:         subcategory.Comment,
+				CreateAt:        &currentTime,
+				UpdateAt:        &currentTime,
+			}
+			if newSubcategory.Status == "" {
+				newSubcategory.Status = "active"
+			}
+
+			if err := tx.Create(&newSubcategory).Error; err != nil {
+				rollbackWithError(http.StatusInternalServerError, "Failed to copy subcategories", err.Error())
+				return
+			}
+			subcategoryMap[subcategory.SubcategoryID] = newSubcategory.SubcategoryID
+		}
+	}
+
+	// Copy budgets
+	budgetsCopied := 0
+	if len(subcategoryMap) > 0 {
+		originalSubcategoryIDs := make([]int, 0, len(subcategoryMap))
+		for originalID := range subcategoryMap {
+			originalSubcategoryIDs = append(originalSubcategoryIDs, originalID)
+		}
+
+		rows, err := tx.Table("subcategory_budgets").
+			Select("subcategory_id, record_scope, allocated_amount, max_amount_per_year, max_grants, max_amount_per_grant, level, status, fund_description, comment").
+			Where("delete_at IS NULL AND subcategory_id IN (?)", originalSubcategoryIDs).
+			Rows()
+		if err != nil {
+			rollbackWithError(http.StatusInternalServerError, "Failed to load budgets", err.Error())
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var (
+				subcategoryID     int
+				recordScope       string
+				allocatedAmount   float64
+				maxAmountPerYear  sql.NullFloat64
+				maxGrants         sql.NullInt64
+				maxAmountPerGrant sql.NullFloat64
+				level             sql.NullString
+				statusValue       sql.NullString
+				fundDescription   sql.NullString
+				commentValue      sql.NullString
+			)
+
+			if err := rows.Scan(
+				&subcategoryID,
+				&recordScope,
+				&allocatedAmount,
+				&maxAmountPerYear,
+				&maxGrants,
+				&maxAmountPerGrant,
+				&level,
+				&statusValue,
+				&fundDescription,
+				&commentValue,
+			); err != nil {
+				rollbackWithError(http.StatusInternalServerError, "Failed to read budget row", err.Error())
+				return
+			}
+
+			mappedSubcategoryID, ok := subcategoryMap[subcategoryID]
+			if !ok {
+				continue
+			}
+
+			scope := strings.ToLower(recordScope)
+
+			insertAllocated := 0.0
+			remainingBudget := 0.0
+			var maxAmountPerYearVal interface{}
+			var maxGrantsVal interface{}
+			var remainingGrant interface{}
+
+			if scope == "overall" {
+				insertAllocated = allocatedAmount
+				remainingBudget = allocatedAmount
+
+				if maxAmountPerYear.Valid && maxAmountPerYear.Float64 > 0 {
+					maxAmountPerYearVal = maxAmountPerYear.Float64
+				}
+
+				if maxGrants.Valid && maxGrants.Int64 > 0 {
+					grants := int(maxGrants.Int64)
+					maxGrantsVal = grants
+					remainingGrant = grants
+				}
+			}
+
+			var maxAmountPerGrantVal interface{}
+			if maxAmountPerGrant.Valid && maxAmountPerGrant.Float64 > 0 {
+				maxAmountPerGrantVal = maxAmountPerGrant.Float64
+			}
+
+			if scope != "overall" {
+				maxAmountPerYearVal = nil
+				maxGrantsVal = nil
+				remainingGrant = nil
+			}
+
+			var levelVal interface{}
+			if scope == "rule" && level.Valid && strings.TrimSpace(level.String) != "" {
+				levelVal = level.String
+			}
+
+			statusText := "active"
+			if statusValue.Valid && strings.TrimSpace(statusValue.String) != "" {
+				statusText = statusValue.String
+			}
+
+			var fundDescriptionVal interface{}
+			if fundDescription.Valid && strings.TrimSpace(fundDescription.String) != "" {
+				fundDescriptionVal = fundDescription.String
+			}
+
+			var commentVal interface{}
+			if commentValue.Valid && strings.TrimSpace(commentValue.String) != "" {
+				commentVal = commentValue.String
+			}
+
+			currentTime := time.Now()
+			if err := tx.Exec(
+				`INSERT INTO subcategory_budgets (
+                                        subcategory_id, record_scope, allocated_amount, used_amount, remaining_budget,
+                                        max_amount_per_year, max_grants, max_amount_per_grant, remaining_grant, level,
+                                        status, fund_description, comment, create_at, update_at
+                                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				mappedSubcategoryID,
+				scope,
+				insertAllocated,
+				remainingBudget,
+				maxAmountPerYearVal,
+				maxGrantsVal,
+				maxAmountPerGrantVal,
+				remainingGrant,
+				levelVal,
+				statusText,
+				fundDescriptionVal,
+				commentVal,
+				currentTime,
+				currentTime,
+			).Error; err != nil {
+				rollbackWithError(http.StatusInternalServerError, "Failed to copy budgets", err.Error())
+				return
+			}
+
+			budgetsCopied++
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize copy operation", "debug": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Copied fund configuration from year %s to %s", sourceYear.Year, targetYearValue),
+		"year":    newYear,
+		"copied": gin.H{
+			"categories":    len(categoryMap),
+			"subcategories": len(subcategoryMap),
+			"budgets":       budgetsCopied,
+		},
 	})
 }
 

@@ -423,6 +423,8 @@ func SetupRoutes(router *gin.Engine) {
 					budgets.PATCH("/:id/toggle", controllers.ToggleSubcategoryBudgetStatus) // PATCH /api/v1/admin/budgets/:id/toggle
 				}
 
+				admin.POST("/funds/copy-year", controllers.CopyFundConfigurationToYear)
+
 				// ========== STATISTICS AND REPORTING ==========
 				reports := admin.Group("/reports")
 				{
