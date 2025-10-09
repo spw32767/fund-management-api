@@ -441,6 +441,7 @@ func CreatePublicationReward(c *gin.Context) {
 				fileUpload := models.FileUpload{
 					OriginalName: fileHeader.Filename,
 					StoredPath:   dst,
+					FolderType:   "submission",
 					FileSize:     fileHeader.Size,
 					MimeType:     fileHeader.Header.Get("Content-Type"),
 					FileHash:     "",

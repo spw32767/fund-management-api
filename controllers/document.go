@@ -120,6 +120,7 @@ func UploadDocument(c *gin.Context) {
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   fullPath,
+		FolderType:   "submission",
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
 		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
