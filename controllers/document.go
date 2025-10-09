@@ -131,7 +131,7 @@ func UploadDocument(c *gin.Context) {
 		UpdateAt:     now,
 	}
 
-	if err := config.DB.Create(&fileUpload).Error; err != nil {
+	if err := createFileUploadRecord(config.DB, &fileUpload); err != nil {
 		// Delete uploaded file if database save fails
 		os.Remove(fullPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})

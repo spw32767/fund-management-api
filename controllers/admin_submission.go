@@ -860,7 +860,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 				CreateAt:     now,
 				UpdateAt:     now,
 			}
-			if err := tx.Create(&fileUpload).Error; err != nil {
+			if err := createFileUploadRecord(tx, &fileUpload); err != nil {
 				return err
 			}
 

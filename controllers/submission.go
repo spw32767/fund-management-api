@@ -525,7 +525,7 @@ func SubmitSubmission(c *gin.Context) {
 			UpdateAt:     now,
 		}
 
-		if err := tx.Create(&fileUpload).Error; err != nil {
+		if err := createFileUploadRecord(tx, &fileUpload); err != nil {
 			os.Remove(outputPath)
 			return fmt.Errorf("failed to persist generated docx: %w", err)
 		}
@@ -745,6 +745,7 @@ func UploadFile(c *gin.Context) {
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   storedPath,
+		FolderType:   "temp",
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
 		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
@@ -755,7 +756,7 @@ func UploadFile(c *gin.Context) {
 		UpdateAt:     now,
 	}
 
-	if err := config.DB.Create(&fileUpload).Error; err != nil {
+	if err := createFileUploadRecord(config.DB, &fileUpload); err != nil {
 		// Delete uploaded file if database save fails
 		os.Remove(storedPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})
