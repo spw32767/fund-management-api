@@ -24,6 +24,13 @@ func createFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
 	return db.Create(fileUpload).Error
 }
 
+func saveFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
+	if !fileUploadSupportsMetadata(db) {
+		return db.Omit("Metadata").Save(fileUpload).Error
+	}
+	return db.Save(fileUpload).Error
+}
+
 func fileUploadSupportsMetadata(db *gorm.DB) bool {
 	fileUploadMetadataOnce.Do(func() {
 		fileUploadMetadataSupported = db.Migrator().HasColumn(&models.FileUpload{}, "metadata")

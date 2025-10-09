@@ -822,8 +822,9 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 
 	// Update DB path (เก็บ OriginalName ตามเดิมไว้ เพื่อแสดงชื่อไฟล์เดิมใน UI ได้ถ้าต้องการ)
 	fileUpload.StoredPath = newPath
+	fileUpload.FolderType = "submission"
 	fileUpload.UpdateAt = time.Now()
-	return config.DB.Save(&fileUpload).Error
+	return saveFileUploadRecord(config.DB, &fileUpload)
 }
 
 // AttachDocumentToSubmission แนบไฟล์กับ submission และย้ายไฟล์
