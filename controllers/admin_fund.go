@@ -9,7 +9,6 @@ import (
 	"fund-management-api/models"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -265,9 +264,8 @@ func ToggleCategoryStatus(c *gin.Context) {
 // ===================== FUND SUBCATEGORIES MANAGEMENT =====================
 
 // GetAllSubcategories - Admin can view all subcategories
-// GetAllSubcategories - Admin can view all subcategories (WITH budgets attached)
 func GetAllSubcategories(c *gin.Context) {
-	// Admin only
+	// Check if user is admin
 	roleID, _ := c.Get("roleID")
 	if roleID.(int) != 3 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
@@ -276,7 +274,7 @@ func GetAllSubcategories(c *gin.Context) {
 
 	categoryID := c.Query("category_id")
 
-	// -------- 1) ดึงรายการทุนย่อย (เหมือนเวอร์ชันเดิม) --------
+	// Use raw SQL to avoid table name and column issues
 	baseQuery := `
 		SELECT 
 			fs.subcategory_id,
@@ -294,12 +292,15 @@ func GetAllSubcategories(c *gin.Context) {
 		WHERE fs.delete_at IS NULL`
 
 	var args []interface{}
+
 	if categoryID != "" {
 		baseQuery += " AND fs.category_id = ?"
 		args = append(args, categoryID)
 	}
+
 	baseQuery += " ORDER BY fs.subcategory_id DESC"
 
+	// Execute query
 	rows, err := config.DB.Raw(baseQuery, args...).Rows()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -310,209 +311,61 @@ func GetAllSubcategories(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type subcatRow struct {
-		SubcategoryID   int
-		CategoryID      int
-		SubcategoryName string
-		FundCondition   *string
-		TargetRoles     *string
-		Status          string
-		Comment         *string
-		CreateAt        *time.Time
-		UpdateAt        *time.Time
-		CategoryName    *string
-	}
-	var rawSubcats []subcatRow
-	var subcategoryIDs []int
+	var subcategories []map[string]interface{}
 
 	for rows.Next() {
-		var r subcatRow
-		if err := rows.Scan(
-			&r.SubcategoryID,
-			&r.CategoryID,
-			&r.SubcategoryName,
-			&r.FundCondition,
-			&r.TargetRoles,
-			&r.Status,
-			&r.Comment,
-			&r.CreateAt,
-			&r.UpdateAt,
-			&r.CategoryName,
-		); err != nil {
+		var (
+			subcategoryID   int
+			categoryID      int
+			subcategoryName string
+			fundCondition   *string
+			targetRoles     *string
+			status          string
+			comment         *string
+			createAt        *time.Time
+			updateAt        *time.Time
+			categoryName    *string
+		)
+
+		err := rows.Scan(
+			&subcategoryID,
+			&categoryID,
+			&subcategoryName,
+			&fundCondition,
+			&targetRoles,
+			&status,
+			&comment,
+			&createAt,
+			&updateAt,
+			&categoryName,
+		)
+		if err != nil {
 			continue
 		}
-		rawSubcats = append(rawSubcats, r)
-		subcategoryIDs = append(subcategoryIDs, r.SubcategoryID)
-	}
 
-	// ถ้าไม่มีทุนย่อย ก็ส่งกลับตามเดิม
-	if len(rawSubcats) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success":       true,
-			"subcategories": []any{},
-			"total":         0,
-		})
-		return
-	}
-
-	// -------- 2) ดึง budgets ของทุก subcategory ที่ได้ในข้อ 1) ครั้งเดียวแบบรวบยอด --------
-	// NOTE: UI ต้องการ key = "budgets" ภายในแต่ละ subcategory
-	// ฟิลด์ที่แนบ: record_scope, max_amount_per_year, max_grants, max_amount_per_grant, level, fund_description, comment, status ฯลฯ
-	// เรียงลำดับ: overall มาก่อน rule แล้ว fallback ตามลำดับที่มี/ id
-	var budgetsBySub = map[int][]map[string]any{}
-
-	// เตรียม IN (?, ?, ...)
-	inPlaceholders := make([]string, len(subcategoryIDs))
-	inArgs := make([]any, len(subcategoryIDs))
-	for i, id := range subcategoryIDs {
-		inPlaceholders[i] = "?"
-		inArgs[i] = id
-	}
-
-	bq := fmt.Sprintf(`
-		SELECT
-			sb.subcategory_budget_id,
-			sb.subcategory_id,
-			sb.record_scope,
-			sb.allocated_amount,
-			sb.used_amount,
-			sb.remaining_budget,
-			sb.max_amount_per_year,
-			sb.max_grants,
-			sb.max_amount_per_grant,
-			sb.remaining_grant,
-			sb.level,
-			sb.status,
-			sb.fund_description,
-			sb.comment,
-			sb.create_at,
-			sb.update_at,
-			-- ฟิลด์ช่วยเรียงลำดับ ถ้ามีคอลัมน์เหล่านี้ในสคีมาบางเวอร์ชัน
-			COALESCE(sb.display_order, sb.sort_order, sb.sequence, sb.order, sb.order_index, sb.subcategory_budget_id) AS ord
-		FROM subcategory_budgets sb
-		WHERE sb.delete_at IS NULL
-		  AND sb.subcategory_id IN (%s)
-	`, strings.Join(inPlaceholders, ","))
-
-	bRows, err := config.DB.Raw(bq, inArgs...).Rows()
-	if err == nil {
-		defer bRows.Close()
-		for bRows.Next() {
-			var (
-				budgetID          int
-				subcatID          int
-				recordScope       string
-				allocatedAmount   float64
-				usedAmount        float64
-				remainingBudget   float64
-				maxAmountPerYear  *float64
-				maxGrants         *int
-				maxAmountPerGrant float64
-				remainingGrant    *int
-				level             *string
-				status            string
-				fundDescription   *string
-				comment           *string
-				createAt          *time.Time
-				updateAt          *time.Time
-				orderVal          int
-			)
-			if err := bRows.Scan(
-				&budgetID,
-				&subcatID,
-				&recordScope,
-				&allocatedAmount,
-				&usedAmount,
-				&remainingBudget,
-				&maxAmountPerYear,
-				&maxGrants,
-				&maxAmountPerGrant,
-				&remainingGrant,
-				&level,
-				&status,
-				&fundDescription,
-				&comment,
-				&createAt,
-				&updateAt,
-				&orderVal,
-			); err != nil {
-				continue
-			}
-
-			item := map[string]any{
-				"subcategory_budget_id": budgetID,
-				"subcategory_id":        subcatID,
-				"record_scope":          recordScope,
-				"allocated_amount":      allocatedAmount,
-				"used_amount":           usedAmount,
-				"remaining_budget":      remainingBudget,
-				"max_amount_per_year":   maxAmountPerYear,
-				"max_grants":            maxGrants,
-				"max_amount_per_grant":  maxAmountPerGrant,
-				"remaining_grant":       remainingGrant,
-				"level":                 level,
-				"status":                status,
-				"fund_description":      fundDescription,
-				"comment":               comment,
-				"create_at":             createAt,
-				"update_at":             updateAt,
-				"_ord":                  orderVal, // ใช้เรียงภายในโค้ด
-			}
-			budgetsBySub[subcatID] = append(budgetsBySub[subcatID], item)
-		}
-	}
-
-	// -------- 3) จัดเรียง budgets: overall ก่อน rule แล้วตาม _ord --------
-	for subID, arr := range budgetsBySub {
-		sort.SliceStable(arr, func(i, j int) bool {
-			// overall มาก่อน
-			ri := fmt.Sprintf("%v", arr[i]["record_scope"])
-			rj := fmt.Sprintf("%v", arr[j]["record_scope"])
-			if ri != rj {
-				if ri == "overall" {
-					return true
-				}
-				if rj == "overall" {
-					return false
-				}
-			}
-			// จากนั้นตาม _ord (ถ้าไม่มีค่าจะเป็น 0 แต่เรา set จาก id แล้ว)
-			oi, _ := arr[i]["_ord"].(int)
-			oj, _ := arr[j]["_ord"].(int)
-			return oi < oj
-		})
-		// ลบ key ชั่วคราว
-		for _, it := range arr {
-			delete(it, "_ord")
-		}
-		budgetsBySub[subID] = arr
-	}
-
-	// -------- 4) สร้าง payload ส่งกลับ (แนบ budgets ลงใน key "budgets") --------
-	subcategories := make([]map[string]any, 0, len(rawSubcats))
-	for _, r := range rawSubcats {
+		// Parse target_roles
 		var targetRolesList []string
-		if r.TargetRoles != nil && *r.TargetRoles != "" {
-			_ = json.Unmarshal([]byte(*r.TargetRoles), &targetRolesList)
+		if targetRoles != nil && *targetRoles != "" {
+			json.Unmarshal([]byte(*targetRoles), &targetRolesList)
 		}
-		sub := map[string]any{
-			"subcategory_id":   r.SubcategoryID,
-			"category_id":      r.CategoryID,
-			"subcategory_name": r.SubcategoryName,
-			"fund_condition":   r.FundCondition,
+
+		subcategory := map[string]interface{}{
+			"subcategory_id":   subcategoryID,
+			"category_id":      categoryID,
+			"subcategory_name": subcategoryName,
+			"fund_condition":   fundCondition,
 			"target_roles":     targetRolesList,
-			"status":           r.Status,
-			"comment":          r.Comment,
-			"create_at":        r.CreateAt,
-			"update_at":        r.UpdateAt,
-			"category": map[string]any{
-				"category_id":   r.CategoryID,
-				"category_name": r.CategoryName,
+			"status":           status,
+			"comment":          comment,
+			"create_at":        createAt,
+			"update_at":        updateAt,
+			"category": map[string]interface{}{
+				"category_id":   categoryID,
+				"category_name": categoryName,
 			},
-			// KEY สำคัญที่ UI ใช้
-			"budgets": budgetsBySub[r.SubcategoryID],
 		}
-		subcategories = append(subcategories, sub)
+
+		subcategories = append(subcategories, subcategory)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
