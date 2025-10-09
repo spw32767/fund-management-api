@@ -24,7 +24,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const researchFundCategoryID = 1
+const researchFundCategoryKeyword = "ทุนส่งเสริมการวิจัย"
 
 var (
 	errSubmissionNotResearchFund   = errors.New("submission does not belong to research fund category")
@@ -1016,7 +1016,10 @@ func ToggleResearchFundClosure(c *gin.Context) {
 func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*models.Submission, error) {
 	query := config.DB.
 		Preload("User").
-		Preload("FundApplicationDetail")
+		Preload("Category").
+		Preload("FundApplicationDetail").
+		Preload("FundApplicationDetail.Subcategory").
+		Preload("FundApplicationDetail.Subcategory.Category")
 
 	if preloadEvents {
 		query = query.
@@ -1033,7 +1036,7 @@ func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*mode
 	if err := query.First(&submission, "submission_id = ?", submissionID).Error; err != nil {
 		return nil, err
 	}
-	if submission.CategoryID == nil || *submission.CategoryID != researchFundCategoryID {
+	if !isResearchFundSubmission(&submission) {
 		return nil, errSubmissionNotResearchFund
 	}
 	return &submission, nil
@@ -1248,11 +1251,45 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 	return summary
 }
 
+func getSubmissionCategoryName(submission *models.Submission) string {
+	if submission == nil {
+		return ""
+	}
+
+	if submission.CategoryName != nil {
+		if trimmed := strings.TrimSpace(*submission.CategoryName); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	if submission.Category != nil {
+		if trimmed := strings.TrimSpace(submission.Category.CategoryName); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	if submission.FundApplicationDetail != nil && submission.FundApplicationDetail.Subcategory != nil {
+		name := strings.TrimSpace(submission.FundApplicationDetail.Subcategory.Category.CategoryName)
+		if name != "" {
+			return name
+		}
+	}
+
+	return ""
+}
+
 func isResearchFundSubmission(submission *models.Submission) bool {
-	if submission == nil || submission.CategoryID == nil {
+	if submission == nil {
 		return false
 	}
-	return *submission.CategoryID == researchFundCategoryID
+
+	if name := strings.TrimSpace(getSubmissionCategoryName(submission)); name != "" {
+		lowered := strings.ToLower(name)
+		if strings.Contains(lowered, strings.ToLower(researchFundCategoryKeyword)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isValidResearchFundEventType(eventType string) bool {
