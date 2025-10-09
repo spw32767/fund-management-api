@@ -18,7 +18,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -33,6 +35,9 @@ var (
 	errMissingFundDetail           = errors.New("submission is missing fund application detail")
 	errMissingApplicant            = errors.New("submission is missing applicant information")
 	errPaymentAttachmentRequired   = errors.New("payment events require at least one attachment")
+
+	researchFundCategoryCache            sync.Map
+	researchFundCategoryKeywordCollapsed = normalizeCategoryName(researchFundCategoryKeyword)
 )
 
 // ==============================
@@ -1285,6 +1290,98 @@ func getSubmissionCategoryName(submission *models.Submission) string {
 	return candidates[0]
 }
 
+func isResearchFundCategoryID(id int) bool {
+	if id <= 0 {
+		return false
+	}
+
+	if cached, ok := researchFundCategoryCache.Load(id); ok {
+		if matched, valid := cached.(bool); valid {
+			return matched
+		}
+	}
+
+	var category models.FundCategory
+	err := config.DB.Select("category_name").First(&category, "category_id = ?", id).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[isResearchFundCategoryID] lookup category %d failed: %v", id, err)
+		}
+		researchFundCategoryCache.Store(id, false)
+		return false
+	}
+
+	matched := matchesResearchFundCategoryName(category.CategoryName)
+	researchFundCategoryCache.Store(id, matched)
+	return matched
+}
+
+func matchesResearchFundCategoryName(value string) bool {
+	normalized := normalizeCategoryName(value)
+	if normalized == "" || researchFundCategoryKeywordCollapsed == "" {
+		return false
+	}
+	if strings.Contains(normalized, researchFundCategoryKeywordCollapsed) {
+		return true
+	}
+	if strings.Contains(researchFundCategoryKeywordCollapsed, normalized) {
+		return true
+	}
+	return false
+}
+
+func normalizeCategoryName(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	lowered := strings.ToLower(trimmed)
+	cleaned := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || r == '​' || r == '‌' || r == '‍' {
+			return -1
+		}
+		return r
+	}, lowered)
+	return cleaned
+}
+
+func submissionMatchesResearchFundCategoryID(submission *models.Submission) bool {
+	if submission == nil {
+		return false
+	}
+
+	if submission.CategoryID != nil && isResearchFundCategoryID(*submission.CategoryID) {
+		return true
+	}
+
+	if submission.Category != nil && isResearchFundCategoryID(submission.Category.CategoryID) {
+		return true
+	}
+
+	if submission.Subcategory != nil {
+		if isResearchFundCategoryID(submission.Subcategory.CategoryID) {
+			return true
+		}
+		if isResearchFundCategoryID(submission.Subcategory.Category.CategoryID) {
+			return true
+		}
+	}
+
+	if submission.FundApplicationDetail != nil {
+		detail := submission.FundApplicationDetail
+		if detail.Subcategory != nil {
+			if isResearchFundCategoryID(detail.Subcategory.CategoryID) {
+				return true
+			}
+			if isResearchFundCategoryID(detail.Subcategory.Category.CategoryID) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func collectResearchFundCategoryCandidates(submission *models.Submission) []string {
 	if submission == nil {
 		return nil
@@ -1337,6 +1434,10 @@ func collectResearchFundCategoryCandidates(submission *models.Submission) []stri
 }
 
 func isResearchFundSubmission(submission *models.Submission) bool {
+	if submissionMatchesResearchFundCategoryID(submission) {
+		return true
+	}
+
 	keyword := strings.ToLower(researchFundCategoryKeyword)
 	for _, candidate := range collectResearchFundCategoryCandidates(submission) {
 		if strings.Contains(strings.ToLower(candidate), keyword) {
