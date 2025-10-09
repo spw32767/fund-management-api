@@ -197,6 +197,7 @@ func GetSubmissionDetails(c *gin.Context) {
 	researchSummary := buildResearchFundSummary(&s)
 
 	var researchFundPayload gin.H
+	detectionMeta := buildResearchFundDetectionMeta(&s)
 	if isResearchFundSubmission(&s) {
 		if researchEventsPayload == nil {
 			researchEventsPayload = []gin.H{}
@@ -204,10 +205,16 @@ func GetSubmissionDetails(c *gin.Context) {
 		if researchSummary == nil {
 			researchSummary = gin.H{}
 		}
-		researchFundPayload = gin.H{
+		payload := gin.H{
 			"events":  researchEventsPayload,
 			"summary": researchSummary,
 		}
+		if len(detectionMeta) > 0 {
+			payload["meta"] = detectionMeta
+		}
+		researchFundPayload = payload
+	} else if len(detectionMeta) > 0 {
+		researchFundPayload = gin.H{"meta": detectionMeta}
 	}
 
 	// 10) response
@@ -680,10 +687,16 @@ func ListResearchFundEvents(c *gin.Context) {
 		summary = gin.H{}
 	}
 
+	meta := buildResearchFundDetectionMeta(submission)
+	if meta == nil {
+		meta = gin.H{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"submission_id": submission.SubmissionID,
 		"events":        events,
 		"summary":       summary,
+		"meta":          meta,
 	})
 }
 
@@ -1017,6 +1030,8 @@ func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*mode
 	query := config.DB.
 		Preload("User").
 		Preload("Category").
+		Preload("Subcategory").
+		Preload("Subcategory.Category").
 		Preload("FundApplicationDetail").
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category")
@@ -1036,9 +1051,6 @@ func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*mode
 	if err := query.First(&submission, "submission_id = ?", submissionID).Error; err != nil {
 		return nil, err
 	}
-	if !isResearchFundSubmission(&submission) {
-		return nil, errSubmissionNotResearchFund
-	}
 	return &submission, nil
 }
 
@@ -1055,12 +1067,26 @@ func getResearchFundSubmissionOrAbort(c *gin.Context, preloadEvents bool) (*mode
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
-		case errors.Is(err, errSubmissionNotResearchFund):
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		default:
 			log.Printf("[getResearchFundSubmissionOrAbort] %d error: %v", sid, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load submission"})
 		}
+		return nil, false
+	}
+
+	detectionMeta := buildResearchFundDetectionMeta(submission)
+	if !isResearchFundSubmission(submission) {
+		log.Printf(
+			"[getResearchFundSubmissionOrAbort] submission %d rejected for research timeline: %+v",
+			submission.SubmissionID,
+			detectionMeta,
+		)
+
+		payload := gin.H{"error": errSubmissionNotResearchFund.Error()}
+		if detectionMeta != nil {
+			payload["meta"] = detectionMeta
+		}
+		c.JSON(http.StatusForbidden, payload)
 		return nil, false
 	}
 
@@ -1252,97 +1278,142 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 }
 
 func getSubmissionCategoryName(submission *models.Submission) string {
-	if submission == nil {
+	candidates := collectResearchFundCategoryCandidates(submission)
+	if len(candidates) == 0 {
 		return ""
 	}
+	return candidates[0]
+}
 
-	var categoryCandidates []string
-	var fallbackCandidates []string
-
-	if submission.CategoryName != nil {
-		categoryCandidates = append(categoryCandidates, *submission.CategoryName)
-	}
-
-	if submission.Category != nil {
-		categoryCandidates = append(categoryCandidates, submission.Category.CategoryName)
-	}
-
-	if submission.Subcategory != nil {
-		categoryCandidates = append(categoryCandidates, submission.Subcategory.Category.CategoryName)
-		fallbackCandidates = append(fallbackCandidates, submission.Subcategory.SubcategoryName)
-	}
-
-	if submission.SubcategoryName != nil {
-		fallbackCandidates = append(fallbackCandidates, *submission.SubcategoryName)
-	}
-
-	if submission.FundApplicationDetail != nil {
-		if submission.FundApplicationDetail.Subcategory != nil {
-			categoryCandidates = append(categoryCandidates, submission.FundApplicationDetail.Subcategory.Category.CategoryName)
-			fallbackCandidates = append(fallbackCandidates, submission.FundApplicationDetail.Subcategory.SubcategoryName)
-		}
+func collectResearchFundCategoryCandidates(submission *models.Submission) []string {
+	if submission == nil {
+		return nil
 	}
 
 	seen := map[string]struct{}{}
-	for _, name := range append(categoryCandidates, fallbackCandidates...) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			continue
-		}
-		lowered := strings.ToLower(trimmed)
-		if _, dup := seen[lowered]; dup {
-			continue
-		}
-		seen[lowered] = struct{}{}
-		if trimmed != "" {
-			return trimmed
+	var candidates []string
+
+	add := func(values ...string) {
+		for _, value := range values {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				continue
+			}
+			lowered := strings.ToLower(trimmed)
+			if _, dup := seen[lowered]; dup {
+				continue
+			}
+			seen[lowered] = struct{}{}
+			candidates = append(candidates, trimmed)
 		}
 	}
 
-	return ""
+	if submission.CategoryName != nil {
+		add(*submission.CategoryName)
+	}
+	if submission.Category != nil {
+		add(submission.Category.CategoryName)
+	}
+	if submission.SubcategoryName != nil {
+		add(*submission.SubcategoryName)
+	}
+	if submission.Subcategory != nil {
+		add(submission.Subcategory.SubcategoryName)
+		if submission.Subcategory.Category.CategoryID != 0 {
+			add(submission.Subcategory.Category.CategoryName)
+		}
+	}
+	if submission.FundApplicationDetail != nil {
+		detail := submission.FundApplicationDetail
+		if detail.Subcategory != nil {
+			add(detail.Subcategory.SubcategoryName)
+			if detail.Subcategory.Category.CategoryID != 0 {
+				add(detail.Subcategory.Category.CategoryName)
+			}
+		}
+	}
+
+	return candidates
 }
 
 func isResearchFundSubmission(submission *models.Submission) bool {
-	if submission == nil {
-		return false
-	}
-
 	keyword := strings.ToLower(researchFundCategoryKeyword)
-	seen := map[string]struct{}{}
-
-	candidates := []string{
-		getSubmissionCategoryName(submission),
-	}
-
-	if submission != nil {
-		if submission.SubcategoryName != nil {
-			candidates = append(candidates, *submission.SubcategoryName)
-		}
-		if submission.Subcategory != nil {
-			candidates = append(candidates, submission.Subcategory.SubcategoryName)
-		}
-		if submission.FundApplicationDetail != nil && submission.FundApplicationDetail.Subcategory != nil {
-			candidates = append(candidates, submission.FundApplicationDetail.Subcategory.SubcategoryName)
-		}
-	}
-
-	for _, raw := range candidates {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			continue
-		}
-		lowered := strings.ToLower(trimmed)
-		if _, dup := seen[lowered]; dup {
-			continue
-		}
-		seen[lowered] = struct{}{}
-
-		if strings.Contains(lowered, keyword) {
+	for _, candidate := range collectResearchFundCategoryCandidates(submission) {
+		if strings.Contains(strings.ToLower(candidate), keyword) {
 			return true
 		}
 	}
-
 	return false
+}
+
+func buildResearchFundDetectionMeta(submission *models.Submission) gin.H {
+	if submission == nil {
+		return gin.H{}
+	}
+
+	candidates := collectResearchFundCategoryCandidates(submission)
+	keyword := strings.ToLower(researchFundCategoryKeyword)
+	detection := gin.H{
+		"keywords":   []string{researchFundCategoryKeyword},
+		"candidates": candidates,
+	}
+
+	if submission.CategoryID != nil {
+		detection["category_id"] = submission.CategoryID
+	}
+	if submission.CategoryName != nil {
+		if trimmed := strings.TrimSpace(*submission.CategoryName); trimmed != "" {
+			detection["category_name"] = trimmed
+		}
+	}
+	if submission.Category != nil {
+		if trimmed := strings.TrimSpace(submission.Category.CategoryName); trimmed != "" {
+			detection["category_relation_name"] = trimmed
+		}
+	}
+	if submission.SubcategoryID != nil {
+		detection["subcategory_id"] = submission.SubcategoryID
+	}
+	if submission.SubcategoryName != nil {
+		if trimmed := strings.TrimSpace(*submission.SubcategoryName); trimmed != "" {
+			detection["subcategory_name"] = trimmed
+		}
+	}
+	if submission.Subcategory != nil {
+		if trimmed := strings.TrimSpace(submission.Subcategory.SubcategoryName); trimmed != "" {
+			detection["subcategory_relation_name"] = trimmed
+		}
+		if submission.Subcategory.Category.CategoryID != 0 {
+			if trimmed := strings.TrimSpace(submission.Subcategory.Category.CategoryName); trimmed != "" {
+				detection["subcategory_category_name"] = trimmed
+			}
+		}
+	}
+	if submission.FundApplicationDetail != nil {
+		detail := submission.FundApplicationDetail
+		if detail.SubcategoryID != 0 {
+			detection["detail_subcategory_id"] = detail.SubcategoryID
+		}
+		if detail.Subcategory != nil {
+			if trimmed := strings.TrimSpace(detail.Subcategory.SubcategoryName); trimmed != "" {
+				detection["detail_subcategory_name"] = trimmed
+			}
+			if detail.Subcategory.Category.CategoryID != 0 {
+				if trimmed := strings.TrimSpace(detail.Subcategory.Category.CategoryName); trimmed != "" {
+					detection["detail_category_name"] = trimmed
+				}
+			}
+		}
+	}
+
+	for _, candidate := range candidates {
+		if strings.Contains(strings.ToLower(candidate), keyword) {
+			detection["matched_candidate"] = candidate
+			break
+		}
+	}
+
+	return detection
 }
 
 func isValidResearchFundEventType(eventType string) bool {
