@@ -1256,22 +1256,46 @@ func getSubmissionCategoryName(submission *models.Submission) string {
 		return ""
 	}
 
+	var categoryCandidates []string
+	var fallbackCandidates []string
+
 	if submission.CategoryName != nil {
-		if trimmed := strings.TrimSpace(*submission.CategoryName); trimmed != "" {
-			return trimmed
-		}
+		categoryCandidates = append(categoryCandidates, *submission.CategoryName)
 	}
 
 	if submission.Category != nil {
-		if trimmed := strings.TrimSpace(submission.Category.CategoryName); trimmed != "" {
-			return trimmed
+		categoryCandidates = append(categoryCandidates, submission.Category.CategoryName)
+	}
+
+	if submission.Subcategory != nil {
+		categoryCandidates = append(categoryCandidates, submission.Subcategory.Category.CategoryName)
+		fallbackCandidates = append(fallbackCandidates, submission.Subcategory.SubcategoryName)
+	}
+
+	if submission.SubcategoryName != nil {
+		fallbackCandidates = append(fallbackCandidates, *submission.SubcategoryName)
+	}
+
+	if submission.FundApplicationDetail != nil {
+		if submission.FundApplicationDetail.Subcategory != nil {
+			categoryCandidates = append(categoryCandidates, submission.FundApplicationDetail.Subcategory.Category.CategoryName)
+			fallbackCandidates = append(fallbackCandidates, submission.FundApplicationDetail.Subcategory.SubcategoryName)
 		}
 	}
 
-	if submission.FundApplicationDetail != nil && submission.FundApplicationDetail.Subcategory != nil {
-		name := strings.TrimSpace(submission.FundApplicationDetail.Subcategory.Category.CategoryName)
-		if name != "" {
-			return name
+	seen := map[string]struct{}{}
+	for _, name := range append(categoryCandidates, fallbackCandidates...) {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		lowered := strings.ToLower(trimmed)
+		if _, dup := seen[lowered]; dup {
+			continue
+		}
+		seen[lowered] = struct{}{}
+		if trimmed != "" {
+			return trimmed
 		}
 	}
 
@@ -1283,12 +1307,41 @@ func isResearchFundSubmission(submission *models.Submission) bool {
 		return false
 	}
 
-	if name := strings.TrimSpace(getSubmissionCategoryName(submission)); name != "" {
-		lowered := strings.ToLower(name)
-		if strings.Contains(lowered, strings.ToLower(researchFundCategoryKeyword)) {
+	keyword := strings.ToLower(researchFundCategoryKeyword)
+	seen := map[string]struct{}{}
+
+	candidates := []string{
+		getSubmissionCategoryName(submission),
+	}
+
+	if submission != nil {
+		if submission.SubcategoryName != nil {
+			candidates = append(candidates, *submission.SubcategoryName)
+		}
+		if submission.Subcategory != nil {
+			candidates = append(candidates, submission.Subcategory.SubcategoryName)
+		}
+		if submission.FundApplicationDetail != nil && submission.FundApplicationDetail.Subcategory != nil {
+			candidates = append(candidates, submission.FundApplicationDetail.Subcategory.SubcategoryName)
+		}
+	}
+
+	for _, raw := range candidates {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		lowered := strings.ToLower(trimmed)
+		if _, dup := seen[lowered]; dup {
+			continue
+		}
+		seen[lowered] = struct{}{}
+
+		if strings.Contains(lowered, keyword) {
 			return true
 		}
 	}
+
 	return false
 }
 
