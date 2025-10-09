@@ -2,6 +2,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -99,16 +100,12 @@ func GetSubmissionDetails(c *gin.Context) {
 	// 4) เอกสารแนบ
 	var docs []models.SubmissionDocument
 	if err := config.DB.
-		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Select("submission_documents.*, dt.document_type_name").
 		Where("submission_id = ?", sid).
 		Preload("DocumentType").
 		Preload("File").
-		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
 		Find(&docs).Error; err != nil {
 		log.Printf("[GetSubmissionDetails] load documents error: %v", err)
 	}
-	enrichSubmissionDocumentsWithFileMetadata(docs)
 
 	// 5) จัด details ตามประเภท (กัน nil)
 	var details gin.H
@@ -164,18 +161,6 @@ func GetSubmissionDetails(c *gin.Context) {
 			"display_order":    d.DisplayOrder,
 			"is_required":      d.IsRequired,
 			"created_at":       d.CreatedAt,
-		}
-		if d.OriginalName != "" {
-			item["original_name"] = d.OriginalName
-		}
-		if d.OriginalFilename != "" {
-			item["original_filename"] = d.OriginalFilename
-		}
-		if d.FileName != "" {
-			item["file_name"] = d.FileName
-		}
-		if d.FilePath != "" {
-			item["file_path"] = d.FilePath
 		}
 		if d.DocumentType.DocumentTypeID != 0 {
 			item["document_type"] = gin.H{
@@ -711,15 +696,6 @@ func CreateResearchFundEvent(c *gin.Context) {
 
 	amountStr := strings.TrimSpace(c.PostForm("amount"))
 	eventType := strings.TrimSpace(c.PostForm("event_type"))
-	statusInputs := []string{
-		strings.TrimSpace(c.PostForm("status")),
-		strings.TrimSpace(c.PostForm("status_code")),
-		strings.TrimSpace(c.PostForm("status_after")),
-	}
-	statusIDInputs := []string{
-		strings.TrimSpace(c.PostForm("status_id")),
-		strings.TrimSpace(c.PostForm("status_after_id")),
-	}
 	if eventType == "" {
 		if amountStr != "" {
 			eventType = models.ResearchFundEventTypePayment
@@ -780,50 +756,6 @@ func CreateResearchFundEvent(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-
-		parseStatusID := func(values ...string) (int, bool) {
-			for _, candidate := range values {
-				if candidate == "" {
-					continue
-				}
-				if id, err := utils.GetStatusIDByCode(candidate); err == nil && id > 0 {
-					return id, true
-				}
-				if parsed, err := strconv.Atoi(candidate); err == nil && parsed > 0 {
-					return parsed, true
-				}
-			}
-			return 0, false
-		}
-
-		statusValue, hasStatus := parseStatusID(append(statusInputs, statusIDInputs...)...)
-		var desiredStatusID *int
-		if hasStatus {
-			desiredStatusID = &statusValue
-		}
-
-		approvedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeApproved)
-		if err != nil {
-			return err
-		}
-		closedStatusID, err := utils.GetStatusIDByCode(utils.StatusCodeAdminClosed)
-		if err != nil {
-			return err
-		}
-
-		closing := false
-		reopening := false
-		if desiredStatusID != nil {
-			switch statusValue {
-			case closedStatusID:
-				closing = true
-			case approvedStatusID:
-				reopening = true
-			default:
-				return fmt.Errorf("unsupported status transition")
-			}
-		}
-
 		if eventType == models.ResearchFundEventTypePayment {
 			if submission.FundApplicationDetail == nil {
 				return errMissingFundDetail
@@ -835,11 +767,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 			}
 		}
 
-		effectiveClosed := closed
-		if reopening {
-			effectiveClosed = false
-		}
-		if err := validateResearchFundEvent(submission, eventType, amountPtr, len(files), totalPaid, effectiveClosed); err != nil {
+		if err := validateResearchFundEvent(submission, eventType, amountPtr, len(files), totalPaid, closed); err != nil {
 			return err
 		}
 
@@ -850,55 +778,6 @@ func CreateResearchFundEvent(c *gin.Context) {
 			CreatedBy:    userID,
 			CreatedAt:    now,
 		}
-
-		if desiredStatusID != nil {
-			event.StatusAfterID = desiredStatusID
-
-			if closing {
-				if !closed {
-					if err := utils.EnsureStatusIn(current.StatusID, utils.StatusCodeApproved); err != nil {
-						return fmt.Errorf("submission must be approved before closure")
-					}
-				}
-
-				updates := map[string]any{
-					"status_id": closedStatusID,
-					"closed_at": now,
-				}
-				if err := tx.Model(&models.Submission{}).
-					Where("submission_id = ?", submission.SubmissionID).
-					Updates(updates).Error; err != nil {
-					return err
-				}
-
-				if err := tx.Model(&models.FundApplicationDetail{}).
-					Where("submission_id = ?", submission.SubmissionID).
-					Updates(map[string]any{"closed_at": now}).Error; err != nil {
-					return err
-				}
-
-				submission.StatusID = closedStatusID
-			} else if reopening {
-				updates := map[string]any{
-					"status_id": approvedStatusID,
-					"closed_at": nil,
-				}
-				if err := tx.Model(&models.Submission{}).
-					Where("submission_id = ?", submission.SubmissionID).
-					Updates(updates).Error; err != nil {
-					return err
-				}
-
-				if err := tx.Model(&models.FundApplicationDetail{}).
-					Where("submission_id = ?", submission.SubmissionID).
-					Updates(map[string]any{"closed_at": nil}).Error; err != nil {
-					return err
-				}
-
-				submission.StatusID = approvedStatusID
-			}
-		}
-
 		if err := tx.Create(&event).Error; err != nil {
 			return err
 		}
@@ -951,10 +830,16 @@ func CreateResearchFundEvent(c *gin.Context) {
 				return err
 			}
 
+			metadataBytes, _ := json.Marshal(map[string]any{
+				"submission_id": submission.SubmissionID,
+				"event_id":      event.EventID,
+			})
+
 			fileUpload := models.FileUpload{
 				OriginalName: fh.Filename,
 				StoredPath:   destPath,
 				FolderType:   models.FileFolderTypeAdminEvent,
+				Metadata:     string(metadataBytes),
 				FileSize:     stat.Size(),
 				MimeType:     fh.Header.Get("Content-Type"),
 				UploadedBy:   userID,
@@ -962,7 +847,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 				CreateAt:     now,
 				UpdateAt:     now,
 			}
-			if err := tx.Omit("Metadata").Create(&fileUpload).Error; err != nil {
+			if err := tx.Create(&fileUpload).Error; err != nil {
 				return err
 			}
 
@@ -1040,24 +925,6 @@ func ToggleResearchFundClosure(c *gin.Context) {
 	}
 
 	userID := c.GetInt("userID")
-	actorName := "ผู้ดูแลระบบ"
-	if userID > 0 {
-		var actor models.User
-		if qErr := config.DB.Select("user_id", "user_fname", "user_lname", "email").First(&actor, "user_id = ?", userID).Error; qErr == nil {
-			name := strings.TrimSpace(fmt.Sprintf("%s %s", actor.UserFname, actor.UserLname))
-			if name == "" {
-				name = strings.TrimSpace(actor.Email)
-			}
-			if name != "" {
-				actorName = name
-			} else {
-				actorName = fmt.Sprintf("ผู้ใช้รหัส %d", userID)
-			}
-		} else {
-			actorName = fmt.Sprintf("ผู้ใช้รหัส %d", userID)
-		}
-	}
-
 	now := time.Now()
 
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
@@ -1088,7 +955,7 @@ func ToggleResearchFundClosure(c *gin.Context) {
 			}
 		}
 
-		submissionUpdates, detailUpdates, eventComment, statusAfterID, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed, actorName)
+		submissionUpdates, detailUpdates, eventComment, statusAfterID, err := applyClosureTransition(submission, closed, approvedStatusID, closedStatusID, now, req.Comment, closingAllowed)
 		if err != nil {
 			return err
 		}
@@ -1235,7 +1102,7 @@ func validateResearchFundEvent(submission *models.Submission, eventType string, 
 	return nil
 }
 
-func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool, actorName string) (map[string]any, map[string]any, string, *int, error) {
+func applyClosureTransition(submission *models.Submission, currentlyClosed bool, approvedStatusID, closedStatusID int, now time.Time, comment string, closingAllowed bool) (map[string]any, map[string]any, string, *int, error) {
 	if submission == nil {
 		return nil, nil, "", nil, fmt.Errorf("submission is required")
 	}
@@ -1250,7 +1117,7 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 		}
 		detailUpdates := map[string]any{"closed_at": nil}
 		statusAfter := approvedStatusID
-		return submissionUpdates, detailUpdates, buildClosureComment(comment, false, submission, actorName), &statusAfter, nil
+		return submissionUpdates, detailUpdates, buildClosureComment(comment, false), &statusAfter, nil
 	}
 
 	if !closingAllowed {
@@ -1263,7 +1130,7 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 	}
 	detailUpdates := map[string]any{"closed_at": now}
 	statusAfter := closedStatusID
-	return submissionUpdates, detailUpdates, buildClosureComment(comment, true, submission, actorName), &statusAfter, nil
+	return submissionUpdates, detailUpdates, buildClosureComment(comment, true), &statusAfter, nil
 }
 
 func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gin.H {
@@ -1317,6 +1184,7 @@ func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gi
 					"original_name": ef.File.OriginalName,
 					"stored_path":   ef.File.StoredPath,
 					"folder_type":   ef.File.FolderType,
+					"metadata":      ef.File.Metadata,
 					"mime_type":     ef.File.MimeType,
 					"file_size":     ef.File.FileSize,
 					"uploaded_at":   ef.File.UploadedAt,
@@ -1371,14 +1239,6 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 		"remaining_amount":  remaining,
 		"is_closed":         closed,
 		"closed_at":         submission.ClosedAt,
-		"status_id":         submission.StatusID,
-	}
-
-	if status, err := utils.GetApplicationStatusByID(submission.StatusID); err == nil {
-		summary["status_code"] = status.StatusCode
-		summary["status_name"] = status.StatusName
-		summary["status_label"] = status.StatusName
-		summary["status"] = status.StatusCode
 	}
 
 	if submission.FundApplicationDetail != nil {
@@ -1404,35 +1264,13 @@ func isValidResearchFundEventType(eventType string) bool {
 	}
 }
 
-func buildClosureComment(comment string, closing bool, submission *models.Submission, actorName string) string {
+func buildClosureComment(comment string, closing bool) string {
 	trimmed := strings.TrimSpace(comment)
 	if trimmed != "" {
 		return trimmed
 	}
-
-	name := strings.TrimSpace(actorName)
-	if name == "" {
-		name = "ผู้ดูแลระบบ"
-	}
-
-	var requestNumber string
-	if submission != nil {
-		if number := strings.TrimSpace(submission.SubmissionNumber); number != "" {
-			requestNumber = number
-		} else if submission.SubmissionID != 0 {
-			requestNumber = fmt.Sprintf("%d", submission.SubmissionID)
-		}
-	}
-
 	if closing {
-		if requestNumber != "" {
-			return fmt.Sprintf("คำร้อง %s ถูกปิดโดย %s", requestNumber, name)
-		}
-		return fmt.Sprintf("คำร้องถูกปิดโดย %s", name)
+		return "Submission closed by admin"
 	}
-
-	if requestNumber != "" {
-		return fmt.Sprintf("คำร้อง %s ถูกเปิดอีกครั้งโดย %s", requestNumber, name)
-	}
-	return fmt.Sprintf("คำร้องถูกเปิดอีกครั้งโดย %s", name)
+	return "Submission reopened by admin"
 }

@@ -172,7 +172,6 @@ type SubmissionDocument struct {
 	FileID           int        `gorm:"column:file_id" json:"file_id"`
 	DocumentTypeID   int        `gorm:"column:document_type_id" json:"document_type_id"`
 	DocumentTypeName string     `gorm:"->;column:document_type_name" json:"document_type_name"`
-	DocumentTypeCode string     `gorm:"->;column:document_type_code" json:"document_type_code,omitempty"`
 	Description      string     `gorm:"column:description" json:"description"`
 	DisplayOrder     int        `gorm:"column:display_order" json:"display_order"`
 	IsRequired       bool       `gorm:"column:is_required" json:"is_required"`
@@ -180,13 +179,6 @@ type SubmissionDocument struct {
 	VerifiedBy       *int       `gorm:"column:verified_by" json:"verified_by"`
 	VerifiedAt       *time.Time `gorm:"column:verified_at" json:"verified_at"`
 	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
-
-	// Derived metadata that we populate from the related file to make the API payload
-	// easier for the frontend to consume when the association is missing or trimmed.
-	OriginalName     string `gorm:"-" json:"original_name,omitempty"`
-	OriginalFilename string `gorm:"-" json:"original_filename,omitempty"`
-	FileName         string `gorm:"-" json:"file_name,omitempty"`
-	FilePath         string `gorm:"-" json:"file_path,omitempty"`
 
 	// Relations
 	Submission   Submission   `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`

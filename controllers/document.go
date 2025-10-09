@@ -120,7 +120,6 @@ func UploadDocument(c *gin.Context) {
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   fullPath,
-		FolderType:   models.FileFolderTypeSubmission,
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
 		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
@@ -131,7 +130,7 @@ func UploadDocument(c *gin.Context) {
 		UpdateAt:     now,
 	}
 
-	if err := config.DB.Omit("Metadata").Create(&fileUpload).Error; err != nil {
+	if err := config.DB.Create(&fileUpload).Error; err != nil {
 		// Delete uploaded file if database save fails
 		os.Remove(fullPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file info"})

@@ -10,19 +10,13 @@ import (
 	"time"
 )
 
-const (
-	FileFolderTypeTemp       = "temp"
-	FileFolderTypeSubmission = "submission"
-	FileFolderTypeProfile    = "profile"
-	FileFolderTypeOther      = "other"
-)
-
 // FileUpload represents the file_uploads table
 type FileUpload struct {
 	FileID       int        `gorm:"primaryKey;column:file_id" json:"file_id"`
 	OriginalName string     `gorm:"column:original_name" json:"original_name"`
 	StoredPath   string     `gorm:"column:stored_path" json:"stored_path"`
 	FolderType   string     `gorm:"column:folder_type" json:"folder_type"`
+	Metadata     string     `gorm:"column:metadata" json:"metadata"`
 	FileSize     int64      `gorm:"column:file_size" json:"file_size"`
 	MimeType     string     `gorm:"column:mime_type" json:"mime_type"`
 	FileHash     string     `gorm:"column:file_hash" json:"file_hash"` // เก็บไว้แต่ไม่ใช้

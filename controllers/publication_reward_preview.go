@@ -157,18 +157,25 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
-	var headUser *models.User
-	if submission.HeadApprovedBy != nil {
-		var head models.User
-		if err := config.DB.First(&head, *submission.HeadApprovedBy).Error; err == nil {
-			headUser = &head
-		}
-	}
-
-	replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents, headUser)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	replacements := map[string]string{
+		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
+		"{{applicant_name}}":     buildApplicantName(submission.User),
+		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
+		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
+		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{total_amount}}":       formatAmount(detail.TotalAmount),
+		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
+		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
+		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
+		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
+		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
+		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
+		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
+		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
+		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
+		"{{document_line}}":      buildDocumentLine(documents),
+		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":          strings.TrimSpace(detail.Signature),
 	}
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
@@ -277,10 +284,6 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		"{{document_line}}":      buildPreviewDocumentLine(payload.Attachments, attachments),
 		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
 		"{{signature}}":          strings.TrimSpace(payload.FormData.Signature),
-		"{{head_comment}}":       "",
-		"{{head_signature}}":     "",
-		"{{head_name}}":          "",
-		"{{head_approved_date}}": "",
 	}
 
 	return replacements, nil
@@ -727,11 +730,10 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 		Preload("DocumentType").
 		Preload("File").
 		Where("submission_id = ?", submissionID).
-		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.document_id ASC").
+		Order("display_order ASC, document_id ASC").
 		Find(&documents).Error; err != nil {
 		return nil, err
 	}
-	enrichSubmissionDocumentsWithFileMetadata(documents)
 	return documents, nil
 }
 

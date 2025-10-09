@@ -24,10 +24,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	publicationRewardFormDocumentCode       = "publication_reward_form_docx"
-	publicationRewardHeadSignedDocumentCode = "publication_reward_form_head_signed_docx"
-)
+const publicationRewardFormDocumentCode = "publication_reward_form_docx"
 
 // ===================== SUBMISSION MANAGEMENT =====================
 
@@ -118,10 +115,9 @@ func GetSubmission(c *gin.Context) {
 		Preload("Year").
 		Preload("Status").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
-			// See docs/submission_document_ordering.md for rationale behind the deterministic sort.
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 				Select("submission_documents.*, dt.document_type_name").
-				Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.created_at ASC, submission_documents.document_id ASC")
+				Order("submission_documents.display_order, submission_documents.created_at")
 		}).
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
@@ -136,8 +132,6 @@ func GetSubmission(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
-
-	enrichSubmissionDocumentsWithFileMetadata(submission.Documents)
 
 	// Ensure applicant user data is loaded
 	if submission.User == nil && submission.UserID != 0 {
@@ -475,7 +469,7 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to load submission documents: %w", err)
 		}
 
-		replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents, nil)
+		replacements, err := buildSubmissionPreviewReplacements(&submission, &detail, sysConfig, documents)
 		if err != nil {
 			return err
 		}
@@ -520,7 +514,6 @@ func SubmitSubmission(c *gin.Context) {
 		fileUpload := models.FileUpload{
 			OriginalName: uniqueFilename,
 			StoredPath:   outputPath,
-			FolderType:   models.FileFolderTypeSubmission,
 			FileSize:     stat.Size(),
 			MimeType:     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			FileHash:     "",
@@ -608,38 +601,7 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 	return &docType, nil
 }
 
-func ensurePublicationRewardHeadSignedDocumentType(tx *gorm.DB) (*models.DocumentType, error) {
-	var docType models.DocumentType
-	if err := tx.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", publicationRewardHeadSignedDocumentCode).
-		First(&docType).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-
-		now := time.Now()
-		category := "publication_reward"
-		fundTypes := "[\"publication_reward\"]"
-		docType = models.DocumentType{
-			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (หัวหน้าภาคลงนาม DOCX)",
-			Code:             publicationRewardHeadSignedDocumentCode,
-			Category:         category,
-			Required:         false,
-			Multiple:         true,
-			DocumentOrder:    0,
-			CreateAt:         now,
-			UpdateAt:         now,
-			FundTypes:        &fundTypes,
-		}
-
-		if err := tx.Create(&docType).Error; err != nil {
-			return nil, err
-		}
-	}
-
-	return &docType, nil
-}
-
-func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument, headUser *models.User) (map[string]string, error) {
+func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
 	if submission == nil {
 		return nil, fmt.Errorf("submission is required")
 	}
@@ -668,30 +630,6 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		positionName = strings.TrimSpace(submission.User.Position.PositionName)
 	}
 
-	headComment := ""
-	if submission.HeadComment != nil {
-		headComment = strings.TrimSpace(*submission.HeadComment)
-	}
-
-	headSignature := ""
-	if submission.HeadSignature != nil {
-		headSignature = strings.TrimSpace(*submission.HeadSignature)
-	}
-
-	headName := ""
-	if headUser != nil {
-		headName = buildApplicantName(headUser)
-	}
-
-	if headName == "" && headSignature != "" {
-		headName = headSignature
-	}
-
-	headApprovedDate := ""
-	if submission.HeadApprovedAt != nil {
-		headApprovedDate = utils.FormatThaiDate(*submission.HeadApprovedAt)
-	}
-
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(documentDate),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
@@ -711,10 +649,6 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		"{{document_line}}":      buildDocumentLine(documents),
 		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
 		"{{signature}}":          strings.TrimSpace(detail.Signature),
-		"{{head_comment}}":       headComment,
-		"{{head_signature}}":     headSignature,
-		"{{head_name}}":          headName,
-		"{{head_approved_date}}": headApprovedDate,
 	}
 
 	return replacements, nil
@@ -805,24 +739,11 @@ func UploadFile(c *gin.Context) {
 		return
 	}
 
-	// Determine folder type - default to temp if not provided/invalid
-	requestedFolderType := strings.TrimSpace(c.PostForm("folder_type"))
-	switch requestedFolderType {
-	case models.FileFolderTypeTemp,
-		models.FileFolderTypeSubmission,
-		models.FileFolderTypeProfile,
-		models.FileFolderTypeOther:
-		// keep requested value
-	default:
-		requestedFolderType = models.FileFolderTypeTemp
-	}
-
 	// Save to database
 	now := time.Now()
 	fileUpload := models.FileUpload{
 		OriginalName: file.Filename,
 		StoredPath:   storedPath,
-		FolderType:   requestedFolderType,
 		FileSize:     file.Size,
 		MimeType:     file.Header.Get("Content-Type"),
 		FileHash:     "", // ไม่ใช้ hash ในระบบ user-based
@@ -897,10 +818,8 @@ func MoveFileToSubmissionFolder(fileID int, submissionID int, submissionType str
 		return err
 	}
 
-	// Update DB path และตั้งชื่อไฟล์ใหม่ (เพื่อให้ UI แสดงเลขคำร้องปัจจุบัน)
+	// Update DB path (เก็บ OriginalName ตามเดิมไว้ เพื่อแสดงชื่อไฟล์เดิมใน UI ได้ถ้าต้องการ)
 	fileUpload.StoredPath = newPath
-	fileUpload.OriginalName = newFilename
-	fileUpload.FolderType = models.FileFolderTypeSubmission
 	fileUpload.UpdateAt = time.Now()
 	return config.DB.Save(&fileUpload).Error
 }
@@ -1211,13 +1130,11 @@ func GetSubmissionDocuments(c *gin.Context) {
 		Preload("File").
 		Preload("DocumentType").
 		Where("submission_id = ?", submissionID).
-		Order("submission_documents.display_order ASC, COALESCE(dt.document_order, 9999) ASC, submission_documents.created_at ASC, submission_documents.document_id ASC").
+		Order("display_order, created_at").
 		Find(&documents).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch documents"})
 		return
 	}
-
-	enrichSubmissionDocumentsWithFileMetadata(documents)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
