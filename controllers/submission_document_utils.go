@@ -11,7 +11,12 @@ func enrichSubmissionDocumentsWithFileMetadata(documents []models.SubmissionDocu
 		if file.FileID == 0 {
 			continue
 		}
-
+		// หากข้อมูล file_id ใน submission_documents ไม่ตรงกับไฟล์ที่ preload มา
+		// (เช่น กรณี query ที่ select ข้อมูลไม่ครบจนทำให้ FileID ถูก set ผิด)
+		// ให้ใช้ค่าจาก relation ของไฟล์ซึ่งเป็นแหล่งความจริงแทน
+		if documents[i].FileID != file.FileID {
+			documents[i].FileID = file.FileID
+		}
 		if documents[i].OriginalName == "" {
 			documents[i].OriginalName = file.OriginalName
 		}
