@@ -1151,6 +1151,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 
 	subcategoryID := c.Query("subcategory_id")
 	recordScope := c.Query("record_scope")
+	yearID := c.Query("year_id")
 	scopeIsAll := strings.EqualFold(recordScope, "all")
 	if recordScope == "" {
 		recordScope = "rule"
@@ -1175,18 +1176,24 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			sb.comment,
 			sb.create_at,
 			sb.update_at,
-			fs.subcategory_name,
-			fc.category_name
-		FROM subcategory_budgets sb
-		LEFT JOIN fund_subcategories fs ON sb.subcategory_id = fs.subcategory_id
-		LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
-		WHERE sb.delete_at IS NULL`
+                        fs.subcategory_name,
+                        fc.category_name,
+                        fc.year_id
+                FROM subcategory_budgets sb
+                LEFT JOIN fund_subcategories fs ON sb.subcategory_id = fs.subcategory_id
+                LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
+                WHERE sb.delete_at IS NULL`
 
 	var args []interface{}
 
 	if subcategoryID != "" {
 		baseQuery += " AND sb.subcategory_id = ?"
 		args = append(args, subcategoryID)
+	}
+
+	if yearID != "" {
+		baseQuery += " AND fc.year_id = ?"
+		args = append(args, yearID)
 	}
 
 	if !scopeIsAll {
@@ -1229,6 +1236,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			updateAt          *time.Time
 			subcategoryName   sql.NullString
 			categoryName      sql.NullString
+			categoryYear      sql.NullInt64
 		)
 
 		err := rows.Scan(
@@ -1250,6 +1258,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			&updateAt,
 			&subcategoryName,
 			&categoryName,
+			&categoryYear,
 		)
 		if err != nil {
 			continue
@@ -1272,6 +1281,7 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 			"comment":               nullStringToInterface(comment),
 			"create_at":             createAt,
 			"update_at":             updateAt,
+			"year_id":               nullInt64ToInterface(categoryYear),
 			"subcategory": map[string]interface{}{
 				"subcategory_id":   subcategoryID,
 				"subcategory_name": nullStringToInterface(subcategoryName),
