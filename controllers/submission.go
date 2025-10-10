@@ -942,12 +942,25 @@ func DownloadFile(c *gin.Context) {
 		return
 	}
 
+	// ===== ประกอบชื่อไฟล์แนบ: <original-name>_<submission-number><ext> (ถ้าหา submission ได้)
 	downloadName := file.OriginalName
-	if strings.TrimSpace(downloadName) == "" {
-		downloadName = filepath.Base(file.StoredPath)
-	}
-	if strings.TrimSpace(downloadName) == "" {
-		downloadName = fmt.Sprintf("file-%s", fileID)
+	ext := filepath.Ext(file.OriginalName)
+	base := strings.TrimSuffix(file.OriginalName, ext)
+
+	// หา submission_id ผ่านตาราง submission_documents (ไฟล์นี้ถูกแนบกับ submission ไหน)
+	var doc models.SubmissionDocument
+	if err := config.DB.
+		Where("file_id = ?", file.FileID).
+		Order("created_at ASC").
+		First(&doc).Error; err == nil {
+
+		var sub models.Submission
+		if err := config.DB.
+			Select("submission_id", "submission_number").
+			Where("submission_id = ?", doc.SubmissionID).
+			First(&sub).Error; err == nil && sub.SubmissionNumber != "" {
+			downloadName = fmt.Sprintf("%s_%s%s", base, sub.SubmissionNumber, ext)
+		}
 	}
 
 	// Serve file
