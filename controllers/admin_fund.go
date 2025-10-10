@@ -2041,54 +2041,36 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			originalSubcategoryIDs = append(originalSubcategoryIDs, originalID)
 		}
 
-		rows, err := tx.Table("subcategory_budgets").
+		type budgetRow struct {
+			SubcategoryID       int             `gorm:"column:subcategory_id"`
+			RecordScope         string          `gorm:"column:record_scope"`
+			AllocatedAmount     sql.NullFloat64 `gorm:"column:allocated_amount"`
+			RemainingBudgetOrig sql.NullFloat64 `gorm:"column:remaining_budget"`
+			MaxAmountPerYear    sql.NullFloat64 `gorm:"column:max_amount_per_year"`
+			MaxGrants           sql.NullInt64   `gorm:"column:max_grants"`
+			MaxAmountPerGrant   sql.NullFloat64 `gorm:"column:max_amount_per_grant"`
+			Level               sql.NullString  `gorm:"column:level"`
+			StatusValue         sql.NullString  `gorm:"column:status"`
+			FundDescription     sql.NullString  `gorm:"column:fund_description"`
+			CommentValue        sql.NullString  `gorm:"column:comment"`
+		}
+
+		var budgetRows []budgetRow
+		if err := tx.Table("subcategory_budgets").
 			Select("subcategory_id, record_scope, allocated_amount, remaining_budget, max_amount_per_year, max_grants, max_amount_per_grant, level, status, fund_description, comment").
 			Where("delete_at IS NULL AND subcategory_id IN (?)", originalSubcategoryIDs).
-			Rows()
-		if err != nil {
+			Scan(&budgetRows).Error; err != nil {
 			rollbackWithError(http.StatusInternalServerError, "Failed to load budgets", err.Error())
 			return
 		}
-		defer rows.Close()
 
-		for rows.Next() {
-			var (
-				subcategoryID       int
-				recordScope         string
-				allocatedAmount     sql.NullFloat64
-				remainingBudgetOrig sql.NullFloat64
-				maxAmountPerYear    sql.NullFloat64
-				maxGrants           sql.NullInt64
-				maxAmountPerGrant   sql.NullFloat64
-				level               sql.NullString
-				statusValue         sql.NullString
-				fundDescription     sql.NullString
-				commentValue        sql.NullString
-			)
-
-			if err := rows.Scan(
-				&subcategoryID,
-				&recordScope,
-				&allocatedAmount,
-				&remainingBudgetOrig,
-				&maxAmountPerYear,
-				&maxGrants,
-				&maxAmountPerGrant,
-				&level,
-				&statusValue,
-				&fundDescription,
-				&commentValue,
-			); err != nil {
-				rollbackWithError(http.StatusInternalServerError, "Failed to read budget row", err.Error())
-				return
-			}
-
-			mappedSubcategoryID, ok := subcategoryMap[subcategoryID]
+		for _, row := range budgetRows {
+			mappedSubcategoryID, ok := subcategoryMap[row.SubcategoryID]
 			if !ok {
 				continue
 			}
 
-			scope := strings.ToLower(recordScope)
+			scope := strings.ToLower(row.RecordScope)
 
 			var insertAllocated interface{}
 			var remainingBudget interface{}
@@ -2097,30 +2079,30 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			var remainingGrant interface{}
 
 			if scope == "overall" {
-				if allocatedAmount.Valid {
-					insertAllocated = allocatedAmount.Float64
+				if row.AllocatedAmount.Valid {
+					insertAllocated = row.AllocatedAmount.Float64
 				}
 
-				if remainingBudgetOrig.Valid {
-					remainingBudget = remainingBudgetOrig.Float64
-				} else if allocatedAmount.Valid {
-					remainingBudget = allocatedAmount.Float64
+				if row.RemainingBudgetOrig.Valid {
+					remainingBudget = row.RemainingBudgetOrig.Float64
+				} else if row.AllocatedAmount.Valid {
+					remainingBudget = row.AllocatedAmount.Float64
 				}
 
-				if maxAmountPerYear.Valid && maxAmountPerYear.Float64 > 0 {
-					maxAmountPerYearVal = maxAmountPerYear.Float64
+				if row.MaxAmountPerYear.Valid && row.MaxAmountPerYear.Float64 > 0 {
+					maxAmountPerYearVal = row.MaxAmountPerYear.Float64
 				}
 
-				if maxGrants.Valid && maxGrants.Int64 > 0 {
-					grants := int(maxGrants.Int64)
+				if row.MaxGrants.Valid && row.MaxGrants.Int64 > 0 {
+					grants := int(row.MaxGrants.Int64)
 					maxGrantsVal = grants
 					remainingGrant = grants
 				}
 			}
 
 			var maxAmountPerGrantVal interface{}
-			if maxAmountPerGrant.Valid && maxAmountPerGrant.Float64 > 0 {
-				maxAmountPerGrantVal = maxAmountPerGrant.Float64
+			if row.MaxAmountPerGrant.Valid && row.MaxAmountPerGrant.Float64 > 0 {
+				maxAmountPerGrantVal = row.MaxAmountPerGrant.Float64
 			}
 
 			if scope != "overall" {
@@ -2132,23 +2114,23 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			}
 
 			var levelVal interface{}
-			if scope == "rule" && level.Valid && strings.TrimSpace(level.String) != "" {
-				levelVal = level.String
+			if scope == "rule" && row.Level.Valid && strings.TrimSpace(row.Level.String) != "" {
+				levelVal = row.Level.String
 			}
 
 			statusText := "active"
-			if statusValue.Valid && strings.TrimSpace(statusValue.String) != "" {
-				statusText = statusValue.String
+			if row.StatusValue.Valid && strings.TrimSpace(row.StatusValue.String) != "" {
+				statusText = row.StatusValue.String
 			}
 
 			var fundDescriptionVal interface{}
-			if fundDescription.Valid && strings.TrimSpace(fundDescription.String) != "" {
-				fundDescriptionVal = fundDescription.String
+			if row.FundDescription.Valid && strings.TrimSpace(row.FundDescription.String) != "" {
+				fundDescriptionVal = row.FundDescription.String
 			}
 
 			var commentVal interface{}
-			if commentValue.Valid && strings.TrimSpace(commentValue.String) != "" {
-				commentVal = commentValue.String
+			if row.CommentValue.Valid && strings.TrimSpace(row.CommentValue.String) != "" {
+				commentVal = row.CommentValue.String
 			}
 
 			currentTime := time.Now()
