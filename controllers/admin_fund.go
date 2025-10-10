@@ -1860,7 +1860,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 
 	type CopyRequest struct {
 		SourceYearID int      `json:"source_year_id" binding:"required"`
-		TargetYear   string   `json:"target_year" binding:"required"`
+		TargetYear   string   `json:"target_year"`
+		TargetYearID *int     `json:"target_year_id"`
 		TargetBudget *float64 `json:"target_budget"`
 	}
 
@@ -1871,8 +1872,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 	}
 
 	targetYearValue := strings.TrimSpace(req.TargetYear)
-	if targetYearValue == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target_year is required"})
+	if req.TargetYearID == nil && targetYearValue == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_year or target_year_id is required"})
 		return
 	}
 
@@ -1884,12 +1885,27 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		return
 	}
 
-	// Ensure target year does not exist
-	var existingYear models.Year
-	if err := config.DB.Where("year = ? AND delete_at IS NULL", targetYearValue).
-		First(&existingYear).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Target year already exists"})
-		return
+	usingExistingTarget := false
+	var targetYear models.Year
+
+	if req.TargetYearID != nil {
+		if err := config.DB.Where("year_id = ? AND delete_at IS NULL", *req.TargetYearID).
+			First(&targetYear).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Target year not found"})
+			return
+		}
+		usingExistingTarget = true
+		if targetYearValue == "" {
+			targetYearValue = targetYear.Year
+		}
+	} else {
+		// Ensure target year does not exist when creating a new record
+		var existingYear models.Year
+		if err := config.DB.Where("year = ? AND delete_at IS NULL", targetYearValue).
+			First(&existingYear).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Target year already exists"})
+			return
+		}
 	}
 
 	tx := config.DB.Begin()
@@ -1908,26 +1924,38 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		c.JSON(status, payload)
 	}
 
-	targetBudget := sourceYear.Budget
-	if req.TargetBudget != nil {
-		targetBudget = *req.TargetBudget
-	}
+	if usingExistingTarget {
+		if req.TargetBudget != nil {
+			if err := tx.Model(&models.Year{}).
+				Where("year_id = ? AND delete_at IS NULL", targetYear.YearID).
+				Update("budget", *req.TargetBudget).Error; err != nil {
+				rollbackWithError(http.StatusInternalServerError, "Failed to update target year budget", err.Error())
+				return
+			}
+			targetYear.Budget = *req.TargetBudget
+		}
+	} else {
+		targetBudget := sourceYear.Budget
+		if req.TargetBudget != nil {
+			targetBudget = *req.TargetBudget
+		}
 
-	now := time.Now()
-	newYear := models.Year{
-		Year:   targetYearValue,
-		Budget: targetBudget,
-		Status: sourceYear.Status,
-	}
-	if newYear.Status == "" {
-		newYear.Status = "active"
-	}
-	newYear.CreateAt = &now
-	newYear.UpdateAt = &now
+		now := time.Now()
+		targetYear = models.Year{
+			Year:   targetYearValue,
+			Budget: targetBudget,
+			Status: sourceYear.Status,
+		}
+		if targetYear.Status == "" {
+			targetYear.Status = "active"
+		}
+		targetYear.CreateAt = &now
+		targetYear.UpdateAt = &now
 
-	if err := tx.Create(&newYear).Error; err != nil {
-		rollbackWithError(http.StatusInternalServerError, "Failed to create target year", err.Error())
-		return
+		if err := tx.Create(&targetYear).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "Failed to create target year", err.Error())
+			return
+		}
 	}
 
 	// Copy categories
@@ -1944,7 +1972,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		newCategory := models.FundCategory{
 			CategoryName: category.CategoryName,
 			Status:       category.Status,
-			YearID:       newYear.YearID,
+			YearID:       targetYear.YearID,
 			CreateAt:     &currentTime,
 			UpdateAt:     &currentTime,
 		}
@@ -2158,10 +2186,22 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		return
 	}
 
+	if targetYearValue == "" {
+		targetYearValue = fmt.Sprintf("%d", targetYear.YearID)
+	}
+
+	message := fmt.Sprintf("Copied fund configuration from year %s to %s", sourceYear.Year, targetYearValue)
+	if usingExistingTarget {
+		message = fmt.Sprintf("Copied fund configuration from year %s to existing year %s", sourceYear.Year, targetYearValue)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": fmt.Sprintf("Copied fund configuration from year %s to %s", sourceYear.Year, targetYearValue),
-		"year":    newYear,
+		"success":           true,
+		"message":           message,
+		"year":              targetYear,
+		"existing_target":   usingExistingTarget,
+		"target_year_id":    targetYear.YearID,
+		"target_year_value": targetYearValue,
 		"copied": gin.H{
 			"categories":    len(categoryMap),
 			"subcategories": len(subcategoryMap),
