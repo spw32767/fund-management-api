@@ -33,7 +33,7 @@ func SanitizeFilename(filename string) string {
 	// Remove leading/trailing underscores
 	filename = strings.Trim(filename, "_")
 
-	const maxFilenameLength = 255
+	const maxFilenameLength = 512
 
 	// Preserve file extension while enforcing the max length
 	ext := filepath.Ext(filename)
