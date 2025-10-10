@@ -38,14 +38,37 @@ type LoginResponse struct {
 }
 
 type UserProfile struct {
-	UserID       int    `json:"user_id"`
-	UserFname    string `json:"user_fname"`
-	UserLname    string `json:"user_lname"`
-	Email        string `json:"email"`
-	RoleID       int    `json:"role_id"`
-	PositionID   int    `json:"position_id"`
-	Role         string `json:"role"`
-	PositionName string `json:"position_name"`
+	UserID           int    `json:"user_id"`
+	UserFname        string `json:"user_fname"`
+	UserLname        string `json:"user_lname"`
+	Email            string `json:"email"`
+	RoleID           int    `json:"role_id"`
+	PositionID       int    `json:"position_id"`
+	Role             string `json:"role"`
+	PositionName     string `json:"position_name"`
+	Prefix           string `json:"prefix,omitempty"`
+	ManagePosition   string `json:"manage_position,omitempty"`
+	PositionTitle    string `json:"position_title,omitempty"`
+	PositionEn       string `json:"position_en,omitempty"`
+	PrefixPositionEn string `json:"prefix_position_en,omitempty"`
+	NameEn           string `json:"name_en,omitempty"`
+	SuffixEn         string `json:"suffix_en,omitempty"`
+	Tel              string `json:"tel,omitempty"`
+	TelFormat        string `json:"tel_format,omitempty"`
+	TelEng           string `json:"tel_eng,omitempty"`
+	ManagePositionEn string `json:"manage_position_en,omitempty"`
+	LabName          string `json:"lab_name,omitempty"`
+	Room             string `json:"room,omitempty"`
+	CPWebID          string `json:"cp_web_id,omitempty"`
+	ScopusID         string `json:"scopus_id,omitempty"`
+	IsActive         string `json:"is_active,omitempty"`
+}
+
+func stringValue(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return strings.TrimSpace(*ptr)
 }
 
 // DeviceInfo structure for client information
@@ -222,14 +245,30 @@ func Login(c *gin.Context) {
 
 	// Create user profile response
 	userProfile := UserProfile{
-		UserID:       user.UserID,
-		UserFname:    user.UserFname,
-		UserLname:    user.UserLname,
-		Email:        user.Email,
-		RoleID:       user.RoleID,
-		PositionID:   user.PositionID,
-		Role:         user.Role.Role,
-		PositionName: user.Position.PositionName,
+		UserID:           user.UserID,
+		UserFname:        user.UserFname,
+		UserLname:        user.UserLname,
+		Email:            user.Email,
+		RoleID:           user.RoleID,
+		PositionID:       user.PositionID,
+		Role:             user.Role.Role,
+		PositionName:     user.Position.PositionName,
+		Prefix:           stringValue(user.Prefix),
+		ManagePosition:   stringValue(user.ManagePosition),
+		PositionTitle:    stringValue(user.PositionTitle),
+		PositionEn:       stringValue(user.PositionEn),
+		PrefixPositionEn: stringValue(user.PrefixPositionEn),
+		NameEn:           stringValue(user.NameEn),
+		SuffixEn:         stringValue(user.SuffixEn),
+		Tel:              stringValue(user.Tel),
+		TelFormat:        stringValue(user.TelFormat),
+		TelEng:           stringValue(user.TelEng),
+		ManagePositionEn: stringValue(user.ManagePositionEn),
+		LabName:          stringValue(user.LabName),
+		Room:             stringValue(user.Room),
+		CPWebID:          stringValue(user.CPWebID),
+		ScopusID:         stringValue(user.ScopusID),
+		IsActive:         stringValue(user.AccountStatus),
 	}
 
 	// Response with backward compatibility
@@ -284,14 +323,30 @@ func GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"user": gin.H{
-			"user_id":       user.UserID,
-			"user_fname":    user.UserFname,
-			"user_lname":    user.UserLname,
-			"email":         user.Email,
-			"role_id":       user.RoleID,
-			"position_id":   user.PositionID,
-			"role":          user.Role.Role,
-			"position_name": user.Position.PositionName,
+			"user_id":            user.UserID,
+			"user_fname":         user.UserFname,
+			"user_lname":         user.UserLname,
+			"email":              user.Email,
+			"role_id":            user.RoleID,
+			"position_id":        user.PositionID,
+			"role":               user.Role.Role,
+			"position_name":      user.Position.PositionName,
+			"prefix":             stringValue(user.Prefix),
+			"manage_position":    stringValue(user.ManagePosition),
+			"position_title":     stringValue(user.PositionTitle),
+			"position_en":        stringValue(user.PositionEn),
+			"prefix_position_en": stringValue(user.PrefixPositionEn),
+			"name_en":            stringValue(user.NameEn),
+			"suffix_en":          stringValue(user.SuffixEn),
+			"tel":                stringValue(user.Tel),
+			"tel_format":         stringValue(user.TelFormat),
+			"tel_eng":            stringValue(user.TelEng),
+			"manage_position_en": stringValue(user.ManagePositionEn),
+			"lab_name":           stringValue(user.LabName),
+			"room":               stringValue(user.Room),
+			"cp_web_id":          stringValue(user.CPWebID),
+			"scopus_id":          stringValue(user.ScopusID),
+			"is_active":          stringValue(user.AccountStatus),
 		},
 	})
 }

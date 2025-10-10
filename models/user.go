@@ -19,6 +19,23 @@ type User struct {
 	UpdateAt         *time.Time `gorm:"column:update_at" json:"update_at"`
 	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
+	Prefix           *string `gorm:"column:prefix" json:"prefix,omitempty"`
+	ManagePosition   *string `gorm:"column:manage_position" json:"manage_position,omitempty"`
+	PositionTitle    *string `gorm:"column:position" json:"position_title,omitempty"`
+	PositionEn       *string `gorm:"column:position_en" json:"position_en,omitempty"`
+	PrefixPositionEn *string `gorm:"column:prefix_position_en" json:"prefix_position_en,omitempty"`
+	NameEn           *string `gorm:"column:Name_en" json:"name_en,omitempty"`
+	SuffixEn         *string `gorm:"column:suffix_en" json:"suffix_en,omitempty"`
+	Tel              *string `gorm:"column:TEL" json:"tel,omitempty"`
+	TelFormat        *string `gorm:"column:TELformat" json:"tel_format,omitempty"`
+	TelEng           *string `gorm:"column:TEL_ENG" json:"tel_eng,omitempty"`
+	ManagePositionEn *string `gorm:"column:manage_position_en" json:"manage_position_en,omitempty"`
+	LabName          *string `gorm:"column:LAB_Name" json:"lab_name,omitempty"`
+	Room             *string `gorm:"column:Room" json:"room,omitempty"`
+	CPWebID          *string `gorm:"column:CP_WEB_ID" json:"cp_web_id,omitempty"`
+	ScopusID         *string `gorm:"column:Scopus_id" json:"scopus_id,omitempty"`
+	AccountStatus    *string `gorm:"column:Is_active" json:"is_active,omitempty"`
+
 	// Relations
 	Role     Role     `gorm:"foreignKey:RoleID" json:"role,omitempty"`
 	Position Position `gorm:"foreignKey:PositionID" json:"position,omitempty"`
