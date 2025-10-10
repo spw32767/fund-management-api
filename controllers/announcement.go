@@ -6,6 +6,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/utils"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,7 +28,43 @@ var (
 		".doc":  "application/msword",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	}
+	allowedFundFormMimeTypes = map[string]string{
+		"application/pdf":    "application/pdf",
+		"application/msword": "application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-excel": "application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	}
+	fundFormExtensionToMime = map[string]string{
+		".pdf":  "application/pdf",
+		".doc":  "application/msword",
+		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".xls":  "application/vnd.ms-excel",
+		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	}
 )
+
+func canonicalMime(rawCT, filename string, allowed map[string]string, extMap map[string]string) (string, bool) {
+	ct := strings.TrimSpace(rawCT)
+	if ct != "" {
+		if parsed, _, err := mime.ParseMediaType(ct); err == nil {
+			ct = parsed
+		}
+		ct = strings.ToLower(ct)
+		if canonical, ok := allowed[ct]; ok {
+			return canonical, true
+		}
+	}
+
+	if extMap != nil {
+		ext := strings.ToLower(filepath.Ext(filename))
+		if canonical, ok := extMap[ext]; ok {
+			return canonical, true
+		}
+	}
+
+	return "", false
+}
 
 // ===== ANNOUNCEMENT CONTROLLERS =====
 
@@ -179,16 +216,10 @@ func CreateAnnouncement(c *gin.Context) {
 	defer file.Close()
 
 	// ตรวจชนิด/ขนาดตามที่อนุญาต
-	headerCT := strings.ToLower(header.Header.Get("Content-Type"))
-	ct, ok := allowedAnnouncementMimeTypes[headerCT]
+	ct, ok := canonicalMime(header.Header.Get("Content-Type"), header.Filename, allowedAnnouncementMimeTypes, announcementExtensionToMime)
 	if !ok {
-		ext := strings.ToLower(filepath.Ext(header.Filename))
-		if mappedCT, ok := announcementExtensionToMime[ext]; ok {
-			ct = mappedCT
-		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
-			return
-		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
+		return
 	}
 	if header.Size > 20*1024*1024 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File size exceeds 20MB limit"})
@@ -284,16 +315,10 @@ func UpdateAnnouncement(c *gin.Context) {
 		defer file.Close()
 
 		// validate ชนิด/ขนาด
-		headerCT := strings.ToLower(header.Header.Get("Content-Type"))
-		ct, ok := allowedAnnouncementMimeTypes[headerCT]
+		ct, ok := canonicalMime(header.Header.Get("Content-Type"), header.Filename, allowedAnnouncementMimeTypes, announcementExtensionToMime)
 		if !ok {
-			ext := strings.ToLower(filepath.Ext(header.Filename))
-			if mappedCT, ok := announcementExtensionToMime[ext]; ok {
-				ct = mappedCT
-			} else {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
-				return
-			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
+			return
 		}
 		if header.Size > 20*1024*1024 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "File size exceeds 20MB limit"})
@@ -668,15 +693,8 @@ func CreateFundForm(c *gin.Context) {
 	}
 	defer file.Close()
 
-	allowedCT := map[string]bool{
-		"application/pdf":    true,
-		"application/msword": true,
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
-		"application/vnd.ms-excel": true,
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
-	}
-	ct := header.Header.Get("Content-Type")
-	if !allowedCT[ct] {
+	ct, ok := canonicalMime(header.Header.Get("Content-Type"), header.Filename, allowedFundFormMimeTypes, fundFormExtensionToMime)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
 		return
 	}
@@ -788,15 +806,8 @@ func UpdateFundForm(c *gin.Context) {
 	if err == nil {
 		defer file.Close()
 
-		allowedCT := map[string]bool{
-			"application/pdf":    true,
-			"application/msword": true,
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
-			"application/vnd.ms-excel": true,
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
-		}
-		ct := header.Header.Get("Content-Type")
-		if !allowedCT[ct] {
+		ct, ok := canonicalMime(header.Header.Get("Content-Type"), header.Filename, allowedFundFormMimeTypes, fundFormExtensionToMime)
+		if !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
 			return
 		}

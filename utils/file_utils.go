@@ -33,10 +33,30 @@ func SanitizeFilename(filename string) string {
 	// Remove leading/trailing underscores
 	filename = strings.Trim(filename, "_")
 
-	// Limit length
-	if len(filename) > 100 {
-		filename = filename[:100]
+	const maxFilenameLength = 255
+
+	// Preserve file extension while enforcing the max length
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	if ext != "" {
+		// Normalise the extension casing
+		ext = strings.ToLower(ext)
 	}
+
+	// If the extension alone is too long, drop it entirely for safety
+	if len(ext) >= maxFilenameLength {
+		base = filename
+		ext = ""
+	}
+
+	allowedBaseLength := maxFilenameLength - len(ext)
+	if allowedBaseLength <= 0 {
+		base = ""
+	} else if len(base) > allowedBaseLength {
+		base = base[:allowedBaseLength]
+	}
+
+	filename = strings.Trim(base, "_") + ext
 
 	// If empty, generate random name
 	if filename == "" {
