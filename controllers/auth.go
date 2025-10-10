@@ -56,6 +56,26 @@ type DeviceInfo struct {
 	UserAgent  string
 }
 
+// ensureUserStoragePrepared guarantees the user has their folder tree set up.
+// It is safe to call multiple times as the helper only creates missing folders.
+func ensureUserStoragePrepared(c *gin.Context, user models.User) bool {
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
+	if _, err := utils.CreateUserFolderIfNotExists(user, uploadPath); err != nil {
+		log.Printf("failed to create user folder for user %d: %v", user.UserID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to prepare user storage",
+		})
+		return false
+	}
+
+	return true
+}
+
 // Login handles user authentication with session management
 func Login(c *gin.Context) {
 	var req LoginRequest
@@ -115,6 +135,10 @@ func Login(c *gin.Context) {
 			"success": false,
 			"error":   "Invalid email or password",
 		})
+		return
+	}
+
+	if !ensureUserStoragePrepared(c, user) {
 		return
 	}
 
@@ -249,6 +273,10 @@ func GetProfile(c *gin.Context) {
 	log.Printf("Profile - User loaded: %+v", user)
 	log.Printf("Profile - Role loaded: %+v", user.Role)
 	log.Printf("Profile - Position loaded: %+v", user.Position)
+
+	if !ensureUserStoragePrepared(c, user) {
+		return
+	}
 
 	// Update session activity
 	updateSessionActivity(c)
