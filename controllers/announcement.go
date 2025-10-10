@@ -16,6 +16,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	allowedAnnouncementMimeTypes = map[string]string{
+		"application/pdf":    "application/pdf",
+		"application/msword": "application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	}
+	announcementExtensionToMime = map[string]string{
+		".pdf":  "application/pdf",
+		".doc":  "application/msword",
+		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	}
+)
+
 // ===== ANNOUNCEMENT CONTROLLERS =====
 
 // GetAnnouncements - ดึงประกาศทั้งหมด
@@ -166,10 +179,16 @@ func CreateAnnouncement(c *gin.Context) {
 	defer file.Close()
 
 	// ตรวจชนิด/ขนาดตามที่อนุญาต
-	ct := header.Header.Get("Content-Type")
-	if ct != "application/pdf" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
-		return
+	headerCT := strings.ToLower(header.Header.Get("Content-Type"))
+	ct, ok := allowedAnnouncementMimeTypes[headerCT]
+	if !ok {
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		if mappedCT, ok := announcementExtensionToMime[ext]; ok {
+			ct = mappedCT
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
+			return
+		}
 	}
 	if header.Size > 20*1024*1024 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File size exceeds 20MB limit"})
@@ -265,10 +284,16 @@ func UpdateAnnouncement(c *gin.Context) {
 		defer file.Close()
 
 		// validate ชนิด/ขนาด
-		ct := header.Header.Get("Content-Type")
-		if ct != "application/pdf" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
-			return
+		headerCT := strings.ToLower(header.Header.Get("Content-Type"))
+		ct, ok := allowedAnnouncementMimeTypes[headerCT]
+		if !ok {
+			ext := strings.ToLower(filepath.Ext(header.Filename))
+			if mappedCT, ok := announcementExtensionToMime[ext]; ok {
+				ct = mappedCT
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "File type not allowed"})
+				return
+			}
 		}
 		if header.Size > 20*1024*1024 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "File size exceeds 20MB limit"})
