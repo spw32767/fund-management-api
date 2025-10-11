@@ -633,6 +633,161 @@ func SubmitSubmission(c *gin.Context) {
 	})
 }
 
+// MergeSubmissionDocuments collects every PDF document attached to a submission, merges them
+// into a single file and stores the result under uploads/merge_submissions/{current_year}.
+func MergeSubmissionDocuments(c *gin.Context) {
+	submissionIDParam := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDParam)
+	if err != nil || submissionID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission id"})
+		return
+	}
+
+	userIDValue, _ := c.Get("userID")
+	userID, ok := userIDValue.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user context"})
+		return
+	}
+
+	roleIDValue, _ := c.Get("roleID")
+	roleID, _ := roleIDValue.(int)
+
+	query := config.DB.
+		Preload("Documents.File").
+		Where("submission_id = ? AND deleted_at IS NULL", submissionID)
+
+	if roleID != 3 { // allow admin (role id 3) to access every submission
+		query = query.Where("user_id = ?", userID)
+	}
+
+	var submission models.Submission
+	if err := query.First(&submission).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
+		return
+	}
+
+	if submission.SubmittedAt == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission must be submitted before merging documents"})
+		return
+	}
+
+	documents, err := fetchSubmissionDocuments(config.DB, submission.SubmissionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission documents"})
+		return
+	}
+
+	pdfPaths := make([]string, 0, len(documents))
+	for _, doc := range documents {
+		file := doc.File
+		if file.FileID == 0 {
+			continue
+		}
+
+		storedPath := strings.TrimSpace(file.StoredPath)
+		if storedPath == "" {
+			continue
+		}
+
+		mimeType := strings.ToLower(strings.TrimSpace(file.MimeType))
+		ext := strings.ToLower(filepath.Ext(storedPath))
+		originalExt := strings.ToLower(filepath.Ext(file.OriginalName))
+
+		if mimeType != "application/pdf" && ext != ".pdf" && originalExt != ".pdf" {
+			continue
+		}
+
+		if _, err := os.Stat(storedPath); err != nil {
+			continue
+		}
+
+		pdfPaths = append(pdfPaths, storedPath)
+	}
+
+	if len(pdfPaths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No PDF documents available to merge"})
+		return
+	}
+
+	uploadRoot := os.Getenv("UPLOAD_PATH")
+	if uploadRoot == "" {
+		uploadRoot = "./uploads"
+	}
+
+	currentYear := getCurrentBEYearStr()
+	mergeDir := filepath.Join(uploadRoot, "merge_submissions", currentYear)
+	if err := os.MkdirAll(mergeDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare merge directory"})
+		return
+	}
+
+	baseName := strings.TrimSpace(submission.SubmissionNumber)
+	if baseName == "" {
+		baseName = fmt.Sprintf("%s-%d", strings.ToUpper(strings.TrimSpace(submission.SubmissionType)), submission.SubmissionID)
+	}
+	baseName = utils.SanitizeForFilename(baseName)
+	if baseName == "" {
+		baseName = fmt.Sprintf("submission-%d", submission.SubmissionID)
+	}
+
+	desiredFilename := fmt.Sprintf("%s_merged_document.pdf", baseName)
+	safeFilename := utils.GenerateUniqueFilename(mergeDir, desiredFilename)
+	outputPath := filepath.Join(mergeDir, safeFilename)
+
+	if err := mergePDFs(pdfPaths, outputPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to merge PDF documents: %v", err)})
+		return
+	}
+
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		os.Remove(outputPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to access merged file"})
+		return
+	}
+
+	now := time.Now()
+	fileRecord := models.FileUpload{
+		OriginalName: safeFilename,
+		StoredPath:   outputPath,
+		FolderType:   "merge_submissions",
+		FileSize:     info.Size(),
+		MimeType:     "application/pdf",
+		UploadedBy:   submission.UserID,
+		UploadedAt:   now,
+		CreateAt:     now,
+		UpdateAt:     now,
+	}
+
+	if err := createFileUploadRecord(config.DB, &fileRecord); err != nil {
+		os.Remove(outputPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
+		return
+	}
+
+	cleanedRoot := filepath.Clean(uploadRoot)
+	relativePath := filepath.ToSlash(outputPath)
+	if trimmed := strings.TrimPrefix(relativePath, cleanedRoot+"/"); trimmed != relativePath {
+		relativePath = filepath.ToSlash(filepath.Join(filepath.Base(cleanedRoot), trimmed))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"merged_file": gin.H{
+			"file_id":       fileRecord.FileID,
+			"filename":      fileRecord.OriginalName,
+			"stored_path":   fileRecord.StoredPath,
+			"relative_path": relativePath,
+			"size":          fileRecord.FileSize,
+		},
+	})
+}
+
 func nextDocumentDisplayOrder(existing []models.SubmissionDocument) int {
 	maxOrder := 0
 	for _, doc := range existing {
