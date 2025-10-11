@@ -487,6 +487,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				submissionManagement := admin.Group("/submissions")
 				{
+					submissionManagement.POST("/:id/documents/resequence", controllers.AdminResequenceSubmissionDocuments)
 					// Detail view
 					submissionManagement.GET("/:id/details", controllers.GetSubmissionDetails)
 

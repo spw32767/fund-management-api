@@ -466,6 +466,10 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to load system configuration: %w", err)
 		}
 
+		if err := resequenceSubmissionDocumentsByDocumentType(tx, submission.SubmissionID); err != nil {
+			return fmt.Errorf("failed to resequence submission documents: %w", err)
+		}
+
 		documents, err := fetchSubmissionDocuments(tx, submission.SubmissionID)
 		if err != nil {
 			return fmt.Errorf("failed to load submission documents: %w", err)
@@ -612,6 +616,10 @@ func SubmitSubmission(c *gin.Context) {
 		}
 
 		documents = append(documents, pdfSubmissionDocument)
+
+		if err := resequenceSubmissionDocumentsByDocumentType(tx, submission.SubmissionID); err != nil {
+			return fmt.Errorf("failed to resequence submission documents: %w", err)
+		}
 
 		return nil
 	}); err != nil {
@@ -1050,6 +1058,11 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		return
 	}
 
+	if err := resequenceSubmissionDocumentsByDocumentType(config.DB, submission.SubmissionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document order"})
+		return
+	}
+
 	// Preload relations
 	config.DB.Preload("File").Preload("DocumentType").First(&document, document.DocumentID)
 
@@ -1271,6 +1284,11 @@ func AttachDocument(c *gin.Context) {
 		return
 	}
 
+	if err := resequenceSubmissionDocumentsByDocumentType(config.DB, submission.SubmissionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document order"})
+		return
+	}
+
 	// Load relations for response
 	config.DB.Preload("File").Preload("DocumentType").First(&submissionDoc, submissionDoc.DocumentID)
 
@@ -1316,6 +1334,43 @@ func GetSubmissionDocuments(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
+		"documents": documents,
+		"total":     len(documents),
+	})
+}
+
+func AdminResequenceSubmissionDocuments(c *gin.Context) {
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	var submission models.Submission
+	if err := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID).First(&submission).Error; err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	if err := resequenceSubmissionDocumentsByDocumentType(config.DB, submission.SubmissionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reorder submission documents"})
+		return
+	}
+
+	documents, err := fetchSubmissionDocuments(config.DB, submission.SubmissionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission documents"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"message":   "Submission documents reordered successfully",
 		"documents": documents,
 		"total":     len(documents),
 	})

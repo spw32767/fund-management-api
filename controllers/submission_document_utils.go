@@ -3,6 +3,7 @@ package controllers
 import (
 	"sync"
 
+	"fund-management-api/config"
 	"fund-management-api/models"
 
 	"gorm.io/gorm"
@@ -59,6 +60,48 @@ func submissionDocumentSupportsOriginalName(db *gorm.DB) bool {
 		submissionDocumentOriginalNameExists = db.Migrator().HasColumn(&models.SubmissionDocument{}, "original_name")
 	})
 	return submissionDocumentOriginalNameExists
+}
+
+type submissionDocumentWithTypeOrder struct {
+	DocumentID    int  `gorm:"column:document_id"`
+	DisplayOrder  int  `gorm:"column:display_order"`
+	DocumentOrder *int `gorm:"column:document_order"`
+}
+
+func resequenceSubmissionDocumentsByDocumentType(db *gorm.DB, submissionID int) error {
+	if db == nil {
+		db = config.DB
+	}
+
+	var documents []submissionDocumentWithTypeOrder
+	if err := db.Model(&models.SubmissionDocument{}).
+		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
+		Select("submission_documents.document_id, submission_documents.display_order, dt.document_order").
+		Where("submission_documents.submission_id = ?", submissionID).
+		Order("CASE WHEN dt.document_order IS NULL THEN 1 ELSE 0 END").
+		Order("dt.document_order ASC").
+		Order("submission_documents.display_order ASC").
+		Order("submission_documents.document_id ASC").
+		Find(&documents).Error; err != nil {
+		return err
+	}
+
+	nextOrder := 1
+	for _, doc := range documents {
+		if doc.DisplayOrder == nextOrder {
+			nextOrder++
+			continue
+		}
+
+		if err := db.Model(&models.SubmissionDocument{}).
+			Where("document_id = ?", doc.DocumentID).
+			Update("display_order", nextOrder).Error; err != nil {
+			return err
+		}
+		nextOrder++
+	}
+
+	return nil
 }
 
 // enrichSubmissionDocumentsWithFileMetadata copies frequently used file fields onto the
