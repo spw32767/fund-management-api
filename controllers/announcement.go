@@ -1196,7 +1196,11 @@ func streamRemoteFile(c *gin.Context, remoteURL, displayName string, inline bool
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf("%s; filename=\"%s\"", disposition, name))
-	c.DataFromReader(http.StatusOK, resp.ContentLength, contentType, resp.Body, nil)
+
+	// FIX: Use -1 for contentLength to enable chunked transfer encoding.
+	// This prevents ERR_CONTENT_LENGTH_MISMATCH if the connection between
+	// the API and the remote storage is interrupted.
+	c.DataFromReader(http.StatusOK, -1, contentType, resp.Body, nil)
 	return nil
 }
 
