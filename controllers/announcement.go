@@ -481,7 +481,9 @@ func DownloadAnnouncementFile(c *gin.Context) {
 		}()
 
 		// Set headers for download
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", announcement.FileName))
+		encodedFilename := url.PathEscape(announcement.FileName)
+		disposition := fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", announcement.FileName, encodedFilename)
+		c.Header("Content-Disposition", disposition)
 		c.Header("Content-Type", "application/octet-stream")
 		c.File(resolvedPath)
 		return
@@ -564,7 +566,9 @@ func ViewAnnouncementFile(c *gin.Context) {
 		if announcement.MimeType != nil {
 			c.Header("Content-Type", *announcement.MimeType)
 		}
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", announcement.FileName))
+		encodedFilename := url.PathEscape(announcement.FileName)
+		disposition := fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", announcement.FileName, encodedFilename)
+		c.Header("Content-Disposition", disposition)
 		c.File(resolvedPath)
 		return
 	}
@@ -1031,7 +1035,9 @@ func DownloadFundForm(c *gin.Context) {
 			config.DB.Create(&download)
 		}()
 
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", form.FileName))
+		encodedFilename := url.PathEscape(form.FileName)
+		disposition := fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", form.FileName, encodedFilename)
+		c.Header("Content-Disposition", disposition)
 		c.Header("Content-Type", "application/octet-stream")
 		c.File(resolvedPath)
 		return
@@ -1095,7 +1101,9 @@ func ViewFundForm(c *gin.Context) {
 		if form.MimeType != nil {
 			c.Header("Content-Type", *form.MimeType)
 		}
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", form.FileName))
+		encodedFilename := url.PathEscape(form.FileName)
+		disposition := fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", form.FileName, encodedFilename)
+		c.Header("Content-Disposition", disposition)
 		c.File(resolvedPath)
 		return
 	}
@@ -1190,12 +1198,14 @@ func streamRemoteFile(c *gin.Context, remoteURL, displayName string, inline bool
 		}
 	}
 
-	disposition := "attachment"
+	dispositionValue := "attachment"
 	if inline {
-		disposition = "inline"
+		dispositionValue = "inline"
 	}
 
-	c.Header("Content-Disposition", fmt.Sprintf("%s; filename=\"%s\"", disposition, name))
+	encodedName := url.PathEscape(name)
+	dispositionHeader := fmt.Sprintf("%s; filename=\"%s\"; filename*=UTF-8''%s", dispositionValue, name, encodedName)
+	c.Header("Content-Disposition", dispositionHeader)
 
 	// FIX: Use -1 for contentLength to enable chunked transfer encoding.
 	// This prevents ERR_CONTENT_LENGTH_MISMATCH if the connection between
