@@ -783,7 +783,7 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	fileRecord := models.FileUpload{
 		OriginalName: safeFilename,
 		StoredPath:   outputPath,
-		FolderType:   "merge_submissions",
+		FolderType:   "submission",
 		FileSize:     info.Size(),
 		MimeType:     "application/pdf",
 		UploadedBy:   submission.UserID,
