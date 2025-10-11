@@ -120,6 +120,16 @@ func lookupSubcategoryIDsByNames(names []string, nameToID map[string]int) []int 
 	return ids
 }
 
+func buildSubcategorySnapshot(names []string) *string {
+	normalized := normalizeSubcategoryNames(names)
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	snapshot := strings.Join(normalized, ", ")
+	return &snapshot
+}
+
 func parseStoredSubcategories(raw *string, idToName map[int]string, nameToID map[string]int) ([]string, []int) {
 	if raw == nil || *raw == "" {
 		return nil, nil
@@ -588,6 +598,12 @@ func GetDocumentTypes(c *gin.Context) {
 			documentTypeMap["subcategory_names"] = []string{}
 		}
 
+		if dt.SubcategoryName != nil {
+			documentTypeMap["subcategory_name"] = *dt.SubcategoryName
+		} else {
+			documentTypeMap["subcategory_name"] = nil
+		}
+
 		if len(item.IDs) > 0 {
 			documentTypeMap["subcategory_ids"] = item.IDs
 		}
@@ -655,6 +671,12 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 			documentTypeMap["subcategory_names"] = names
 		} else {
 			documentTypeMap["subcategory_names"] = []string{}
+		}
+
+		if dt.SubcategoryName != nil {
+			documentTypeMap["subcategory_name"] = *dt.SubcategoryName
+		} else {
+			documentTypeMap["subcategory_name"] = nil
 		}
 
 		if len(ids) > 0 {
@@ -748,6 +770,7 @@ func UpdateDocumentType(c *gin.Context) {
 		normalized := normalizeSubcategoryNames(*req.SubcategoryNames)
 		if len(normalized) == 0 {
 			updates["subcategory_ids"] = nil
+			updates["subcategory_name"] = nil
 		} else {
 			namesJSON, err := json.Marshal(normalized)
 			if err != nil {
@@ -755,10 +778,16 @@ func UpdateDocumentType(c *gin.Context) {
 				return
 			}
 			updates["subcategory_ids"] = string(namesJSON)
+			if snapshot := buildSubcategorySnapshot(normalized); snapshot != nil {
+				updates["subcategory_name"] = *snapshot
+			} else {
+				updates["subcategory_name"] = nil
+			}
 		}
 	} else if req.SubcategoryIds != nil {
 		if len(*req.SubcategoryIds) == 0 {
 			updates["subcategory_ids"] = nil
+			updates["subcategory_name"] = nil
 		} else {
 			names, err := resolveSubcategoryNamesFromIDs(*req.SubcategoryIds)
 			if err != nil {
@@ -771,6 +800,11 @@ func UpdateDocumentType(c *gin.Context) {
 				return
 			}
 			updates["subcategory_ids"] = string(namesJSON)
+			if snapshot := buildSubcategorySnapshot(names); snapshot != nil {
+				updates["subcategory_name"] = *snapshot
+			} else {
+				updates["subcategory_name"] = nil
+			}
 		}
 	}
 
@@ -852,6 +886,7 @@ func CreateDocumentType(c *gin.Context) {
 		}
 		namesStr := string(namesJSON)
 		documentType.SubcategoryIds = &namesStr
+		documentType.SubcategoryName = buildSubcategorySnapshot(subcategoryNames)
 	}
 
 	if err := config.DB.Create(&documentType).Error; err != nil {
