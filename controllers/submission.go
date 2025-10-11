@@ -534,6 +534,7 @@ func SubmitSubmission(c *gin.Context) {
 		submissionDocument := models.SubmissionDocument{
 			SubmissionID:   submission.SubmissionID,
 			FileID:         fileUpload.FileID,
+			OriginalName:   fileUpload.OriginalName,
 			DocumentTypeID: docType.DocumentTypeID,
 			DisplayOrder:   displayOrder,
 			IsRequired:     false,
@@ -541,7 +542,7 @@ func SubmitSubmission(c *gin.Context) {
 			CreatedAt:      now,
 		}
 
-		if err := tx.Create(&submissionDocument).Error; err != nil {
+		if err := createSubmissionDocumentRecord(tx, &submissionDocument); err != nil {
 			os.Remove(outputPath)
 			return fmt.Errorf("failed to register generated docx: %w", err)
 		}
@@ -837,6 +838,7 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		DocumentTypeID int    `json:"document_type_id" binding:"required"`
 		Description    string `json:"description"`
 		DisplayOrder   int    `json:"display_order"`
+		OriginalName   string `json:"original_name"`
 	}
 
 	var req AttachDocumentRequest
@@ -867,17 +869,23 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		return
 	}
 
+	originalName := strings.TrimSpace(req.OriginalName)
+	if originalName == "" {
+		originalName = fileUpload.OriginalName
+	}
+
 	// Create submission document record
 	document := models.SubmissionDocument{
 		SubmissionID:   submissionID,
 		FileID:         req.FileID,
+		OriginalName:   originalName,
 		DocumentTypeID: req.DocumentTypeID,
 		Description:    req.Description,
 		DisplayOrder:   req.DisplayOrder,
 		CreatedAt:      time.Now(),
 	}
 
-	if err := config.DB.Create(&document).Error; err != nil {
+	if err := createSubmissionDocumentRecord(config.DB, &document); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to attach document"})
 		return
 	}
@@ -1025,6 +1033,7 @@ func AttachDocument(c *gin.Context) {
 		DocumentTypeID int    `json:"document_type_id" binding:"required"`
 		Description    string `json:"description"`
 		DisplayOrder   int    `json:"display_order"`
+		OriginalName   string `json:"original_name"`
 	}
 
 	var req AttachDocumentRequest
@@ -1079,11 +1088,17 @@ func AttachDocument(c *gin.Context) {
 		return
 	}
 
+	originalName := strings.TrimSpace(req.OriginalName)
+	if originalName == "" {
+		originalName = file.OriginalName
+	}
+
 	// Create submission document
 	now := time.Now()
 	submissionDoc := models.SubmissionDocument{
 		SubmissionID:   submission.SubmissionID,
 		FileID:         req.FileID,
+		OriginalName:   originalName,
 		DocumentTypeID: req.DocumentTypeID,
 		Description:    req.Description,
 		DisplayOrder:   req.DisplayOrder,
@@ -1091,7 +1106,7 @@ func AttachDocument(c *gin.Context) {
 		CreatedAt:      now,
 	}
 
-	if err := config.DB.Create(&submissionDoc).Error; err != nil {
+	if err := createSubmissionDocumentRecord(config.DB, &submissionDoc); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to attach document"})
 		return
 	}

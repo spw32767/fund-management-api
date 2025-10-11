@@ -9,8 +9,10 @@ import (
 )
 
 var (
-	fileUploadMetadataOnce      sync.Once
-	fileUploadMetadataSupported bool
+	fileUploadMetadataOnce               sync.Once
+	fileUploadMetadataSupported          bool
+	submissionDocumentOriginalNameOnce   sync.Once
+	submissionDocumentOriginalNameExists bool
 )
 
 // createFileUploadRecord persists a FileUpload while accounting for databases
@@ -31,11 +33,32 @@ func saveFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
 	return db.Save(fileUpload).Error
 }
 
+func createSubmissionDocumentRecord(db *gorm.DB, document *models.SubmissionDocument) error {
+	if !submissionDocumentSupportsOriginalName(db) {
+		return db.Omit("OriginalName").Create(document).Error
+	}
+	return db.Create(document).Error
+}
+
+func saveSubmissionDocumentRecord(db *gorm.DB, document *models.SubmissionDocument) error {
+	if !submissionDocumentSupportsOriginalName(db) {
+		return db.Omit("OriginalName").Save(document).Error
+	}
+	return db.Save(document).Error
+}
+
 func fileUploadSupportsMetadata(db *gorm.DB) bool {
 	fileUploadMetadataOnce.Do(func() {
 		fileUploadMetadataSupported = db.Migrator().HasColumn(&models.FileUpload{}, "metadata")
 	})
 	return fileUploadMetadataSupported
+}
+
+func submissionDocumentSupportsOriginalName(db *gorm.DB) bool {
+	submissionDocumentOriginalNameOnce.Do(func() {
+		submissionDocumentOriginalNameExists = db.Migrator().HasColumn(&models.SubmissionDocument{}, "original_name")
+	})
+	return submissionDocumentOriginalNameExists
 }
 
 // enrichSubmissionDocumentsWithFileMetadata copies frequently used file fields onto the

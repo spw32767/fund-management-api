@@ -170,6 +170,7 @@ type SubmissionDocument struct {
 	DocumentID       int        `gorm:"primaryKey;column:document_id" json:"document_id"`
 	SubmissionID     int        `gorm:"column:submission_id" json:"submission_id"`
 	FileID           int        `gorm:"column:file_id" json:"file_id"`
+	OriginalName     string     `gorm:"column:original_name" json:"original_name"`
 	DocumentTypeID   int        `gorm:"column:document_type_id" json:"document_type_id"`
 	DocumentTypeName string     `gorm:"->;column:document_type_name" json:"document_type_name"`
 	Description      string     `gorm:"column:description" json:"description"`
