@@ -12,6 +12,7 @@ import (
 	"fund-management-api/utils"
 	"io"
 	"io/fs"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -490,43 +491,108 @@ func mergePDFs(inputs []string, outputPath string) error {
 		absInputs = append(absInputs, absInput)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(absOutput), 0o755); err != nil {
+		return fmt.Errorf("failed to prepare output directory: %w", err)
+	}
+
+	log.Printf("[mergePDFs] preparing to merge %d pdf(s) into %s", len(absInputs), absOutput)
+	log.Printf("[mergePDFs] inputs: %v", absInputs)
+
+	if len(absInputs) == 1 {
+		log.Printf("[mergePDFs] single input detected; copying %s to %s", absInputs[0], absOutput)
+		return copyPDF(absInputs[0], absOutput)
+	}
+
 	var attempts []string
 
 	if nodeBinary, err := resolveNodeBinary(); err == nil {
+		log.Printf("[mergePDFs] attempting merge with node binary %s", nodeBinary)
 		if err := mergePDFsWithNode(nodeBinary, absInputs, absOutput); err == nil {
+			log.Printf("[mergePDFs] node-based merge succeeded")
 			return nil
-		} else {
-			attempts = append(attempts, fmt.Sprintf("node (%v)", err))
 		}
+		log.Printf("[mergePDFs] node-based merge failed: %v", err)
+		attempts = append(attempts, fmt.Sprintf("node (%v)", err))
 	} else {
+		log.Printf("[mergePDFs] node binary unavailable: %v", err)
 		attempts = append(attempts, fmt.Sprintf("node (%v)", err))
 	}
 
 	if gsBinary, err := exec.LookPath("gs"); err == nil {
+		log.Printf("[mergePDFs] attempting merge with ghostscript binary %s", gsBinary)
 		if err := mergePDFsWithGhostscript(gsBinary, absInputs, absOutput); err == nil {
+			log.Printf("[mergePDFs] ghostscript merge succeeded")
 			return nil
-		} else {
-			attempts = append(attempts, fmt.Sprintf("gs (%v)", err))
 		}
+		log.Printf("[mergePDFs] ghostscript merge failed: %v", err)
+		attempts = append(attempts, fmt.Sprintf("gs (%v)", err))
 	} else {
+		log.Printf("[mergePDFs] ghostscript not found: %v", err)
 		attempts = append(attempts, fmt.Sprintf("gs (%v)", err))
 	}
 
 	if uniteBinary, err := exec.LookPath("pdfunite"); err == nil {
+		log.Printf("[mergePDFs] attempting merge with pdfunite binary %s", uniteBinary)
 		if err := mergePDFsWithPdfunite(uniteBinary, absInputs, absOutput); err == nil {
+			log.Printf("[mergePDFs] pdfunite merge succeeded")
 			return nil
-		} else {
-			attempts = append(attempts, fmt.Sprintf("pdfunite (%v)", err))
 		}
+		log.Printf("[mergePDFs] pdfunite merge failed: %v", err)
+		attempts = append(attempts, fmt.Sprintf("pdfunite (%v)", err))
 	} else {
+		log.Printf("[mergePDFs] pdfunite not found: %v", err)
 		attempts = append(attempts, fmt.Sprintf("pdfunite (%v)", err))
 	}
 
 	if len(attempts) == 0 {
-		return fmt.Errorf("failed to merge pdf files: no merge strategy available")
+		err := fmt.Errorf("failed to merge pdf files: no merge strategy available")
+		log.Printf("[mergePDFs] %v", err)
+		return err
 	}
 
-	return fmt.Errorf("failed to merge pdf files: %s", strings.Join(attempts, "; "))
+	err = fmt.Errorf("failed to merge pdf files: %s", strings.Join(attempts, "; "))
+	log.Printf("[mergePDFs] %v", err)
+	return err
+}
+
+func copyPDF(src, dst string) error {
+	if src == dst {
+		return nil
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source pdf: %w", err)
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination pdf: %w", err)
+	}
+
+	success := false
+	defer func() {
+		if !success {
+			out.Close()
+			os.Remove(dst)
+		}
+	}()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("failed to copy pdf: %w", err)
+	}
+
+	if err := out.Sync(); err != nil {
+		return fmt.Errorf("failed to flush pdf: %w", err)
+	}
+
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("failed to close destination pdf: %w", err)
+	}
+
+	success = true
+	return nil
 }
 
 func mergePDFsWithNode(nodeBinary string, inputs []string, outputPath string) error {

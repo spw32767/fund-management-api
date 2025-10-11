@@ -11,6 +11,7 @@ import (
 	"fund-management-api/models"
 	"fund-management-api/utils"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -650,6 +651,8 @@ func MergeSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[MergeSubmissionDocuments] user %d requested merge for submission %d", userID, submissionID)
+
 	roleIDValue, _ := c.Get("roleID")
 	roleID, _ := roleIDValue.(int)
 
@@ -664,20 +667,24 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	var submission models.Submission
 	if err := query.First(&submission).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[MergeSubmissionDocuments] submission %d not found", submissionID)
 			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 			return
 		}
+		log.Printf("[MergeSubmissionDocuments] failed to load submission %d: %v", submissionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
 		return
 	}
 
 	if submission.SubmittedAt == nil {
+		log.Printf("[MergeSubmissionDocuments] submission %d has not been submitted yet", submission.SubmissionID)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission must be submitted before merging documents"})
 		return
 	}
 
 	documents, err := fetchSubmissionDocuments(config.DB, submission.SubmissionID)
 	if err != nil {
+		log.Printf("[MergeSubmissionDocuments] failed to load documents for submission %d: %v", submission.SubmissionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission documents"})
 		return
 	}
@@ -690,32 +697,40 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	pdfPaths := make([]string, 0, len(documents))
 	for _, doc := range documents {
 		file := doc.File
+		log.Printf("[MergeSubmissionDocuments] inspecting document %d (file_id=%d) for submission %d", doc.DocumentID, file.FileID, submission.SubmissionID)
 		if file.FileID == 0 {
+			log.Printf("[MergeSubmissionDocuments] skipping document %d: missing file record", doc.DocumentID)
 			continue
 		}
 
 		storedPath := strings.TrimSpace(file.StoredPath)
 		if storedPath == "" {
+			log.Printf("[MergeSubmissionDocuments] skipping document %d: empty stored path", doc.DocumentID)
 			continue
 		}
 
 		mimeType := strings.ToLower(strings.TrimSpace(file.MimeType))
 		ext := strings.ToLower(filepath.Ext(storedPath))
 		originalExt := strings.ToLower(filepath.Ext(file.OriginalName))
+		log.Printf("[MergeSubmissionDocuments] document %d mime=%q stored_ext=%q original_ext=%q", doc.DocumentID, mimeType, ext, originalExt)
 
 		if mimeType != "application/pdf" && ext != ".pdf" && originalExt != ".pdf" {
+			log.Printf("[MergeSubmissionDocuments] skipping document %d: not a pdf", doc.DocumentID)
 			continue
 		}
 
 		resolvedPath := resolveStoredFilePath(storedPath, uploadRoot)
 		if resolvedPath == "" {
+			log.Printf("[MergeSubmissionDocuments] skipping document %d: could not resolve stored path %q", doc.DocumentID, storedPath)
 			continue
 		}
 
+		log.Printf("[MergeSubmissionDocuments] submission %d resolved pdf path %s", submission.SubmissionID, resolvedPath)
 		pdfPaths = append(pdfPaths, resolvedPath)
 	}
 
 	if len(pdfPaths) == 0 {
+		log.Printf("[MergeSubmissionDocuments] submission %d has no PDF documents", submission.SubmissionID)
 		c.JSON(http.StatusOK, gin.H{
 			"success":       true,
 			"merged_file":   nil,
@@ -727,7 +742,9 @@ func MergeSubmissionDocuments(c *gin.Context) {
 
 	currentYear := getCurrentBEYearStr()
 	mergeDir := filepath.Join(uploadRoot, "merge_submissions", currentYear)
+	log.Printf("[MergeSubmissionDocuments] preparing merge output directory %s", mergeDir)
 	if err := os.MkdirAll(mergeDir, 0o755); err != nil {
+		log.Printf("[MergeSubmissionDocuments] failed to create merge directory %s: %v", mergeDir, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare merge directory"})
 		return
 	}
@@ -745,7 +762,9 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	safeFilename := utils.GenerateUniqueFilename(mergeDir, desiredFilename)
 	outputPath := filepath.Join(mergeDir, safeFilename)
 
+	log.Printf("[MergeSubmissionDocuments] merging %d pdf(s) into %s", len(pdfPaths), outputPath)
 	if err := mergePDFs(pdfPaths, outputPath); err != nil {
+		log.Printf("[MergeSubmissionDocuments] merge failed for submission %d: %v", submission.SubmissionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to merge PDF documents: %v", err)})
 		return
 	}
@@ -753,6 +772,7 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	info, err := os.Stat(outputPath)
 	if err != nil {
 		os.Remove(outputPath)
+		log.Printf("[MergeSubmissionDocuments] failed to stat merged file %s: %v", outputPath, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to access merged file"})
 		return
 	}
@@ -772,6 +792,7 @@ func MergeSubmissionDocuments(c *gin.Context) {
 
 	if err := createFileUploadRecord(config.DB, &fileRecord); err != nil {
 		os.Remove(outputPath)
+		log.Printf("[MergeSubmissionDocuments] failed to persist file record for submission %d: %v", submission.SubmissionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
 		return
 	}
@@ -781,6 +802,8 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	if trimmed := strings.TrimPrefix(relativePath, cleanedRoot+"/"); trimmed != relativePath {
 		relativePath = filepath.ToSlash(filepath.Join(filepath.Base(cleanedRoot), trimmed))
 	}
+
+	log.Printf("[MergeSubmissionDocuments] submission %d merged file stored as %s (file_id=%d)", submission.SubmissionID, relativePath, fileRecord.FileID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
