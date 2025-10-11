@@ -120,64 +120,69 @@ func lookupSubcategoryIDsByNames(names []string, nameToID map[string]int) []int 
 	return ids
 }
 
-func buildSubcategorySnapshot(names []string) *string {
-	normalized := normalizeSubcategoryNames(names)
-	if len(normalized) == 0 {
-		return nil
-	}
-
-	snapshot := strings.Join(normalized, ", ")
-	return &snapshot
-}
-
 func parseStoredSubcategories(raw *string, idToName map[int]string, nameToID map[string]int) ([]string, []int) {
 	if raw == nil || *raw == "" {
-		return nil, nil
+		return []string{}, []int{}
 	}
 
-	var rawItems []interface{}
-	if err := json.Unmarshal([]byte(*raw), &rawItems); err != nil {
-		return nil, nil
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return []string{}, []int{}
 	}
 
-	names := make([]string, 0, len(rawItems))
-	ids := make([]int, 0, len(rawItems))
+	appendName := func(names *[]string, seen map[string]bool, value string) {
+		trimmedName := strings.TrimSpace(value)
+		if trimmedName == "" {
+			return
+		}
+		lower := strings.ToLower(trimmedName)
+		if seen[lower] {
+			return
+		}
+		seen[lower] = true
+		*names = append(*names, trimmedName)
+	}
+
+	appendID := func(ids *[]int, seen map[int]bool, id int) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		*ids = append(*ids, id)
+	}
+
+	processStringEntry := func(value string, names *[]string, ids *[]int, seenNames map[string]bool, seenIDs map[int]bool) {
+		appendName(names, seenNames, value)
+		lower := strings.ToLower(strings.TrimSpace(value))
+		if id, ok := nameToID[lower]; ok {
+			appendID(ids, seenIDs, id)
+		}
+	}
+
+	names := make([]string, 0)
+	ids := make([]int, 0)
 	seenNames := make(map[string]bool)
 	seenIDs := make(map[int]bool)
+
+	var rawItems []interface{}
+	if err := json.Unmarshal([]byte(trimmed), &rawItems); err != nil {
+		// Fallback for legacy snapshot strings stored as comma separated text
+		parts := strings.Split(trimmed, ",")
+		for _, part := range parts {
+			processStringEntry(part, &names, &ids, seenNames, seenIDs)
+		}
+		return names, ids
+	}
 
 	for _, item := range rawItems {
 		switch value := item.(type) {
 		case string:
-			trimmed := strings.TrimSpace(value)
-			if trimmed == "" {
-				continue
-			}
-			lower := strings.ToLower(trimmed)
-			if !seenNames[lower] {
-				names = append(names, trimmed)
-				seenNames[lower] = true
-			}
-			if id, ok := nameToID[lower]; ok {
-				if !seenIDs[id] {
-					ids = append(ids, id)
-					seenIDs[id] = true
-				}
-			}
+			processStringEntry(value, &names, &ids, seenNames, seenIDs)
 		case float64:
 			id := int(value)
-			if !seenIDs[id] {
-				ids = append(ids, id)
-				seenIDs[id] = true
-			}
+			appendID(&ids, seenIDs, id)
 			if name, ok := idToName[id]; ok {
-				trimmed := strings.TrimSpace(name)
-				if trimmed != "" {
-					lower := strings.ToLower(trimmed)
-					if !seenNames[lower] {
-						names = append(names, trimmed)
-						seenNames[lower] = true
-					}
-				}
+				processStringEntry(name, &names, &ids, seenNames, seenIDs)
 			}
 		default:
 			continue
@@ -185,6 +190,99 @@ func parseStoredSubcategories(raw *string, idToName map[int]string, nameToID map
 	}
 
 	return names, ids
+}
+
+type documentTypeMetadata struct {
+	FundTypes          []string
+	FundTypeMode       string
+	SubcategoryNames   []string
+	SubcategoryIDs     []int
+	SubcategoryMode    string
+	PrimarySubcategory *string
+}
+
+func dedupeFundTypes(values []string) []string {
+	seen := make(map[string]bool)
+	normalized := make([]string, 0, len(values))
+
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if seen[lower] {
+			continue
+		}
+		seen[lower] = true
+		normalized = append(normalized, trimmed)
+	}
+
+	return normalized
+}
+
+func computeDocumentTypeMetadata(dt models.DocumentType, idToName map[int]string, nameToID map[string]int) documentTypeMetadata {
+	meta := documentTypeMetadata{
+		FundTypes:        []string{},
+		FundTypeMode:     "inactive",
+		SubcategoryNames: []string{},
+		SubcategoryIDs:   []int{},
+		SubcategoryMode:  "inactive",
+	}
+
+	if dt.FundTypes != nil {
+		var parsed []string
+		if err := json.Unmarshal([]byte(*dt.FundTypes), &parsed); err == nil {
+			meta.FundTypes = dedupeFundTypes(parsed)
+			if len(meta.FundTypes) == 0 {
+				meta.FundTypeMode = "all"
+			} else {
+				meta.FundTypeMode = "limited"
+			}
+		} else {
+			meta.FundTypes = []string{}
+			meta.FundTypeMode = "all"
+		}
+	}
+
+	names, ids := parseStoredSubcategories(dt.SubcategoryName, idToName, nameToID)
+	if len(names) == 0 && len(ids) == 0 && dt.SubcategoryIds != nil {
+		fallbackNames, fallbackIDs := parseStoredSubcategories(dt.SubcategoryIds, idToName, nameToID)
+		names = fallbackNames
+		ids = fallbackIDs
+	}
+
+	meta.SubcategoryNames = names
+	meta.SubcategoryIDs = ids
+
+	if len(meta.SubcategoryNames) > 0 {
+		primary := strings.TrimSpace(meta.SubcategoryNames[0])
+		if primary != "" {
+			meta.PrimarySubcategory = &primary
+		}
+	}
+
+	if dt.SubcategoryName == nil {
+		if len(meta.SubcategoryNames) > 0 || len(meta.SubcategoryIDs) > 0 {
+			meta.SubcategoryMode = "limited"
+		} else if meta.FundTypeMode == "inactive" {
+			meta.SubcategoryMode = "inactive"
+		} else {
+			meta.SubcategoryMode = "all"
+		}
+	} else {
+		if len(meta.SubcategoryNames) == 0 {
+			meta.SubcategoryMode = "all"
+		} else {
+			meta.SubcategoryMode = "limited"
+		}
+	}
+
+	if meta.FundTypeMode == "inactive" {
+		meta.SubcategoryMode = "inactive"
+	}
+
+	return meta
 }
 
 // UploadDocument handles document upload for application (User-Based Folders)
@@ -503,35 +601,31 @@ func GetDocumentTypes(c *gin.Context) {
 
 	type docWithMetadata struct {
 		Document models.DocumentType
-		Names    []string
-		IDs      []int
+		Metadata documentTypeMetadata
 	}
 
 	// Apply fund_type and subcategory filtering
 	var filteredTypes []docWithMetadata
 	for _, dt := range documentTypes {
+		meta := computeDocumentTypeMetadata(dt, idToName, nameToID)
 		shouldInclude := true
-		var parsedNames []string
-		var parsedIDs []int
 
-		if dt.SubcategoryIds != nil {
-			parsedNames, parsedIDs = parseStoredSubcategories(dt.SubcategoryIds, idToName, nameToID)
-		}
-
-		// Filter by fund_type
 		if fundType != "" {
 			matched := false
-			if dt.FundTypes != nil {
-				var fundTypes []string
-				if err := json.Unmarshal([]byte(*dt.FundTypes), &fundTypes); err == nil {
-					for _, ft := range fundTypes {
-						if ft == fundType {
-							matched = true
-							break
-						}
+			switch meta.FundTypeMode {
+			case "inactive":
+				matched = false
+			case "all":
+				matched = true
+			default:
+				for _, ft := range meta.FundTypes {
+					if ft == fundType {
+						matched = true
+						break
 					}
 				}
 			}
+
 			if !matched {
 				shouldInclude = false
 			}
@@ -539,11 +633,11 @@ func GetDocumentTypes(c *gin.Context) {
 
 		// Filter by subcategory name (converted from id if necessary)
 		if subcategoryNameFilter != "" && shouldInclude {
-			if len(parsedNames) == 0 {
+			if len(meta.SubcategoryNames) == 0 {
 				shouldInclude = false
 			} else {
 				match := false
-				for _, name := range parsedNames {
+				for _, name := range meta.SubcategoryNames {
 					if strings.ToLower(name) == subcategoryNameFilter {
 						match = true
 						break
@@ -558,8 +652,7 @@ func GetDocumentTypes(c *gin.Context) {
 		if shouldInclude {
 			filteredTypes = append(filteredTypes, docWithMetadata{
 				Document: dt,
-				Names:    parsedNames,
-				IDs:      parsedIDs,
+				Metadata: meta,
 			})
 		}
 	}
@@ -568,6 +661,8 @@ func GetDocumentTypes(c *gin.Context) {
 	var result []map[string]interface{}
 	for _, item := range filteredTypes {
 		dt := item.Document
+		meta := item.Metadata
+
 		documentTypeMap := map[string]interface{}{
 			// Original fields for backward compatibility
 			"id":       dt.DocumentTypeID,
@@ -584,28 +679,25 @@ func GetDocumentTypes(c *gin.Context) {
 			"document_type_name": dt.DocumentTypeName,
 		}
 
-		// Add new fields if they exist
 		if dt.FundTypes != nil {
-			var fundTypes []string
-			if err := json.Unmarshal([]byte(*dt.FundTypes), &fundTypes); err == nil {
-				documentTypeMap["fund_types"] = fundTypes
-			}
-		}
-
-		if len(item.Names) > 0 {
-			documentTypeMap["subcategory_names"] = item.Names
+			documentTypeMap["fund_types"] = meta.FundTypes
 		} else {
-			documentTypeMap["subcategory_names"] = []string{}
+			documentTypeMap["fund_types"] = nil
 		}
+		documentTypeMap["fund_type_mode"] = meta.FundTypeMode
 
-		if dt.SubcategoryName != nil {
-			documentTypeMap["subcategory_name"] = *dt.SubcategoryName
+		documentTypeMap["subcategory_names"] = meta.SubcategoryNames
+		if meta.PrimarySubcategory != nil {
+			documentTypeMap["subcategory_name"] = *meta.PrimarySubcategory
 		} else {
 			documentTypeMap["subcategory_name"] = nil
 		}
+		documentTypeMap["subcategory_mode"] = meta.SubcategoryMode
 
-		if len(item.IDs) > 0 {
-			documentTypeMap["subcategory_ids"] = item.IDs
+		if len(meta.SubcategoryIDs) > 0 {
+			documentTypeMap["subcategory_ids"] = meta.SubcategoryIDs
+		} else {
+			documentTypeMap["subcategory_ids"] = []int{}
 		}
 
 		result = append(result, documentTypeMap)
@@ -642,6 +734,8 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 	// Transform for admin frontend with all fields
 	var result []map[string]interface{}
 	for _, dt := range documentTypes {
+		meta := computeDocumentTypeMetadata(dt, idToName, nameToID)
+
 		documentTypeMap := map[string]interface{}{
 			"document_type_id":   dt.DocumentTypeID,
 			"document_type_name": dt.DocumentTypeName,
@@ -653,36 +747,25 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 			"update_at":          dt.UpdateAt,
 		}
 
-		// Parse and add fund_types
 		if dt.FundTypes != nil {
-			var fundTypes []string
-			if err := json.Unmarshal([]byte(*dt.FundTypes), &fundTypes); err == nil {
-				documentTypeMap["fund_types"] = fundTypes
-			} else {
-				documentTypeMap["fund_types"] = nil
-			}
+			documentTypeMap["fund_types"] = meta.FundTypes
 		} else {
 			documentTypeMap["fund_types"] = nil
 		}
+		documentTypeMap["fund_type_mode"] = meta.FundTypeMode
 
-		// Parse and add subcategory_ids
-		names, ids := parseStoredSubcategories(dt.SubcategoryIds, idToName, nameToID)
-		if len(names) > 0 {
-			documentTypeMap["subcategory_names"] = names
-		} else {
-			documentTypeMap["subcategory_names"] = []string{}
-		}
-
-		if dt.SubcategoryName != nil {
-			documentTypeMap["subcategory_name"] = *dt.SubcategoryName
+		documentTypeMap["subcategory_names"] = meta.SubcategoryNames
+		if meta.PrimarySubcategory != nil {
+			documentTypeMap["subcategory_name"] = *meta.PrimarySubcategory
 		} else {
 			documentTypeMap["subcategory_name"] = nil
 		}
+		documentTypeMap["subcategory_mode"] = meta.SubcategoryMode
 
-		if len(ids) > 0 {
-			documentTypeMap["subcategory_ids"] = ids
+		if len(meta.SubcategoryIDs) > 0 {
+			documentTypeMap["subcategory_ids"] = meta.SubcategoryIDs
 		} else {
-			documentTypeMap["subcategory_ids"] = nil
+			documentTypeMap["subcategory_ids"] = []int{}
 		}
 
 		result = append(result, documentTypeMap)
@@ -765,7 +848,7 @@ func UpdateDocumentType(c *gin.Context) {
 		}
 	}
 
-	// Handle subcategory_ids JSON field
+	// Handle subcategory assignments (stored as JSON names array)
 	if req.SubcategoryNames != nil {
 		normalized := normalizeSubcategoryNames(*req.SubcategoryNames)
 		if len(normalized) == 0 {
@@ -777,34 +860,28 @@ func UpdateDocumentType(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_names format"})
 				return
 			}
-			updates["subcategory_ids"] = string(namesJSON)
-			if snapshot := buildSubcategorySnapshot(normalized); snapshot != nil {
-				updates["subcategory_name"] = *snapshot
-			} else {
-				updates["subcategory_name"] = nil
-			}
+			namesJSONStr := string(namesJSON)
+			updates["subcategory_ids"] = namesJSONStr
+			updates["subcategory_name"] = namesJSONStr
 		}
 	} else if req.SubcategoryIds != nil {
-		if len(*req.SubcategoryIds) == 0 {
+		names, err := resolveSubcategoryNamesFromIDs(*req.SubcategoryIds)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if len(names) == 0 {
 			updates["subcategory_ids"] = nil
 			updates["subcategory_name"] = nil
 		} else {
-			names, err := resolveSubcategoryNamesFromIDs(*req.SubcategoryIds)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
 			namesJSON, err := json.Marshal(names)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_ids format"})
 				return
 			}
-			updates["subcategory_ids"] = string(namesJSON)
-			if snapshot := buildSubcategorySnapshot(names); snapshot != nil {
-				updates["subcategory_name"] = *snapshot
-			} else {
-				updates["subcategory_name"] = nil
-			}
+			namesJSONStr := string(namesJSON)
+			updates["subcategory_ids"] = namesJSONStr
+			updates["subcategory_name"] = namesJSONStr
 		}
 	}
 
@@ -886,7 +963,11 @@ func CreateDocumentType(c *gin.Context) {
 		}
 		namesStr := string(namesJSON)
 		documentType.SubcategoryIds = &namesStr
-		documentType.SubcategoryName = buildSubcategorySnapshot(subcategoryNames)
+		namesStrCopy := namesStr
+		documentType.SubcategoryName = &namesStrCopy
+	} else {
+		documentType.SubcategoryIds = nil
+		documentType.SubcategoryName = nil
 	}
 
 	if err := config.DB.Create(&documentType).Error; err != nil {
