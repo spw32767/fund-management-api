@@ -303,6 +303,8 @@ func determineInitialStatusID(submissionType string, requestedStatusID *int, rol
 	}
 
 	switch submissionType {
+	case "fund_application":
+		return utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending)
 	case "publication_reward":
 		return utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending)
 	default:
@@ -1991,16 +1993,40 @@ func AddFundDetails(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	type FundDetailsRequest struct {
-		ProjectTitle       string  `json:"project_title"`
-		ProjectDescription string  `json:"project_description"`
-		RequestedAmount    float64 `json:"requested_amount"`
-		SubcategoryID      int     `json:"subcategory_id"`
+		ProjectTitle                string  `json:"project_title"`
+		ProjectDescription          string  `json:"project_description"`
+		RequestedAmount             float64 `json:"requested_amount"`
+		SubcategoryID               int     `json:"subcategory_id"`
+		MainAnnoucement             *int    `json:"main_annoucement"`
+		ActivitySupportAnnouncement *int    `json:"activity_support_announcement"`
 	}
 
 	var req FundDetailsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Resolve announcement snapshot at the time of submission.
+	var ann struct {
+		MainAnnoucement             *int
+		ActivitySupportAnnouncement *int
+	}
+	if err := config.DB.Raw(`
+                SELECT main_annoucement, activity_support_announcement
+                FROM system_config
+                ORDER BY config_id DESC
+                LIMIT 1
+        `).Scan(&ann).Error; err != nil {
+		ann.MainAnnoucement = req.MainAnnoucement
+		ann.ActivitySupportAnnouncement = req.ActivitySupportAnnouncement
+	}
+
+	if ann.MainAnnoucement == nil && req.MainAnnoucement != nil {
+		ann.MainAnnoucement = req.MainAnnoucement
+	}
+	if ann.ActivitySupportAnnouncement == nil && req.ActivitySupportAnnouncement != nil {
+		ann.ActivitySupportAnnouncement = req.ActivitySupportAnnouncement
 	}
 
 	// Validate submission exists and user has permission
@@ -2026,11 +2052,13 @@ func AddFundDetails(c *gin.Context) {
 
 	// Create fund application details
 	fundDetails := models.FundApplicationDetail{
-		SubmissionID:       submission.SubmissionID,
-		SubcategoryID:      req.SubcategoryID,
-		ProjectTitle:       req.ProjectTitle,
-		ProjectDescription: req.ProjectDescription,
-		RequestedAmount:    req.RequestedAmount,
+		SubmissionID:                submission.SubmissionID,
+		SubcategoryID:               req.SubcategoryID,
+		ProjectTitle:                req.ProjectTitle,
+		ProjectDescription:          req.ProjectDescription,
+		RequestedAmount:             req.RequestedAmount,
+		MainAnnoucement:             ann.MainAnnoucement,
+		ActivitySupportAnnouncement: ann.ActivitySupportAnnouncement,
 	}
 
 	if err := config.DB.Create(&fundDetails).Error; err != nil {
