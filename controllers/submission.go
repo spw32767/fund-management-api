@@ -682,6 +682,11 @@ func MergeSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
+	uploadRoot := os.Getenv("UPLOAD_PATH")
+	if uploadRoot == "" {
+		uploadRoot = "./uploads"
+	}
+
 	pdfPaths := make([]string, 0, len(documents))
 	for _, doc := range documents {
 		file := doc.File
@@ -702,11 +707,12 @@ func MergeSubmissionDocuments(c *gin.Context) {
 			continue
 		}
 
-		if _, err := os.Stat(storedPath); err != nil {
+		resolvedPath := resolveStoredFilePath(storedPath, uploadRoot)
+		if resolvedPath == "" {
 			continue
 		}
 
-		pdfPaths = append(pdfPaths, storedPath)
+		pdfPaths = append(pdfPaths, resolvedPath)
 	}
 
 	if len(pdfPaths) == 0 {
@@ -717,11 +723,6 @@ func MergeSubmissionDocuments(c *gin.Context) {
 			"pdf_documents": 0,
 		})
 		return
-	}
-
-	uploadRoot := os.Getenv("UPLOAD_PATH")
-	if uploadRoot == "" {
-		uploadRoot = "./uploads"
 	}
 
 	currentYear := getCurrentBEYearStr()
@@ -791,6 +792,57 @@ func MergeSubmissionDocuments(c *gin.Context) {
 			"size":          fileRecord.FileSize,
 		},
 	})
+}
+
+func resolveStoredFilePath(storedPath, uploadRoot string) string {
+	trimmed := strings.TrimSpace(storedPath)
+	if trimmed == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	fromSlash := filepath.FromSlash(normalized)
+
+	candidates := make([]string, 0, 6)
+	seen := make(map[string]struct{})
+	addCandidate := func(path string) {
+		cleaned := strings.TrimSpace(path)
+		if cleaned == "" {
+			return
+		}
+		cleaned = filepath.Clean(filepath.FromSlash(strings.ReplaceAll(cleaned, "\\", "/")))
+		if cleaned == "." {
+			return
+		}
+		if _, exists := seen[cleaned]; exists {
+			return
+		}
+		seen[cleaned] = struct{}{}
+		candidates = append(candidates, cleaned)
+	}
+
+	addCandidate(trimmed)
+	addCandidate(normalized)
+	addCandidate(fromSlash)
+
+	rootCandidate := strings.TrimSpace(uploadRoot)
+	if rootCandidate != "" {
+		rootCandidate = filepath.Clean(filepath.FromSlash(strings.ReplaceAll(rootCandidate, "\\", "/")))
+		if rootCandidate != "" && rootCandidate != "." {
+			if !filepath.IsAbs(fromSlash) && filepath.VolumeName(fromSlash) == "" {
+				addCandidate(filepath.Join(rootCandidate, normalized))
+				addCandidate(filepath.Join(rootCandidate, fromSlash))
+			}
+		}
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func nextDocumentDisplayOrder(existing []models.SubmissionDocument) int {
