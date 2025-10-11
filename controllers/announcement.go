@@ -10,6 +10,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -458,41 +459,73 @@ func DownloadAnnouncementFile(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, err := utils.ResolveStoredFilePath(announcement.FilePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		} else {
-			log.Printf("DownloadAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
-		}
+	resolvedPath, localErr := utils.ResolveStoredFilePath(announcement.FilePath)
+	if localErr == nil {
+		// Track download (optional)
+		go func() {
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
+
+			view := models.AnnouncementView{
+				AnnouncementID: announcement.AnnouncementID,
+				IPAddress:      &ipAddress,
+				UserAgent:      &userAgent,
+				ViewedAt:       time.Now(),
+			}
+
+			if userID != nil {
+				view.UserID = userID.(*int)
+			}
+
+			config.DB.Create(&view)
+		}()
+
+		// Set headers for download
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", announcement.FileName))
+		c.Header("Content-Type", "application/octet-stream")
+		c.File(resolvedPath)
 		return
 	}
 
-	// Track download (optional)
-	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
+	remoteURL := remoteURLFromStoredPath(announcement.FilePath)
+	if remoteURL != "" {
+		if err := streamRemoteFile(c, remoteURL, announcement.FileName, false, "application/octet-stream"); err == nil {
+			go func() {
+				ipAddress := c.ClientIP()
+				userAgent := c.GetHeader("User-Agent")
 
-		// Record download in tracking table (if enabled)
-		view := models.AnnouncementView{
-			AnnouncementID: announcement.AnnouncementID,
-			IPAddress:      &ipAddress,
-			UserAgent:      &userAgent,
-			ViewedAt:       time.Now(),
+				view := models.AnnouncementView{
+					AnnouncementID: announcement.AnnouncementID,
+					IPAddress:      &ipAddress,
+					UserAgent:      &userAgent,
+					ViewedAt:       time.Now(),
+				}
+
+				if userID != nil {
+					view.UserID = userID.(*int)
+				}
+
+				config.DB.Create(&view)
+			}()
+			return
+		} else {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			} else {
+				log.Printf("DownloadAnnouncementFile: failed to stream remote file %q: %v", remoteURL, err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch file from remote storage"})
+			}
+			return
 		}
+	}
 
-		if userID != nil {
-			view.UserID = userID.(*int)
-		}
+	if errors.Is(localErr, os.ErrNotExist) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
 
-		config.DB.Create(&view)
-	}()
-
-	// Set headers for download
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", announcement.FileName))
-	c.Header("Content-Type", "application/octet-stream")
-	c.File(resolvedPath)
+	log.Printf("DownloadAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, localErr)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
 }
 
 // ViewAnnouncementFile - ดูไฟล์ประกาศ (inline)
@@ -508,42 +541,78 @@ func ViewAnnouncementFile(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, err := utils.ResolveStoredFilePath(announcement.FilePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		} else {
-			log.Printf("ViewAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+	resolvedPath, localErr := utils.ResolveStoredFilePath(announcement.FilePath)
+	if localErr == nil {
+		go func() {
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
+
+			view := models.AnnouncementView{
+				AnnouncementID: announcement.AnnouncementID,
+				IPAddress:      &ipAddress,
+				UserAgent:      &userAgent,
+				ViewedAt:       time.Now(),
+			}
+
+			if userID != nil {
+				view.UserID = userID.(*int)
+			}
+
+			config.DB.Create(&view)
+		}()
+
+		if announcement.MimeType != nil {
+			c.Header("Content-Type", *announcement.MimeType)
 		}
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", announcement.FileName))
+		c.File(resolvedPath)
 		return
 	}
 
-	// Track view (optional)
-	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
-
-		view := models.AnnouncementView{
-			AnnouncementID: announcement.AnnouncementID,
-			IPAddress:      &ipAddress,
-			UserAgent:      &userAgent,
-			ViewedAt:       time.Now(),
+	remoteURL := remoteURLFromStoredPath(announcement.FilePath)
+	if remoteURL != "" {
+		mimeType := ""
+		if announcement.MimeType != nil {
+			mimeType = strings.TrimSpace(*announcement.MimeType)
 		}
 
-		if userID != nil {
-			view.UserID = userID.(*int)
+		if err := streamRemoteFile(c, remoteURL, announcement.FileName, true, mimeType); err == nil {
+			go func() {
+				ipAddress := c.ClientIP()
+				userAgent := c.GetHeader("User-Agent")
+
+				view := models.AnnouncementView{
+					AnnouncementID: announcement.AnnouncementID,
+					IPAddress:      &ipAddress,
+					UserAgent:      &userAgent,
+					ViewedAt:       time.Now(),
+				}
+
+				if userID != nil {
+					view.UserID = userID.(*int)
+				}
+
+				config.DB.Create(&view)
+			}()
+			return
+		} else {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			} else {
+				log.Printf("ViewAnnouncementFile: failed to stream remote file %q: %v", remoteURL, err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch file from remote storage"})
+			}
+			return
 		}
-
-		config.DB.Create(&view)
-	}()
-
-	// Set headers for inline viewing
-	if announcement.MimeType != nil {
-		c.Header("Content-Type", *announcement.MimeType)
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", announcement.FileName))
-	c.File(resolvedPath)
+
+	if errors.Is(localErr, os.ErrNotExist) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	log.Printf("ViewAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, localErr)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
 }
 
 // ===== FUND FORM CONTROLLERS =====
@@ -942,40 +1011,71 @@ func DownloadFundForm(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, err := utils.ResolveStoredFilePath(form.FilePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		} else {
-			log.Printf("DownloadFundForm: failed to resolve file path %q: %v", form.FilePath, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
-		}
+	resolvedPath, localErr := utils.ResolveStoredFilePath(form.FilePath)
+	if localErr == nil {
+		go func() {
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
+
+			download := models.FormDownload{
+				FormID:       form.FormID,
+				IPAddress:    &ipAddress,
+				UserAgent:    &userAgent,
+				DownloadedAt: time.Now(),
+			}
+
+			if userID != nil {
+				download.UserID = userID.(*int)
+			}
+
+			config.DB.Create(&download)
+		}()
+
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", form.FileName))
+		c.Header("Content-Type", "application/octet-stream")
+		c.File(resolvedPath)
 		return
 	}
 
-	// Track download (optional)
-	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
+	remoteURL := remoteURLFromStoredPath(form.FilePath)
+	if remoteURL != "" {
+		if err := streamRemoteFile(c, remoteURL, form.FileName, false, "application/octet-stream"); err == nil {
+			go func() {
+				ipAddress := c.ClientIP()
+				userAgent := c.GetHeader("User-Agent")
 
-		download := models.FormDownload{
-			FormID:       form.FormID,
-			IPAddress:    &ipAddress,
-			UserAgent:    &userAgent,
-			DownloadedAt: time.Now(),
+				download := models.FormDownload{
+					FormID:       form.FormID,
+					IPAddress:    &ipAddress,
+					UserAgent:    &userAgent,
+					DownloadedAt: time.Now(),
+				}
+
+				if userID != nil {
+					download.UserID = userID.(*int)
+				}
+
+				config.DB.Create(&download)
+			}()
+			return
+		} else {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			} else {
+				log.Printf("DownloadFundForm: failed to stream remote file %q: %v", remoteURL, err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch file from remote storage"})
+			}
+			return
 		}
+	}
 
-		if userID != nil {
-			download.UserID = userID.(*int)
-		}
+	if errors.Is(localErr, os.ErrNotExist) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
 
-		config.DB.Create(&download)
-	}()
-
-	// Set headers for download
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", form.FileName))
-	c.Header("Content-Type", "application/octet-stream")
-	c.File(resolvedPath)
+	log.Printf("DownloadFundForm: failed to resolve file path %q: %v", form.FilePath, localErr)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
 }
 
 // ViewFundForm - ดูแบบฟอร์ม (inline)
@@ -990,26 +1090,115 @@ func ViewFundForm(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, err := utils.ResolveStoredFilePath(form.FilePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-		} else {
-			log.Printf("ViewFundForm: failed to resolve file path %q: %v", form.FilePath, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+	resolvedPath, localErr := utils.ResolveStoredFilePath(form.FilePath)
+	if localErr == nil {
+		if form.MimeType != nil {
+			c.Header("Content-Type", *form.MimeType)
 		}
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", form.FileName))
+		c.File(resolvedPath)
 		return
 	}
 
-	// Set headers for inline viewing
-	if form.MimeType != nil {
-		c.Header("Content-Type", *form.MimeType)
+	remoteURL := remoteURLFromStoredPath(form.FilePath)
+	if remoteURL != "" {
+		mimeType := ""
+		if form.MimeType != nil {
+			mimeType = strings.TrimSpace(*form.MimeType)
+		}
+
+		if err := streamRemoteFile(c, remoteURL, form.FileName, true, mimeType); err == nil {
+			return
+		} else {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			} else {
+				log.Printf("ViewFundForm: failed to stream remote file %q: %v", remoteURL, err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch file from remote storage"})
+			}
+			return
+		}
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", form.FileName))
-	c.File(resolvedPath)
+
+	if errors.Is(localErr, os.ErrNotExist) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	log.Printf("ViewFundForm: failed to resolve file path %q: %v", form.FilePath, localErr)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
 }
 
 // ===== HELPER FUNCTIONS =====
+
+func remoteURLFromStoredPath(storedPath string) string {
+	trimmed := strings.TrimSpace(storedPath)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return ""
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+
+	return trimmed
+}
+
+func streamRemoteFile(c *gin.Context, remoteURL, displayName string, inline bool, fallbackMime string) error {
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, remoteURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Continue
+	case http.StatusNotFound:
+		return os.ErrNotExist
+	default:
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = strings.TrimSpace(fallbackMime)
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		name = filepath.Base(req.URL.Path)
+		if name == "" || name == "." || name == "/" {
+			name = "file"
+		}
+	}
+
+	disposition := "attachment"
+	if inline {
+		disposition = "inline"
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("%s; filename=\"%s\"", disposition, name))
+	c.DataFromReader(http.StatusOK, resp.ContentLength, contentType, resp.Body, nil)
+	return nil
+}
 
 // GetAnnouncementStats - สถิติประกาศ (Admin only)
 func GetAnnouncementStats(c *gin.Context) {
