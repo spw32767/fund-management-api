@@ -5,10 +5,7 @@ package utils
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -187,61 +184,6 @@ func CleanPath(path string) string {
 	path = strings.TrimLeft(path, "/")
 
 	return path
-}
-
-// ResolveStoredFilePath attempts to resolve a stored file path that may be saved
-// as an absolute URL, relative path, or contain encoded characters back to a
-// path that exists on the local filesystem. It returns os.ErrNotExist if the
-// target cannot be found.
-func ResolveStoredFilePath(storedPath string) (string, error) {
-	trimmed := strings.TrimSpace(storedPath)
-	if trimmed == "" {
-		return "", errors.New("empty file path")
-	}
-
-	normalized := strings.ReplaceAll(trimmed, "\\", "/")
-
-	if parsed, err := url.Parse(normalized); err == nil && parsed.Scheme != "" {
-		if parsed.Path == "" {
-			return "", errors.New("url path is empty")
-		}
-		normalized = parsed.Path
-	}
-
-	if decoded, err := url.PathUnescape(normalized); err == nil && decoded != "" {
-		normalized = decoded
-	}
-
-	normalized = filepath.Clean(normalized)
-	normalized = strings.TrimPrefix(normalized, "./")
-
-	candidates := []string{normalized}
-	if strings.HasPrefix(normalized, "/") {
-		withoutSlash := strings.TrimPrefix(normalized, "/")
-		if withoutSlash != "" {
-			candidates = append(candidates, withoutSlash)
-		}
-	} else if normalized != "" {
-		candidates = append(candidates, "/"+normalized)
-	}
-
-	seen := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		candidate = filepath.Clean(candidate)
-		if candidate == "" || candidate == "." {
-			continue
-		}
-		if _, exists := seen[candidate]; exists {
-			continue
-		}
-		seen[candidate] = struct{}{}
-
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-
-	return "", os.ErrNotExist
 }
 
 // GetMimeTypeFromExtension gets MIME type from file extension
