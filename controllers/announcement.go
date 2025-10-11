@@ -2,10 +2,12 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/utils"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -456,9 +458,14 @@ func DownloadAnnouncementFile(c *gin.Context) {
 		return
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(announcement.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+	resolvedPath, err := utils.ResolveStoredFilePath(announcement.FilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		} else {
+			log.Printf("DownloadAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+		}
 		return
 	}
 
@@ -485,7 +492,7 @@ func DownloadAnnouncementFile(c *gin.Context) {
 	// Set headers for download
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", announcement.FileName))
 	c.Header("Content-Type", "application/octet-stream")
-	c.File(announcement.FilePath)
+	c.File(resolvedPath)
 }
 
 // ViewAnnouncementFile - ดูไฟล์ประกาศ (inline)
@@ -501,9 +508,14 @@ func ViewAnnouncementFile(c *gin.Context) {
 		return
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(announcement.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+	resolvedPath, err := utils.ResolveStoredFilePath(announcement.FilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		} else {
+			log.Printf("ViewAnnouncementFile: failed to resolve file path %q: %v", announcement.FilePath, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+		}
 		return
 	}
 
@@ -531,7 +543,7 @@ func ViewAnnouncementFile(c *gin.Context) {
 		c.Header("Content-Type", *announcement.MimeType)
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", announcement.FileName))
-	c.File(announcement.FilePath)
+	c.File(resolvedPath)
 }
 
 // ===== FUND FORM CONTROLLERS =====
@@ -930,9 +942,14 @@ func DownloadFundForm(c *gin.Context) {
 		return
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(form.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+	resolvedPath, err := utils.ResolveStoredFilePath(form.FilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		} else {
+			log.Printf("DownloadFundForm: failed to resolve file path %q: %v", form.FilePath, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+		}
 		return
 	}
 
@@ -958,7 +975,7 @@ func DownloadFundForm(c *gin.Context) {
 	// Set headers for download
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", form.FileName))
 	c.Header("Content-Type", "application/octet-stream")
-	c.File(form.FilePath)
+	c.File(resolvedPath)
 }
 
 // ViewFundForm - ดูแบบฟอร์ม (inline)
@@ -973,9 +990,14 @@ func ViewFundForm(c *gin.Context) {
 		return
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(form.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+	resolvedPath, err := utils.ResolveStoredFilePath(form.FilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		} else {
+			log.Printf("ViewFundForm: failed to resolve file path %q: %v", form.FilePath, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+		}
 		return
 	}
 
@@ -984,7 +1006,7 @@ func ViewFundForm(c *gin.Context) {
 		c.Header("Content-Type", *form.MimeType)
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", form.FileName))
-	c.File(form.FilePath)
+	c.File(resolvedPath)
 }
 
 // ===== HELPER FUNCTIONS =====

@@ -1,4 +1,5 @@
 // utils/file_utils.go
+// เพิ่มฟังก์ชันเหล่านี้ใน utils/file_utils.go หรือสร้างไฟล์ใหม่
 
 package utils
 
