@@ -710,7 +710,12 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	}
 
 	if len(pdfPaths) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No PDF documents available to merge"})
+		c.JSON(http.StatusOK, gin.H{
+			"success":       true,
+			"merged_file":   nil,
+			"message":       "No PDF documents available to merge",
+			"pdf_documents": 0,
+		})
 		return
 	}
 
