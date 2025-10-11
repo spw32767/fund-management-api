@@ -647,12 +647,10 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 		}
 
 		now := time.Now()
-		category := "publication_reward"
 		fundTypes := "[\"publication_reward\"]"
 		docType = models.DocumentType{
 			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (DOCX)",
 			Code:             publicationRewardFormDocumentCode,
-			Category:         category,
 			Required:         false,
 			Multiple:         false,
 			DocumentOrder:    0,
@@ -678,12 +676,10 @@ func ensurePublicationRewardFormPdfDocumentType(tx *gorm.DB) (*models.DocumentTy
 		}
 
 		now := time.Now()
-		category := "publication_reward"
 		fundTypes := "[\"publication_reward\"]"
 		docType = models.DocumentType{
 			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (PDF)",
 			Code:             publicationRewardFormPdfDocumentCode,
-			Category:         category,
 			Required:         false,
 			Multiple:         false,
 			DocumentOrder:    0,
