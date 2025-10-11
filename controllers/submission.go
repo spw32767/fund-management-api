@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 )
 
 const publicationRewardFormDocumentCode = "publication_reward_form_docx"
+const publicationRewardFormPdfDocumentCode = "publication_reward_form_pdf"
 
 // ===================== SUBMISSION MANAGEMENT =====================
 
@@ -479,6 +481,11 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to prepare document type: %w", err)
 		}
 
+		pdfDocType, err := ensurePublicationRewardFormPdfDocumentType(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare pdf document type: %w", err)
+		}
+
 		uploadPath := os.Getenv("UPLOAD_PATH")
 		if uploadPath == "" {
 			uploadPath = "./uploads"
@@ -547,6 +554,65 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to register generated docx: %w", err)
 		}
 
+		documents = append(documents, submissionDocument)
+
+		pdfData, err := convertDocxToPDFBytes(outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to generate pdf: %w", err)
+		}
+
+		pdfBaseFilename := strings.TrimSuffix(uniqueFilename, filepath.Ext(uniqueFilename)) + ".pdf"
+		pdfFilename := utils.GenerateUniqueFilename(submissionFolderPath, pdfBaseFilename)
+		pdfOutputPath := filepath.Join(submissionFolderPath, pdfFilename)
+
+		if err := os.WriteFile(pdfOutputPath, pdfData, 0o644); err != nil {
+			return fmt.Errorf("failed to write generated pdf: %w", err)
+		}
+
+		pdfStat, err := os.Stat(pdfOutputPath)
+		if err != nil {
+			os.Remove(pdfOutputPath)
+			return fmt.Errorf("failed to stat generated pdf: %w", err)
+		}
+
+		pdfFileUpload := models.FileUpload{
+			OriginalName: pdfFilename,
+			StoredPath:   pdfOutputPath,
+			FolderType:   "submission",
+			FileSize:     pdfStat.Size(),
+			MimeType:     "application/pdf",
+			FileHash:     "",
+			IsPublic:     false,
+			UploadedBy:   submission.UserID,
+			UploadedAt:   now,
+			CreateAt:     now,
+			UpdateAt:     now,
+		}
+
+		if err := createFileUploadRecord(tx, &pdfFileUpload); err != nil {
+			os.Remove(pdfOutputPath)
+			return fmt.Errorf("failed to persist generated pdf: %w", err)
+		}
+
+		pdfDisplayOrder := nextDocumentDisplayOrder(documents)
+		pdfSubmissionDocument := models.SubmissionDocument{
+			SubmissionID:   submission.SubmissionID,
+			FileID:         pdfFileUpload.FileID,
+			OriginalName:   pdfFileUpload.OriginalName,
+			DocumentTypeID: pdfDocType.DocumentTypeID,
+			DisplayOrder:   pdfDisplayOrder,
+			IsRequired:     false,
+			IsVerified:     false,
+			CreatedAt:      now,
+		}
+
+		if err := createSubmissionDocumentRecord(tx, &pdfSubmissionDocument); err != nil {
+			os.Remove(pdfOutputPath)
+			return fmt.Errorf("failed to register generated pdf: %w", err)
+		}
+
+		documents = append(documents, pdfSubmissionDocument)
+
 		return nil
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -601,6 +667,104 @@ func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType,
 	}
 
 	return &docType, nil
+}
+
+func ensurePublicationRewardFormPdfDocumentType(tx *gorm.DB) (*models.DocumentType, error) {
+	var docType models.DocumentType
+	if err := tx.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", publicationRewardFormPdfDocumentCode).
+		First(&docType).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		now := time.Now()
+		category := "publication_reward"
+		fundTypes := "[\"publication_reward\"]"
+		docType = models.DocumentType{
+			DocumentTypeName: "แบบฟอร์มคำขอรับเงินรางวัล (PDF)",
+			Code:             publicationRewardFormPdfDocumentCode,
+			Category:         category,
+			Required:         false,
+			Multiple:         false,
+			DocumentOrder:    0,
+			CreateAt:         now,
+			UpdateAt:         now,
+			FundTypes:        &fundTypes,
+		}
+
+		if err := tx.Create(&docType).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	return &docType, nil
+}
+
+func convertDocxToPDFBytes(docxPath string) ([]byte, error) {
+	trimmed := strings.TrimSpace(docxPath)
+	if trimmed == "" {
+		return nil, fmt.Errorf("docx path is required")
+	}
+
+	info, err := os.Stat(trimmed)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("docx file not found")
+		}
+		return nil, fmt.Errorf("failed to access docx: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("docx path points to a directory")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "publication-form-pdf-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	fontEnv, err := configureLibreOfficeFonts(tmpDir)
+	if err != nil {
+		return nil, err
+	}
+
+	converter, err := lookupLibreOfficeBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	profileDir := filepath.Join(tmpDir, "lo-profile")
+	if err := os.MkdirAll(profileDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to prepare libreoffice profile: %w", err)
+	}
+
+	profileURL, err := fileURLFromPath(profileDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare libreoffice profile: %w", err)
+	}
+
+	profileArg := fmt.Sprintf("-env:UserInstallation=%s", profileURL)
+	filterArg := "pdf:writer_pdf_Export:EmbedStandardFonts=true;EmbedFonts=true"
+	args := []string{profileArg, "--headless", "--convert-to", filterArg, "--outdir", tmpDir, trimmed}
+	cmd := exec.Command(converter, args...)
+	env := append([]string{}, os.Environ()...)
+	if len(fontEnv) > 0 {
+		env = append(env, fontEnv...)
+	}
+	cmd.Env = env
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to convert docx to pdf: %v", strings.TrimSpace(string(output)))
+	}
+
+	pdfName := strings.TrimSuffix(filepath.Base(trimmed), filepath.Ext(trimmed)) + ".pdf"
+	outputPDF := filepath.Join(tmpDir, pdfName)
+	data, err := os.ReadFile(outputPDF)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read generated pdf: %w", err)
+	}
+
+	return data, nil
 }
 
 func buildSubmissionPreviewReplacements(submission *models.Submission, detail *models.PublicationRewardDetail, sysConfig *systemConfigSnapshot, documents []models.SubmissionDocument) (map[string]string, error) {
