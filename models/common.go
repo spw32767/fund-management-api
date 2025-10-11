@@ -36,19 +36,15 @@ type DocumentType struct {
 	DocumentTypeID   int        `gorm:"primaryKey;column:document_type_id" json:"document_type_id"`
 	DocumentTypeName string     `gorm:"column:document_type_name" json:"document_type_name"`
 	Code             string     `gorm:"column:code" json:"code"`
-	Category         string     `gorm:"column:category" json:"category"`
 	Required         bool       `gorm:"column:required" json:"required"`
 	Multiple         bool       `gorm:"column:multiple" json:"multiple"`
 	DocumentOrder    int        `gorm:"column:document_order" json:"document_order"`
-	IsRequired       *string    `gorm:"column:is_required" json:"is_required"` // enum('yes','no')
 	CreateAt         time.Time  `gorm:"column:create_at" json:"create_at"`
 	UpdateAt         time.Time  `gorm:"column:update_at" json:"update_at"`
 	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// เพิ่มฟิลด์ใหม่
-	FundTypes       *string `gorm:"column:fund_types" json:"fund_types"`             // JSON field
-	SubcategoryName *string `gorm:"column:subcategory_name" json:"subcategory_name"` // Snapshot of fund name
-	SubcategoryIds  *string `gorm:"column:subcategory_ids" json:"subcategory_ids"`   // Legacy JSON field (not in use)
+	FundTypes *string `gorm:"column:fund_types" json:"fund_types"` // JSON field
 }
 
 // TableName overrides
