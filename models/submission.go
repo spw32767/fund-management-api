@@ -182,10 +182,10 @@ type SubmissionDocument struct {
 	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
 
 	// Relations
-	Submission   Submission   `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
-	File         FileUpload   `gorm:"foreignKey:FileID" json:"file,omitempty"`
-	DocumentType DocumentType `gorm:"foreignKey:DocumentTypeID" json:"document_type,omitempty"`
-	Verifier     *User        `gorm:"foreignKey:VerifiedBy" json:"verifier,omitempty"`
+	Submission   Submission   `gorm:"foreignKey:SubmissionID;references:SubmissionID" json:"submission,omitempty"`
+	File         FileUpload   `gorm:"foreignKey:FileID;references:FileID" json:"file,omitempty"`
+	DocumentType DocumentType `gorm:"foreignKey:DocumentTypeID;references:DocumentTypeID" json:"document_type,omitempty"`
+	Verifier     *User        `gorm:"foreignKey:VerifiedBy;references:UserID" json:"verifier,omitempty"`
 }
 
 // SubmissionUser represents co-authors and collaborators in submissions

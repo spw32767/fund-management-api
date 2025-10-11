@@ -800,6 +800,7 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 		Find(&documents).Error; err != nil {
 		return nil, err
 	}
+	enrichSubmissionDocumentsWithFileMetadata(documents)
 	return documents, nil
 }
 
