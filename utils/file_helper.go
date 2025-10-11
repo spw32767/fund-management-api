@@ -40,19 +40,24 @@ func CreateUserFolderIfNotExists(user models.User, uploadPath string) (string, e
 }
 
 // CreateSubmissionFolder สร้างโฟลเดอร์ submission
-func CreateSubmissionFolder(userFolderPath string, submissionType string, submissionID int, createdDate time.Time) (string, error) {
-	// สร้างชื่อโฟลเดอร์: {type}{id}_{YYYY-MM-DD}
-	dateStr := createdDate.Format("2006-01-02")
+func CreateSubmissionFolder(userFolderPath string, submissionType string, submissionID int, submissionNumber string, createdDate time.Time) (string, error) {
 	var folderName string
 
-	// กำหนดชื่อตามประเภท
-	switch submissionType {
-	case "fund_application":
-		folderName = fmt.Sprintf("fund%d_%s", submissionID, dateStr)
-	case "publication_reward":
-		folderName = fmt.Sprintf("pub%d_%s", submissionID, dateStr)
-	default:
-		folderName = fmt.Sprintf("sub%d_%s", submissionID, dateStr)
+	if sanitizedNumber := strings.TrimSpace(submissionNumber); sanitizedNumber != "" {
+		folderName = SanitizeForFilename(sanitizedNumber)
+	} else {
+		// สร้างชื่อโฟลเดอร์: {type}{id}_{YYYY-MM-DD}
+		dateStr := createdDate.Format("2006-01-02")
+
+		// กำหนดชื่อตามประเภท (fallback)
+		switch submissionType {
+		case "fund_application":
+			folderName = fmt.Sprintf("fund%d_%s", submissionID, dateStr)
+		case "publication_reward":
+			folderName = fmt.Sprintf("pub%d_%s", submissionID, dateStr)
+		default:
+			folderName = fmt.Sprintf("sub%d_%s", submissionID, dateStr)
+		}
 	}
 
 	submissionPath := filepath.Join(userFolderPath, "submissions", folderName)

@@ -260,7 +260,7 @@ func UploadDocument(c *gin.Context) {
 
 	// Create submission folder for this application
 	submissionFolderPath, err := utils.CreateSubmissionFolder(
-		userFolderPath, "fund", appID, time.Now())
+		userFolderPath, "fund", appID, "", time.Now())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create submission directory"})
 		return

@@ -824,7 +824,7 @@ func CreateResearchFundEvent(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		submissionFolderPath, err := utils.CreateSubmissionFolder(userFolderPath, submission.SubmissionType, submission.SubmissionID, submission.CreatedAt)
+		submissionFolderPath, err := utils.CreateSubmissionFolder(userFolderPath, submission.SubmissionType, submission.SubmissionID, submission.SubmissionNumber, submission.CreatedAt)
 		if err != nil {
 			return err
 		}
