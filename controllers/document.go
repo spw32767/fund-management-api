@@ -454,18 +454,12 @@ func GetDocumentTypes(c *gin.Context) {
 	var documentTypes []models.DocumentType
 
 	// Get query parameters
-	category := c.Query("category")
 	fundType := c.Query("fund_type")              // "publication_reward" หรือ "fund_application"
 	subcategoryIdStr := c.Query("subcategory_id") // "1", "2", etc.
 	subcategoryNameQuery := strings.TrimSpace(c.Query("subcategory_name"))
 
 	// Build query
 	query := config.DB.Where("delete_at IS NULL")
-
-	// Filter by category if provided
-	if category != "" {
-		query = query.Where("category = ?", category)
-	}
 
 	if err := query.Order("document_order").Find(&documentTypes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch document types"})
@@ -515,22 +509,20 @@ func GetDocumentTypes(c *gin.Context) {
 		}
 
 		// Filter by fund_type
-		if fundType != "" && dt.FundTypes != nil {
-			var fundTypes []string
-			if err := json.Unmarshal([]byte(*dt.FundTypes), &fundTypes); err != nil {
-				// ถ้า parse JSON ไม่ได้ ให้รวมไว้ด้วย
-				continue
-			}
-
-			// ตรวจสอบว่า fund_type ที่ต้องการอยู่ใน array หรือไม่
-			found := false
-			for _, ft := range fundTypes {
-				if ft == fundType {
-					found = true
-					break
+		if fundType != "" {
+			matched := false
+			if dt.FundTypes != nil {
+				var fundTypes []string
+				if err := json.Unmarshal([]byte(*dt.FundTypes), &fundTypes); err == nil {
+					for _, ft := range fundTypes {
+						if ft == fundType {
+							matched = true
+							break
+						}
+					}
 				}
 			}
-			if !found {
+			if !matched {
 				shouldInclude = false
 			}
 		}
@@ -573,7 +565,6 @@ func GetDocumentTypes(c *gin.Context) {
 			"name":     dt.DocumentTypeName,
 			"required": dt.Required,
 			"multiple": dt.Multiple,
-			"category": dt.Category,
 
 			// Additional fields
 			"document_order": dt.DocumentOrder,
@@ -639,19 +630,11 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 			"document_type_id":   dt.DocumentTypeID,
 			"document_type_name": dt.DocumentTypeName,
 			"code":               dt.Code,
-			"category":           dt.Category,
 			"required":           dt.Required,
 			"multiple":           dt.Multiple,
 			"document_order":     dt.DocumentOrder,
 			"create_at":          dt.CreateAt,
 			"update_at":          dt.UpdateAt,
-		}
-
-		// Handle IsRequired (pointer to string for enum)
-		if dt.IsRequired != nil {
-			documentTypeMap["is_required"] = *dt.IsRequired
-		} else {
-			documentTypeMap["is_required"] = nil
 		}
 
 		// Parse and add fund_types
@@ -703,12 +686,10 @@ func UpdateDocumentType(c *gin.Context) {
 	var req struct {
 		DocumentTypeName *string   `json:"document_type_name"`
 		Code             *string   `json:"code"`
-		Category         *string   `json:"category"`
 		Required         *bool     `json:"required"`
 		Multiple         *bool     `json:"multiple"`
 		DocumentOrder    *int      `json:"document_order"`
-		IsRequired       *string   `json:"is_required"` // enum('yes','no')
-		FundTypes        *[]string `json:"fund_types"`  // Array of fund types
+		FundTypes        *[]string `json:"fund_types"` // Array of fund types
 		SubcategoryNames *[]string `json:"subcategory_names"`
 		SubcategoryIds   *[]int    `json:"subcategory_ids"` // Array of subcategory IDs (deprecated)
 	}
@@ -716,14 +697,6 @@ func UpdateDocumentType(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-
-	// Validate is_required enum
-	if req.IsRequired != nil {
-		if *req.IsRequired != "yes" && *req.IsRequired != "no" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "is_required must be 'yes' or 'no'"})
-			return
-		}
 	}
 
 	// Check if document type exists
@@ -744,10 +717,6 @@ func UpdateDocumentType(c *gin.Context) {
 		updates["code"] = *req.Code
 	}
 
-	if req.Category != nil {
-		updates["category"] = *req.Category
-	}
-
 	if req.Required != nil {
 		updates["required"] = *req.Required
 	}
@@ -758,10 +727,6 @@ func UpdateDocumentType(c *gin.Context) {
 
 	if req.DocumentOrder != nil {
 		updates["document_order"] = *req.DocumentOrder
-	}
-
-	if req.IsRequired != nil {
-		updates["is_required"] = *req.IsRequired
 	}
 
 	// Handle fund_types JSON field
@@ -837,11 +802,9 @@ func CreateDocumentType(c *gin.Context) {
 	var req struct {
 		DocumentTypeName string   `json:"document_type_name" binding:"required"`
 		Code             string   `json:"code" binding:"required"`
-		Category         string   `json:"category"`
 		Required         bool     `json:"required"`
 		Multiple         bool     `json:"multiple"`
 		DocumentOrder    int      `json:"document_order"`
-		IsRequired       string   `json:"is_required"` // enum('yes','no')
 		FundTypes        []string `json:"fund_types"`
 		SubcategoryNames []string `json:"subcategory_names"`
 		SubcategoryIds   []int    `json:"subcategory_ids"`
@@ -852,29 +815,15 @@ func CreateDocumentType(c *gin.Context) {
 		return
 	}
 
-	// Validate is_required enum
-	if req.IsRequired != "" {
-		if req.IsRequired != "yes" && req.IsRequired != "no" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "is_required must be 'yes' or 'no'"})
-			return
-		}
-	}
-
 	// Create document type
 	documentType := models.DocumentType{
 		DocumentTypeName: req.DocumentTypeName,
 		Code:             req.Code,
-		Category:         req.Category,
 		Required:         req.Required,
 		Multiple:         req.Multiple,
 		DocumentOrder:    req.DocumentOrder,
 		CreateAt:         time.Now(),
 		UpdateAt:         time.Now(),
-	}
-
-	// Set IsRequired if provided
-	if req.IsRequired != "" {
-		documentType.IsRequired = &req.IsRequired
 	}
 
 	// Handle fund_types JSON
