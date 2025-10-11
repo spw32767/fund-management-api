@@ -202,6 +202,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				// Submit submission
 				submissions.POST("/:id/submit", controllers.SubmitSubmission)
+				submissions.POST("/:id/merge-documents", controllers.MergeSubmissionDocuments)
 
 				// Add specific details
 				submissions.POST("/:id/publication-details", controllers.AddPublicationDetails)
