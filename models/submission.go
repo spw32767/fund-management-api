@@ -162,24 +162,42 @@ type PublicationRewardDetail struct {
 	DeleteAt *time.Time `json:"delete_at" gorm:"column:delete_at"`
 
 	// Relations
-	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
+	Submission    Submission                      `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
+	ExternalFunds []PublicationRewardExternalFund `gorm:"foreignKey:DetailID;references:DetailID" json:"external_fundings,omitempty"`
+}
+
+// PublicationRewardExternalFund stores the breakdown of external funding sources and their supporting documents.
+type PublicationRewardExternalFund struct {
+	ExternalFundID int        `gorm:"primaryKey;column:external_fund_id" json:"external_fund_id"`
+	DetailID       int        `gorm:"column:detail_id" json:"detail_id"`
+	SubmissionID   int        `gorm:"column:submission_id" json:"submission_id"`
+	FundName       string     `gorm:"column:fund_name" json:"fund_name"`
+	Amount         float64    `gorm:"column:amount" json:"amount"`
+	DocumentID     *int       `gorm:"column:document_id" json:"document_id"`
+	FileID         *int       `gorm:"column:file_id" json:"file_id"`
+	CreatedAt      time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at" json:"updated_at"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
+
+	Document *SubmissionDocument `gorm:"foreignKey:DocumentID;references:DocumentID" json:"document,omitempty"`
 }
 
 // SubmissionDocument represents the submission_documents table (junction table)
 type SubmissionDocument struct {
-	DocumentID       int        `gorm:"primaryKey;column:document_id" json:"document_id"`
-	SubmissionID     int        `gorm:"column:submission_id" json:"submission_id"`
-	FileID           int        `gorm:"column:file_id" json:"file_id"`
-	OriginalName     string     `gorm:"column:original_name" json:"original_name"`
-	DocumentTypeID   int        `gorm:"column:document_type_id" json:"document_type_id"`
-	DocumentTypeName string     `gorm:"->;column:document_type_name" json:"document_type_name"`
-	Description      string     `gorm:"column:description" json:"description"`
-	DisplayOrder     int        `gorm:"column:display_order" json:"display_order"`
-	IsRequired       bool       `gorm:"column:is_required" json:"is_required"`
-	IsVerified       bool       `gorm:"column:is_verified" json:"is_verified"`
-	VerifiedBy       *int       `gorm:"column:verified_by" json:"verified_by"`
-	VerifiedAt       *time.Time `gorm:"column:verified_at" json:"verified_at"`
-	CreatedAt        time.Time  `gorm:"column:created_at" json:"created_at"`
+	DocumentID        int        `gorm:"primaryKey;column:document_id" json:"document_id"`
+	SubmissionID      int        `gorm:"column:submission_id" json:"submission_id"`
+	FileID            int        `gorm:"column:file_id" json:"file_id"`
+	OriginalName      string     `gorm:"column:original_name" json:"original_name"`
+	DocumentTypeID    int        `gorm:"column:document_type_id" json:"document_type_id"`
+	DocumentTypeName  string     `gorm:"->;column:document_type_name" json:"document_type_name"`
+	Description       string     `gorm:"column:description" json:"description"`
+	DisplayOrder      int        `gorm:"column:display_order" json:"display_order"`
+	IsRequired        bool       `gorm:"column:is_required" json:"is_required"`
+	IsVerified        bool       `gorm:"column:is_verified" json:"is_verified"`
+	VerifiedBy        *int       `gorm:"column:verified_by" json:"verified_by"`
+	VerifiedAt        *time.Time `gorm:"column:verified_at" json:"verified_at"`
+	CreatedAt         time.Time  `gorm:"column:created_at" json:"created_at"`
+	ExternalFundingID *int       `gorm:"->;column:external_funding_id" json:"external_funding_id,omitempty"`
 
 	// Relations
 	Submission   Submission   `gorm:"foreignKey:SubmissionID;references:SubmissionID" json:"submission,omitempty"`
@@ -220,6 +238,10 @@ func (FundApplicationDetail) TableName() string {
 
 func (PublicationRewardDetail) TableName() string {
 	return "publication_reward_details"
+}
+
+func (PublicationRewardExternalFund) TableName() string {
+	return "publication_reward_external_funds"
 }
 
 func (SubmissionDocument) TableName() string {

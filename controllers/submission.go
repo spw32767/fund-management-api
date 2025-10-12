@@ -119,7 +119,8 @@ func GetSubmission(c *gin.Context) {
 		Preload("Status").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-				Select("submission_documents.*, dt.document_type_name").
+				Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
+				Select("submission_documents.*, dt.document_type_name, pref.external_fund_id AS external_funding_id").
 				Order("submission_documents.display_order, submission_documents.created_at")
 		}).
 		Preload("Documents.File").
@@ -187,7 +188,12 @@ func GetSubmission(c *gin.Context) {
 		}
 	case "publication_reward":
 		pubDetail := &models.PublicationRewardDetail{}
-		if err := config.DB.Where("submission_id = ?", submission.SubmissionID).First(pubDetail).Error; err == nil {
+		if err := config.DB.Preload("ExternalFunds", func(db *gorm.DB) *gorm.DB {
+			return db.Where("publication_reward_external_funds.deleted_at IS NULL OR publication_reward_external_funds.deleted_at = '0000-00-00 00:00:00'").
+				Order("external_fund_id ASC").
+				Preload("Document").
+				Preload("Document.File")
+		}).Where("submission_id = ?", submission.SubmissionID).First(pubDetail).Error; err == nil {
 			if submission.StatusID != 2 {
 				pubDetail.ApprovedAmount = nil
 				pubDetail.AnnounceReferenceNumber = ""
@@ -1239,11 +1245,12 @@ func AttachDocumentToSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	type AttachDocumentRequest struct {
-		FileID         int    `json:"file_id" binding:"required"`
-		DocumentTypeID int    `json:"document_type_id" binding:"required"`
-		Description    string `json:"description"`
-		DisplayOrder   int    `json:"display_order"`
-		OriginalName   string `json:"original_name"`
+		FileID            int    `json:"file_id" binding:"required"`
+		DocumentTypeID    int    `json:"document_type_id" binding:"required"`
+		Description       string `json:"description"`
+		DisplayOrder      int    `json:"display_order"`
+		OriginalName      string `json:"original_name"`
+		ExternalFundingID *int   `json:"external_funding_id"`
 	}
 
 	var req AttachDocumentRequest
@@ -1280,6 +1287,7 @@ func AttachDocumentToSubmission(c *gin.Context) {
 	}
 
 	// Create submission document record
+	now := time.Now()
 	document := models.SubmissionDocument{
 		SubmissionID:   submissionID,
 		FileID:         req.FileID,
@@ -1287,7 +1295,7 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		DocumentTypeID: req.DocumentTypeID,
 		Description:    req.Description,
 		DisplayOrder:   req.DisplayOrder,
-		CreatedAt:      time.Now(),
+		CreatedAt:      now,
 	}
 
 	if err := createSubmissionDocumentRecord(config.DB, &document); err != nil {
@@ -1300,13 +1308,28 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		return
 	}
 
+	if req.ExternalFundingID != nil && *req.ExternalFundingID > 0 {
+		updates := map[string]interface{}{
+			"document_id": document.DocumentID,
+			"file_id":     document.FileID,
+			"updated_at":  now,
+		}
+		if err := config.DB.Model(&models.PublicationRewardExternalFund{}).
+			Where("external_fund_id = ? AND submission_id = ?", *req.ExternalFundingID, submission.SubmissionID).
+			Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link external funding document"})
+			return
+		}
+	}
+
 	// Preload relations
 	config.DB.Preload("File").Preload("DocumentType").First(&document, document.DocumentID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"message":  "Document attached successfully",
-		"document": document,
+		"success":             true,
+		"message":             "Document attached successfully",
+		"document":            document,
+		"external_funding_id": req.ExternalFundingID,
 	})
 }
 
@@ -1439,11 +1462,12 @@ func AttachDocument(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type AttachDocumentRequest struct {
-		FileID         int    `json:"file_id" binding:"required"`
-		DocumentTypeID int    `json:"document_type_id" binding:"required"`
-		Description    string `json:"description"`
-		DisplayOrder   int    `json:"display_order"`
-		OriginalName   string `json:"original_name"`
+		FileID            int    `json:"file_id" binding:"required"`
+		DocumentTypeID    int    `json:"document_type_id" binding:"required"`
+		Description       string `json:"description"`
+		DisplayOrder      int    `json:"display_order"`
+		OriginalName      string `json:"original_name"`
+		ExternalFundingID *int   `json:"external_funding_id"`
 	}
 
 	var req AttachDocumentRequest
@@ -1526,13 +1550,28 @@ func AttachDocument(c *gin.Context) {
 		return
 	}
 
+	if req.ExternalFundingID != nil && *req.ExternalFundingID > 0 {
+		updates := map[string]interface{}{
+			"document_id": submissionDoc.DocumentID,
+			"file_id":     submissionDoc.FileID,
+			"updated_at":  now,
+		}
+		if err := config.DB.Model(&models.PublicationRewardExternalFund{}).
+			Where("external_fund_id = ? AND submission_id = ?", *req.ExternalFundingID, submission.SubmissionID).
+			Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link external funding document"})
+			return
+		}
+	}
+
 	// Load relations for response
 	config.DB.Preload("File").Preload("DocumentType").First(&submissionDoc, submissionDoc.DocumentID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"message":  "Document attached successfully",
-		"document": submissionDoc,
+		"success":             true,
+		"message":             "Document attached successfully",
+		"document":            submissionDoc,
+		"external_funding_id": req.ExternalFundingID,
 	})
 }
 
@@ -1559,7 +1598,8 @@ func GetSubmissionDocuments(c *gin.Context) {
 	// Get documents
 	var documents []models.SubmissionDocument
 	if err := config.DB.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Select("submission_documents.*, dt.document_type_name").
+		Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
+		Select("submission_documents.*, dt.document_type_name, pref.external_fund_id AS external_funding_id").
 		Preload("File").
 		Preload("DocumentType").
 		Where("submission_id = ?", submissionID).
@@ -1837,6 +1877,13 @@ func AddPublicationDetails(c *gin.Context) {
 		HasUniversityFunding string `json:"has_university_funding"` // "yes" | "no"
 		FundingReferences    string `json:"funding_references"`
 		UniversityRankings   string `json:"university_rankings"`
+
+		ExternalFundings []struct {
+			ExternalFundID *int    `json:"external_fund_id"`
+			ClientID       string  `json:"client_id"`
+			FundName       string  `json:"fund_name"`
+			Amount         float64 `json:"amount"`
+		} `json:"external_fundings"`
 	}
 
 	var req PublicationDetailsRequest
@@ -1884,6 +1931,13 @@ func AddPublicationDetails(c *gin.Context) {
 	}
 
 	now := time.Now()
+
+	var externalTotal float64
+	if len(req.ExternalFundings) > 0 {
+		for _, fund := range req.ExternalFundings {
+			externalTotal += fund.Amount
+		}
+	}
 
 	authorNameList := strings.TrimSpace(req.AuthorNameList)
 	signature := strings.TrimSpace(req.Signature)
@@ -1946,7 +2000,11 @@ func AddPublicationDetails(c *gin.Context) {
 	detail.RevisionFeeApproveAmount = req.RevisionFeeApproveAmount
 	detail.PublicationFee = req.PublicationFee
 	detail.PublicationFeeApproveAmount = req.PublicationFeeApproveAmount
-	detail.ExternalFundingAmount = req.ExternalFundingAmount
+	if externalTotal > 0 {
+		detail.ExternalFundingAmount = externalTotal
+	} else {
+		detail.ExternalFundingAmount = req.ExternalFundingAmount
+	}
 	detail.TotalAmount = req.TotalAmount
 	detail.TotalApproveAmount = req.TotalApproveAmount
 
@@ -1980,10 +2038,108 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
+	// Handle external funding breakdown records
+	var savedExternalFunds []models.PublicationRewardExternalFund
+	responseExternalFunds := make([]gin.H, 0, len(req.ExternalFundings))
+
+	if len(req.ExternalFundings) > 0 {
+		keepIDs := make([]int, 0, len(req.ExternalFundings))
+
+		for _, fund := range req.ExternalFundings {
+			trimmedName := strings.TrimSpace(fund.FundName)
+			record := models.PublicationRewardExternalFund{
+				DetailID:     detail.DetailID,
+				SubmissionID: submission.SubmissionID,
+				FundName:     trimmedName,
+				Amount:       fund.Amount,
+				UpdatedAt:    now,
+			}
+
+			if fund.ExternalFundID != nil && *fund.ExternalFundID > 0 {
+				// Try to update existing record
+				var existingFund models.PublicationRewardExternalFund
+				if err := config.DB.Where("external_fund_id = ? AND detail_id = ?", *fund.ExternalFundID, detail.DetailID).
+					First(&existingFund).Error; err != nil {
+					if !errors.Is(err, gorm.ErrRecordNotFound) {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load external funding record"})
+						return
+					}
+					record.CreatedAt = now
+					if err := config.DB.Create(&record).Error; err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save external funding record"})
+						return
+					}
+				} else {
+					existingFund.FundName = trimmedName
+					existingFund.Amount = fund.Amount
+					existingFund.UpdatedAt = now
+					if existingFund.SubmissionID == 0 {
+						existingFund.SubmissionID = submission.SubmissionID
+					}
+					if err := config.DB.Save(&existingFund).Error; err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update external funding record"})
+						return
+					}
+					record = existingFund
+				}
+			} else {
+				record.CreatedAt = now
+				if err := config.DB.Create(&record).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save external funding record"})
+					return
+				}
+			}
+
+			keepIDs = append(keepIDs, record.ExternalFundID)
+			savedExternalFunds = append(savedExternalFunds, record)
+			responseExternalFunds = append(responseExternalFunds, gin.H{
+				"external_fund_id": record.ExternalFundID,
+				"client_id":        fund.ClientID,
+				"fund_name":        record.FundName,
+				"amount":           record.Amount,
+			})
+		}
+
+		// Remove stale records
+		if len(keepIDs) > 0 {
+			if err := config.DB.Where("detail_id = ? AND external_fund_id NOT IN ?", detail.DetailID, keepIDs).
+				Delete(&models.PublicationRewardExternalFund{}).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove outdated external funding records"})
+				return
+			}
+		}
+	} else {
+		// No external fundings provided, clear existing ones
+		if err := config.DB.Where("detail_id = ?", detail.DetailID).
+			Delete(&models.PublicationRewardExternalFund{}).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear external funding records"})
+			return
+		}
+		detail.ExternalFundingAmount = 0
+	}
+
+	if len(savedExternalFunds) > 0 {
+		var computedTotal float64
+		for _, fund := range savedExternalFunds {
+			computedTotal += fund.Amount
+		}
+		detail.ExternalFundingAmount = computedTotal
+	}
+
+	detail.ExternalFunds = savedExternalFunds
+
+	if err := config.DB.Model(&models.PublicationRewardDetail{}).
+		Where("detail_id = ?", detail.DetailID).
+		Update("external_funding_amount", detail.ExternalFundingAmount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update external funding amount"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Publication details saved successfully",
-		"details": detail,
+		"success":           true,
+		"message":           "Publication details saved successfully",
+		"details":           detail,
+		"external_fundings": responseExternalFunds,
 	})
 }
 

@@ -70,6 +70,12 @@ func GetSubmissionDetails(c *gin.Context) {
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
 		Preload("PublicationRewardDetail"). // PR detail
+		Preload("PublicationRewardDetail.ExternalFunds", func(db *gorm.DB) *gorm.DB {
+			return db.Where("publication_reward_external_funds.deleted_at IS NULL OR publication_reward_external_funds.deleted_at = '0000-00-00 00:00:00'").
+				Order("external_fund_id ASC").
+				Preload("Document").
+				Preload("Document.File")
+		}).
 		Preload("ResearchFundEvents", func(db *gorm.DB) *gorm.DB {
 			return db.Order("created_at ASC")
 		}).
@@ -105,6 +111,8 @@ func GetSubmissionDetails(c *gin.Context) {
 	// 4) เอกสารแนบ
 	var docs []models.SubmissionDocument
 	if err := config.DB.
+		Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
+		Select("submission_documents.*, pref.external_fund_id AS external_funding_id").
 		Where("submission_id = ?", sid).
 		Preload("DocumentType").
 		Preload("File").
@@ -181,6 +189,9 @@ func GetSubmissionDetails(c *gin.Context) {
 				"document_type_name": d.DocumentType.DocumentTypeName,
 				"required":           d.DocumentType.Required,
 			}
+		}
+		if d.ExternalFundingID != nil {
+			item["external_funding_id"] = d.ExternalFundingID
 		}
 		if d.File.FileID != 0 {
 			item["file"] = gin.H{
