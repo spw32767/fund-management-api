@@ -395,6 +395,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				installments := admin.Group("/installments")
 				{
+					installments.POST("/copy", controllers.AdminCopyFundInstallmentPeriods)
 					installments.GET("", controllers.AdminListFundInstallmentPeriods)
 					installments.POST("", controllers.AdminCreateFundInstallmentPeriod)
 					installments.PUT("/:id", controllers.AdminUpdateFundInstallmentPeriod)

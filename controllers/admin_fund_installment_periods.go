@@ -441,6 +441,236 @@ func AdminRestoreFundInstallmentPeriod(c *gin.Context) {
 	})
 }
 
+func AdminCopyFundInstallmentPeriods(c *gin.Context) {
+	var req struct {
+		SourceYearID int    `json:"source_year_id" binding:"required"`
+		TargetYear   string `json:"target_year"`
+		TargetYearID *int   `json:"target_year_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if req.SourceYearID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "source_year_id must be greater than 0"})
+		return
+	}
+
+	targetYearValue := strings.TrimSpace(req.TargetYear)
+	if req.TargetYearID == nil && targetYearValue == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "target_year or target_year_id is required"})
+		return
+	}
+
+	var sourceYear models.Year
+	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", req.SourceYearID).
+		First(&sourceYear).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "source year not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load source year"})
+		return
+	}
+
+	usingExistingTarget := false
+	var targetYear models.Year
+
+	if req.TargetYearID != nil {
+		if err := config.DB.Where("year_id = ? AND delete_at IS NULL", *req.TargetYearID).
+			First(&targetYear).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "target year not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load target year"})
+			return
+		}
+		usingExistingTarget = true
+		if targetYearValue == "" {
+			targetYearValue = targetYear.Year
+		}
+	} else {
+		// Ensure the requested year does not already exist
+		if targetYearValue == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "target_year is required"})
+			return
+		}
+
+		var existing models.Year
+		if err := config.DB.Where("year = ? AND delete_at IS NULL", targetYearValue).
+			First(&existing).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "target year already exists"})
+			return
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to verify target year"})
+			return
+		}
+	}
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to start transaction"})
+		return
+	}
+
+	rollbackWithError := func(status int, message string, debug string) {
+		tx.Rollback()
+		payload := gin.H{"success": false, "error": message}
+		if debug != "" {
+			payload["debug"] = debug
+		}
+		c.JSON(status, payload)
+	}
+
+	if usingExistingTarget {
+		// Reload the latest target year details within the transaction
+		if err := tx.Where("year_id = ?", targetYear.YearID).First(&targetYear).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "failed to lock target year", err.Error())
+			return
+		}
+	} else {
+		targetBudget := sourceYear.Budget
+		now := time.Now()
+		targetYear = models.Year{
+			Year:   targetYearValue,
+			Budget: targetBudget,
+			Status: sourceYear.Status,
+		}
+		if strings.TrimSpace(targetYear.Status) == "" {
+			targetYear.Status = "active"
+		}
+		targetYear.CreateAt = &now
+		targetYear.UpdateAt = &now
+
+		if err := tx.Create(&targetYear).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "failed to create target year", err.Error())
+			return
+		}
+	}
+
+	var sourcePeriods []models.FundInstallmentPeriod
+	if err := tx.Where("year_id = ? AND deleted_at IS NULL", req.SourceYearID).
+		Order("installment_number ASC, cutoff_date ASC").
+		Find(&sourcePeriods).Error; err != nil {
+		rollbackWithError(http.StatusInternalServerError, "failed to load source installments", err.Error())
+		return
+	}
+
+	existingNumbers := make(map[int]struct{})
+	if usingExistingTarget {
+		var targetPeriods []models.FundInstallmentPeriod
+		if err := tx.Where("year_id = ? AND deleted_at IS NULL", targetYear.YearID).
+			Find(&targetPeriods).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "failed to load target installments", err.Error())
+			return
+		}
+		for _, period := range targetPeriods {
+			existingNumbers[period.InstallmentNumber] = struct{}{}
+		}
+	}
+
+	sourceYearCE, hasSourceYearCE := parseCalendarYearValue(sourceYear.Year)
+	targetYearCE, hasTargetYearCE := parseCalendarYearValue(targetYear.Year)
+	yearDiff := 0
+	if hasSourceYearCE && hasTargetYearCE {
+		yearDiff = targetYearCE - sourceYearCE
+	}
+
+	createdCount := 0
+	skippedCount := 0
+
+	for _, period := range sourcePeriods {
+		if _, exists := existingNumbers[period.InstallmentNumber]; exists {
+			skippedCount++
+			continue
+		}
+
+		currentTime := time.Now()
+		cutoff := period.CutoffDate
+		if yearDiff != 0 && !period.CutoffDate.IsZero() {
+			cutoff = period.CutoffDate.AddDate(yearDiff, 0, 0)
+		}
+
+		newPeriod := models.FundInstallmentPeriod{
+			YearID:            targetYear.YearID,
+			InstallmentNumber: period.InstallmentNumber,
+			CutoffDate:        cutoff,
+			CreatedAt:         currentTime,
+			UpdatedAt:         currentTime,
+		}
+
+		if period.Name != nil {
+			name := strings.TrimSpace(*period.Name)
+			if name != "" {
+				copyName := name
+				newPeriod.Name = &copyName
+			}
+		}
+
+		normalizedStatus, _ := normalizeInstallmentStatus(period.Status)
+		if normalizedStatus != nil {
+			status := *normalizedStatus
+			newPeriod.Status = &status
+		} else if period.Status != nil {
+			status := strings.TrimSpace(*period.Status)
+			if status != "" {
+				statusCopy := status
+				newPeriod.Status = &statusCopy
+			}
+		}
+
+		if period.Remark != nil {
+			remark := strings.TrimSpace(*period.Remark)
+			if remark != "" {
+				remarkCopy := remark
+				newPeriod.Remark = &remarkCopy
+			}
+		}
+
+		if err := tx.Create(&newPeriod).Error; err != nil {
+			rollbackWithError(http.StatusInternalServerError, "failed to copy installment period", err.Error())
+			return
+		}
+
+		existingNumbers[period.InstallmentNumber] = struct{}{}
+		createdCount++
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to finalize copy operation"})
+		return
+	}
+
+	targetYearLabel := strings.TrimSpace(targetYear.Year)
+	if targetYearLabel == "" {
+		targetYearLabel = fmt.Sprintf("%d", targetYear.YearID)
+	}
+
+	message := fmt.Sprintf("copied %d installment periods to year %s", createdCount, targetYearLabel)
+	if usingExistingTarget {
+		message = fmt.Sprintf("copied %d installment periods to existing year %s", createdCount, targetYearLabel)
+	}
+	if createdCount == 0 {
+		message = fmt.Sprintf("no installment periods were copied to year %s", targetYearLabel)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"message":         message,
+		"target_year_id":  targetYear.YearID,
+		"target_year":     targetYear.Year,
+		"existing_target": usingExistingTarget,
+		"copied": gin.H{
+			"created":      createdCount,
+			"skipped":      skippedCount,
+			"source_total": len(sourcePeriods),
+		},
+	})
+}
+
 func newAdminFundInstallmentPeriodResponse(period models.FundInstallmentPeriod) adminFundInstallmentPeriodResponse {
 	cutoff := ""
 	if !period.CutoffDate.IsZero() {
@@ -578,4 +808,22 @@ func respondConflictError(c *gin.Context, err error) {
 		return
 	}
 	c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+}
+
+func parseCalendarYearValue(value string) (int, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, false
+	}
+
+	numeric, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, false
+	}
+
+	if numeric > 2400 {
+		return numeric - 543, true
+	}
+
+	return numeric, true
 }
