@@ -700,10 +700,11 @@ func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime
 		}
 	}
 
-	candidates := periods
-	if len(active) > 0 {
-		candidates = active
+	if len(active) == 0 {
+		return nil, nil
 	}
+
+	candidates := active
 
 	submissionUTC := submissionTime.UTC()
 

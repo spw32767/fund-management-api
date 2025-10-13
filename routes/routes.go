@@ -393,6 +393,16 @@ func SetupRoutes(router *gin.Engine) {
 					years.GET("/:id/stats", controllers.GetYearStats)        // GET /api/v1/admin/years/:id/stats
 				}
 
+				installments := admin.Group("/installments")
+				{
+					installments.GET("", controllers.AdminListFundInstallmentPeriods)
+					installments.POST("", controllers.AdminCreateFundInstallmentPeriod)
+					installments.PUT("/:id", controllers.AdminUpdateFundInstallmentPeriod)
+					installments.PATCH("/:id", controllers.AdminUpdateFundInstallmentPeriod)
+					installments.DELETE("/:id", controllers.AdminDeleteFundInstallmentPeriod)
+					installments.PATCH("/:id/restore", controllers.AdminRestoreFundInstallmentPeriod)
+				}
+
 				// ========== FUND CATEGORIES MANAGEMENT ==========
 				categories := admin.Group("/categories")
 				{
