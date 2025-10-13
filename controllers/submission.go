@@ -669,20 +669,7 @@ func determineSubmissionInstallmentNumber(db *gorm.DB, yearID int, submissionTim
 	if err != nil {
 		return nil, err
 	}
-	if number != nil {
-		return number, nil
-	}
-
-	snapshot, err := fetchLatestSystemConfig()
-	if err != nil {
-		return nil, err
-	}
-	if snapshot != nil && snapshot.Installment.Valid {
-		value := int(snapshot.Installment.Int64)
-		return &value, nil
-	}
-
-	return nil, nil
+	return number, nil
 }
 
 func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime time.Time) (*int, error) {
