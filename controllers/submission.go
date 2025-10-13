@@ -325,9 +325,10 @@ func UpdateSubmission(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type UpdateSubmissionRequest struct {
-		CategoryID          *int `json:"category_id"`
-		SubcategoryID       *int `json:"subcategory_id"`
-		SubcategoryBudgetID *int `json:"subcategory_budget_id"`
+		CategoryID                *int `json:"category_id"`
+		SubcategoryID             *int `json:"subcategory_id"`
+		SubcategoryBudgetID       *int `json:"subcategory_budget_id"`
+		InstallmentNumberAtSubmit *int `json:"installment_number_at_submit"`
 		// อนาคตจะมีฟิลด์อื่นก็ใส่เพิ่มได้
 	}
 
@@ -350,13 +351,16 @@ func UpdateSubmission(c *gin.Context) {
 	updates := map[string]interface{}{"updated_at": time.Now()}
 
 	if req.CategoryID != nil {
-		updates["category_id"] = req.CategoryID
+		updates["category_id"] = *req.CategoryID
 	}
 	if req.SubcategoryID != nil {
-		updates["subcategory_id"] = req.SubcategoryID
+		updates["subcategory_id"] = *req.SubcategoryID
 	}
 	if req.SubcategoryBudgetID != nil {
-		updates["subcategory_budget_id"] = req.SubcategoryBudgetID
+		updates["subcategory_budget_id"] = *req.SubcategoryBudgetID
+	}
+	if req.InstallmentNumberAtSubmit != nil {
+		updates["installment_number_at_submit"] = *req.InstallmentNumberAtSubmit
 	}
 
 	if err := config.DB.Model(&submission).Updates(updates).Error; err != nil {
