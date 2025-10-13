@@ -443,17 +443,35 @@ func SubmitSubmission(c *gin.Context) {
 	now := time.Now()
 
 	if err := config.DB.Transaction(func(tx *gorm.DB) error {
+		resolvedInstallment, resolveErr := determineSubmissionInstallmentNumber(tx, submission.YearID, now)
+		if resolveErr != nil {
+			log.Printf("failed to resolve installment number for submission %d: %v", submission.SubmissionID, resolveErr)
+		}
+
+		updates := map[string]interface{}{
+			"submitted_at": &now,
+			"updated_at":   now,
+		}
+
+		if submission.InstallmentNumberAtSubmit != nil {
+			updates["installment_number_at_submit"] = *submission.InstallmentNumberAtSubmit
+		}
+
+		if resolvedInstallment != nil {
+			updates["installment_number_at_submit"] = *resolvedInstallment
+		}
+
 		if err := tx.Model(&models.Submission{}).
 			Where("submission_id = ?", submission.SubmissionID).
-			Updates(map[string]interface{}{
-				"submitted_at": &now,
-				"updated_at":   now,
-			}).Error; err != nil {
+			Updates(updates).Error; err != nil {
 			return err
 		}
 
 		submission.SubmittedAt = &now
 		submission.UpdatedAt = now
+		if resolvedInstallment != nil {
+			submission.InstallmentNumberAtSubmit = resolvedInstallment
+		}
 
 		if submission.SubmissionType != "publication_reward" {
 			return nil
@@ -644,6 +662,104 @@ func SubmitSubmission(c *gin.Context) {
 		"success": true,
 		"message": "Submission submitted successfully",
 	})
+}
+
+func determineSubmissionInstallmentNumber(db *gorm.DB, yearID int, submissionTime time.Time) (*int, error) {
+	number, err := resolveInstallmentNumberFromPeriods(db, yearID, submissionTime)
+	if err != nil {
+		return nil, err
+	}
+	if number != nil {
+		return number, nil
+	}
+
+	snapshot, err := fetchLatestSystemConfig()
+	if err != nil {
+		return nil, err
+	}
+	if snapshot != nil && snapshot.Installment.Valid {
+		value := int(snapshot.Installment.Int64)
+		return &value, nil
+	}
+
+	return nil, nil
+}
+
+func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime time.Time) (*int, error) {
+	if db == nil {
+		db = config.DB
+	}
+
+	var periods []models.FundInstallmentPeriod
+	query := db.Model(&models.FundInstallmentPeriod{}).
+		Where("deleted_at IS NULL").
+		Order("cutoff_date ASC, installment_number ASC")
+
+	if yearID > 0 {
+		query = query.Where("year_id = ?", yearID)
+	}
+
+	if err := query.Find(&periods).Error; err != nil {
+		return nil, err
+	}
+	if len(periods) == 0 {
+		return nil, nil
+	}
+
+	active := make([]models.FundInstallmentPeriod, 0, len(periods))
+	for _, period := range periods {
+		if isInstallmentPeriodActive(period.Status) {
+			active = append(active, period)
+		}
+	}
+
+	candidates := periods
+	if len(active) > 0 {
+		candidates = active
+	}
+
+	submissionUTC := submissionTime.UTC()
+
+	for _, period := range candidates {
+		if period.CutoffDate.IsZero() {
+			continue
+		}
+		cutoff := endOfDayUTC(period.CutoffDate)
+		if !submissionUTC.After(cutoff) {
+			value := period.InstallmentNumber
+			return &value, nil
+		}
+	}
+
+	last := candidates[len(candidates)-1].InstallmentNumber
+	return &last, nil
+}
+
+func isInstallmentPeriodActive(status *string) bool {
+	if status == nil {
+		return true
+	}
+
+	normalized := strings.TrimSpace(strings.ToLower(*status))
+	if normalized == "" {
+		return true
+	}
+
+	switch normalized {
+	case "active", "enabled", "open", "current":
+		return true
+	default:
+		return false
+	}
+}
+
+func endOfDayUTC(t time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+
+	year, month, day := t.In(time.UTC).Date()
+	return time.Date(year, month, day, 23, 59, 59, 999999999, time.UTC)
 }
 
 // MergeSubmissionDocuments collects every PDF document attached to a submission, merges them

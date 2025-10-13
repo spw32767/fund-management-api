@@ -8,24 +8,25 @@ import (
 
 // Submission represents the main submission table
 type Submission struct {
-	SubmissionID            int        `gorm:"primaryKey;column:submission_id" json:"submission_id"`
-	SubmissionNumber        string     `gorm:"column:submission_number" json:"submission_number"`
-	SubmissionType          string     `gorm:"column:submission_type" json:"submission_type"`
-	UserID                  int        `gorm:"column:user_id" json:"user_id"`
-	YearID                  int        `gorm:"column:year_id" json:"year_id"`
-	CategoryID              *int       `gorm:"column:category_id" json:"category_id"`                     // ✅ เพิ่มใหม่
-	CategoryName            *string    `gorm:"column:category_name;->" json:"category_name"`              // ✅ เพิ่มใหม่ (read-only, มาจาก join)
-	SubcategoryID           *int       `gorm:"column:subcategory_id" json:"subcategory_id"`               // ✅ เพิ่มใหม่
-	SubcategoryName         *string    `gorm:"column:subcategory_name;->" json:"subcategory_name"`        // ✅ เพิ่มใหม่ (read-only, มาจาก join)
-	SubcategoryBudgetID     *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
-	StatusID                int        `gorm:"column:status_id" json:"status_id"`
-	ApprovedBy              *int       `gorm:"column:approved_by" json:"approved_by"`
-	ApprovedAt              *time.Time `gorm:"column:approved_at" json:"approved_at"`
-	SubmittedAt             *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
-	CreatedAt               time.Time  `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt               time.Time  `gorm:"column:updated_at" json:"updated_at"`
-	DeletedAt               *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
-	AnnounceReferenceNumber string     `gorm:"-" json:"announce_reference_number,omitempty"`
+	SubmissionID              int        `gorm:"primaryKey;column:submission_id" json:"submission_id"`
+	SubmissionNumber          string     `gorm:"column:submission_number" json:"submission_number"`
+	SubmissionType            string     `gorm:"column:submission_type" json:"submission_type"`
+	UserID                    int        `gorm:"column:user_id" json:"user_id"`
+	YearID                    int        `gorm:"column:year_id" json:"year_id"`
+	CategoryID                *int       `gorm:"column:category_id" json:"category_id"`                     // ✅ เพิ่มใหม่
+	CategoryName              *string    `gorm:"column:category_name;->" json:"category_name"`              // ✅ เพิ่มใหม่ (read-only, มาจาก join)
+	SubcategoryID             *int       `gorm:"column:subcategory_id" json:"subcategory_id"`               // ✅ เพิ่มใหม่
+	SubcategoryName           *string    `gorm:"column:subcategory_name;->" json:"subcategory_name"`        // ✅ เพิ่มใหม่ (read-only, มาจาก join)
+	SubcategoryBudgetID       *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
+	StatusID                  int        `gorm:"column:status_id" json:"status_id"`
+	ApprovedBy                *int       `gorm:"column:approved_by" json:"approved_by"`
+	ApprovedAt                *time.Time `gorm:"column:approved_at" json:"approved_at"`
+	SubmittedAt               *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
+	InstallmentNumberAtSubmit *int       `gorm:"column:installment_number_at_submit" json:"installment_number_at_submit,omitempty"`
+	CreatedAt                 time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt                 time.Time  `gorm:"column:updated_at" json:"updated_at"`
+	DeletedAt                 *time.Time `gorm:"column:deleted_at" json:"deleted_at"`
+	AnnounceReferenceNumber   string     `gorm:"-" json:"announce_reference_number,omitempty"`
 
 	// ===== ADD: Admin approval (central truth) =====
 	AdminApprovedBy *int       `gorm:"column:admin_approved_by" json:"admin_approved_by,omitempty"`
