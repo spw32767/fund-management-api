@@ -135,6 +135,10 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/system-config/dept-head/eligible-roles", controllers.GetDeptHeadEligibleRoles)
 
 			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
+
+			// Fund installment periods
+			protected.GET("/fund-installment-periods", controllers.GetFundInstallmentPeriods)
+
 			// General submissions listing (all users)
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
 			protected.GET("/submissions/search", controllers.SearchSubmissions) // ค้นหา submissions
