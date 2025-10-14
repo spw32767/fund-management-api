@@ -434,6 +434,92 @@ func DeleteSubmission(c *gin.Context) {
 	})
 }
 
+// HardDeleteSubmission permanently deletes a draft submission and its related records.
+func HardDeleteSubmission(c *gin.Context) {
+	submissionIDParam := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	roleID, _ := c.Get("roleID")
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete submission"})
+		return
+	}
+
+	var submission models.Submission
+	query := tx.Where("submission_id = ?", submissionID)
+	if roleID.(int) != 3 {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.First(&submission).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete submission"})
+		}
+		return
+	}
+
+	if submission.IsSubmitted() {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete submitted submission"})
+		return
+	}
+
+	cleanupOperations := []func() error{
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.SubmissionDocument{}).Error
+		},
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.SubmissionUser{}).Error
+		},
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.PublicationRewardExternalFund{}).Error
+		},
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.PublicationRewardDetail{}).Error
+		},
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.FundApplicationDetail{}).Error
+		},
+		func() error {
+			return tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.ResearchFundAdminEvent{}).Error
+		},
+	}
+
+	for _, cleanup := range cleanupOperations {
+		if err := cleanup(); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete submission"})
+			return
+		}
+	}
+
+	if err := tx.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.Submission{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete submission"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete submission"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Submission permanently deleted",
+	})
+}
+
 // SubmitSubmission submits a submission (changes status)
 func SubmitSubmission(c *gin.Context) {
 	submissionID := c.Param("id")

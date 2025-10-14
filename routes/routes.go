@@ -204,6 +204,7 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.GET("/:id", controllers.GetSubmission)
 				submissions.PUT("/:id", controllers.UpdateSubmission)
 				submissions.DELETE("/:id", controllers.DeleteSubmission)
+				submissions.DELETE("/:id/hard", controllers.HardDeleteSubmission)
 
 				// Submit submission
 				submissions.POST("/:id/submit", controllers.SubmitSubmission)
