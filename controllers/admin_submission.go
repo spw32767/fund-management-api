@@ -698,6 +698,126 @@ func RejectSubmission(c *gin.Context) {
 	})
 }
 
+// RequestSubmissionRevision allows admins to send a submission back to the applicant for
+// additional information. The submission is unlocked for editing and moved to the
+// needs-more-info status.
+func RequestSubmissionRevision(c *gin.Context) {
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	var req struct {
+		Comment string `json:"comment"`
+		Reason  string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	message := strings.TrimSpace(req.Comment)
+	if message == "" {
+		message = strings.TrimSpace(req.Reason)
+	}
+	if message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Revision comment is required"})
+		return
+	}
+
+	userIDVal, _ := c.Get("userID")
+	adminID, _ := userIDVal.(int)
+
+	needsMoreInfoID, err := utils.GetStatusIDByCode(utils.StatusCodeNeedsMoreInfo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve revision status"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+
+	var submission models.Submission
+	if err := tx.First(&submission, submissionID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+
+	allowed, err := utils.StatusMatchesCodes(
+		submission.StatusID,
+		utils.StatusCodePending,
+		utils.StatusCodeDeptHeadPending,
+		utils.StatusCodeDeptHeadRecommended,
+		utils.StatusCodeNeedsMoreInfo,
+	)
+	if err != nil || !allowed {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not eligible for revision"})
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status_id":              needsMoreInfoID,
+		"updated_at":             now,
+		"reviewed_at":            now,
+		"submitted_at":           gorm.Expr("NULL"),
+		"admin_comment":          message,
+		"comment":                message,
+		"admin_approved_by":      gorm.Expr("NULL"),
+		"admin_approved_at":      gorm.Expr("NULL"),
+		"admin_rejected_by":      gorm.Expr("NULL"),
+		"admin_rejected_at":      gorm.Expr("NULL"),
+		"admin_rejection_reason": gorm.Expr("NULL"),
+		"head_approved_by":       gorm.Expr("NULL"),
+		"head_approved_at":       gorm.Expr("NULL"),
+		"head_rejected_by":       gorm.Expr("NULL"),
+		"head_rejected_at":       gorm.Expr("NULL"),
+		"head_rejection_reason":  gorm.Expr("NULL"),
+	}
+
+	if err := tx.Model(&models.Submission{}).
+		Where("submission_id = ?", submissionID).
+		Updates(updates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
+		return
+	}
+
+	desc := fmt.Sprintf("Admin requested revision: %s", message)
+	audit := models.AuditLog{
+		UserID:       adminID,
+		Action:       "request_revision",
+		EntityType:   "submission",
+		EntityID:     &submission.SubmissionID,
+		EntityNumber: &submission.SubmissionNumber,
+		Description:  &desc,
+		IPAddress:    c.ClientIP(),
+		CreatedAt:    now,
+	}
+	if err := tx.Create(&audit).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record audit log"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to request revision"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Revision requested successfully",
+	})
+}
+
 // ListResearchFundEvents returns the admin event feed for a research fund submission.
 func ListResearchFundEvents(c *gin.Context) {
 	submission, ok := getResearchFundSubmissionOrAbort(c, true)

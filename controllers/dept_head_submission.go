@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -371,6 +372,139 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 	payload["success"] = true
 	c.JSON(http.StatusOK, payload)
+}
+
+// DeptHeadRequestRevision allows department heads to request additional information and
+// unlock the submission for further edits by the applicant.
+func DeptHeadRequestRevision(c *gin.Context) {
+	submissionIDStr := c.Param("id")
+	submissionID, err := strconv.Atoi(submissionIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid submission ID"})
+		return
+	}
+
+	var req struct {
+		Comment       *string `json:"comment"`
+		HeadComment   *string `json:"head_comment"`
+		HeadSignature string  `json:"head_signature"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	pick := func(values ...*string) string {
+		for _, value := range values {
+			if value == nil {
+				continue
+			}
+			if trimmed := strings.TrimSpace(*value); trimmed != "" {
+				return trimmed
+			}
+		}
+		return ""
+	}
+
+	message := pick(req.HeadComment, req.Comment)
+	if message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Revision comment is required"})
+		return
+	}
+
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(int)
+
+	needsMoreInfoID, err := utils.GetStatusIDByCode(utils.StatusCodeNeedsMoreInfo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve revision status"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+
+	var submission models.Submission
+	if err := tx.First(&submission, submissionID).Error; err != nil {
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load submission"})
+		}
+		return
+	}
+
+	allowed, err := utils.StatusMatchesCodes(
+		submission.StatusID,
+		utils.StatusCodeDeptHeadPending,
+		utils.StatusCodeNeedsMoreInfo,
+	)
+	if err != nil || !allowed {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Submission is not awaiting department review"})
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status_id":             needsMoreInfoID,
+		"updated_at":            now,
+		"reviewed_at":           now,
+		"submitted_at":          gorm.Expr("NULL"),
+		"head_comment":          message,
+		"comment":               message,
+		"head_approved_by":      gorm.Expr("NULL"),
+		"head_approved_at":      gorm.Expr("NULL"),
+		"head_rejected_by":      gorm.Expr("NULL"),
+		"head_rejected_at":      gorm.Expr("NULL"),
+		"head_rejection_reason": gorm.Expr("NULL"),
+	}
+
+	signature := strings.TrimSpace(req.HeadSignature)
+	if signature != "" {
+		updates["head_signature"] = signature
+	} else {
+		updates["head_signature"] = gorm.Expr("NULL")
+	}
+
+	if err := tx.Model(&models.Submission{}).
+		Where("submission_id = ?", submissionID).
+		Updates(updates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
+		return
+	}
+
+	desc := fmt.Sprintf("Department head requested revision: %s", message)
+	auditLog := models.AuditLog{
+		UserID:       userID,
+		Action:       "request_revision",
+		EntityType:   "submission",
+		EntityID:     &submission.SubmissionID,
+		EntityNumber: &submission.SubmissionNumber,
+		Description:  &desc,
+		IPAddress:    c.ClientIP(),
+		CreatedAt:    now,
+	}
+	if err := tx.Create(&auditLog).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record audit log"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to request revision"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Revision requested successfully",
+	})
 }
 
 // controllers/dept_head_submission.go

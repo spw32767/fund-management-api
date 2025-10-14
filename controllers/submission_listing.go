@@ -11,6 +11,7 @@ import (
 
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -354,6 +355,12 @@ func GetAdminSubmissions(c *gin.Context) {
 	listQ := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
 		Where("submissions.deleted_at IS NULL")
 
+	draftStatusID, errDraft := utils.GetStatusIDByCode(utils.StatusCodeDraft)
+	pendingStatusID, errPending := utils.GetStatusIDByCode(utils.StatusCodePending)
+	approvedStatusID, errApproved := utils.GetStatusIDByCode(utils.StatusCodeApproved)
+	rejectedStatusID, errRejected := utils.GetStatusIDByCode(utils.StatusCodeRejected)
+	revisionStatusID, errRevision := utils.GetStatusIDByCode(utils.StatusCodeNeedsMoreInfo)
+
 	// Apply filters (identical set used later for stats)
 	if hasYearFilter {
 		listQ = listQ.Where("submissions.year_id = ?", yearID)
@@ -364,7 +371,11 @@ func GetAdminSubmissions(c *gin.Context) {
 	if status != "" {
 		if st, err := strconv.Atoi(status); err == nil {
 			listQ = listQ.Where("submissions.status_id = ?", st)
+		} else if resolved, err := utils.GetStatusIDByCode(status); err == nil {
+			listQ = listQ.Where("submissions.status_id = ?", resolved)
 		}
+	} else if errDraft == nil && draftStatusID > 0 {
+		listQ = listQ.Where("submissions.status_id <> ?", draftStatusID)
 	}
 	if categoryID != "" {
 		if cat, err := strconv.Atoi(categoryID); err == nil {
@@ -461,13 +472,24 @@ func GetAdminSubmissions(c *gin.Context) {
 				st, st, st, st, st, st, st,
 			)
 		}
+		if status == "" && errDraft == nil && draftStatusID > 0 {
+			q = q.Where("submissions.status_id <> ?", draftStatusID)
+		}
 		return q
 	}
 
-	baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", 1).Count(&stats.PendingCount)
-	baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", 2).Count(&stats.ApprovedCount)
-	baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", 3).Count(&stats.RejectedCount)
-	baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", 4).Count(&stats.RevisionCount)
+	if errPending == nil && pendingStatusID > 0 {
+		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", pendingStatusID).Count(&stats.PendingCount)
+	}
+	if errApproved == nil && approvedStatusID > 0 {
+		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", approvedStatusID).Count(&stats.ApprovedCount)
+	}
+	if errRejected == nil && rejectedStatusID > 0 {
+		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", rejectedStatusID).Count(&stats.RejectedCount)
+	}
+	if errRevision == nil && revisionStatusID > 0 {
+		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", revisionStatusID).Count(&stats.RevisionCount)
+	}
 
 	// ---------- Response ----------
 	totalPages := (totalCount + int64(limit) - 1) / int64(limit)
