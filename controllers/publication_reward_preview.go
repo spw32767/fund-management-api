@@ -136,6 +136,10 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 
 	var detail models.PublicationRewardDetail
 	if err := config.DB.
+		Preload("ExternalFunds", func(db *gorm.DB) *gorm.DB {
+			return db.Where("publication_reward_external_funds.deleted_at IS NULL OR publication_reward_external_funds.deleted_at = '0000-00-00 00:00:00'").
+				Order("publication_reward_external_funds.external_fund_id ASC")
+		}).
 		Where("submission_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", req.SubmissionID).
 		First(&detail).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -178,6 +182,21 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
 		"{{signature}}":          strings.TrimSpace(detail.Signature),
 	}
+
+	replacements["{{page_charge_amount}}"] = formatAmount(detail.PublicationFee)
+	replacements["{{manuscript_amount}}"] = formatAmount(detail.RevisionFee)
+	replacements["{{page_charge_manuscript_total}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee)
+
+	externalList, externalTotal := buildExternalFundLinesFromModels(detail.ExternalFunds)
+	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+
+	endOfContractContent, err := fetchEndOfContractContent()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load end of contract content"})
+		return
+	}
+	replacements["{{end_of_contract}}"] = endOfContractContent
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
@@ -287,7 +306,98 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		"{{signature}}":          strings.TrimSpace(payload.FormData.Signature),
 	}
 
+	pageChargeAmount := parseFormFloat(payload.FormData.PublicationFee)
+	manuscriptAmount := parseFormFloat(payload.FormData.RevisionFee)
+	replacements["{{page_charge_amount}}"] = formatAmount(pageChargeAmount)
+	replacements["{{manuscript_amount}}"] = formatAmount(manuscriptAmount)
+	replacements["{{page_charge_manuscript_total}}"] = formatAmount(pageChargeAmount + manuscriptAmount)
+
+	externalList, externalTotal := buildExternalFundLinesFromPreview(payload.External)
+	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+
+	endOfContractContent, err := fetchEndOfContractContent()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load end of contract content: %w", err)
+	}
+	replacements["{{end_of_contract}}"] = endOfContractContent
+
 	return replacements, nil
+}
+
+func buildExternalFundLinesFromModels(funds []models.PublicationRewardExternalFund) (string, float64) {
+	if len(funds) == 0 {
+		return "", 0
+	}
+
+	lines := make([]string, 0, len(funds))
+	var total float64
+	for _, fund := range funds {
+		amount := fund.Amount
+		total += amount
+
+		name := strings.TrimSpace(fund.FundName)
+		amountText := formatAmount(amount)
+		if name == "" {
+			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+	}
+
+	return strings.Join(lines, "\n"), total
+}
+
+func buildExternalFundLinesFromPreview(funds []PublicationRewardPreviewExternal) (string, float64) {
+	if len(funds) == 0 {
+		return "", 0
+	}
+
+	lines := make([]string, 0, len(funds))
+	var total float64
+	for _, fund := range funds {
+		amount := parseFormFloat(fund.Amount)
+		total += amount
+
+		name := strings.TrimSpace(fund.FundName)
+		amountText := formatAmount(amount)
+		if name == "" {
+			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+	}
+
+	return strings.Join(lines, "\n"), total
+}
+
+func fetchEndOfContractContent() (string, error) {
+	type endOfContractRow struct {
+		Content string `gorm:"column:content"`
+	}
+
+	var rows []endOfContractRow
+	if err := config.DB.
+		Table("end_of_contract").
+		Select("content").
+		Order("display_order ASC, eoc_id ASC").
+		Find(&rows).Error; err != nil {
+		return "", err
+	}
+
+	if len(rows) == 0 {
+		return "", nil
+	}
+
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		content := strings.TrimSpace(row.Content)
+		if content != "" {
+			lines = append(lines, content)
+		}
+	}
+
+	return strings.Join(lines, "\n"), nil
 }
 
 func parseFormFloat(raw string) float64 {

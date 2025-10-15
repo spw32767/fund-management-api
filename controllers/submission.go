@@ -617,7 +617,11 @@ func SubmitSubmission(c *gin.Context) {
 		submission.User = applicant
 
 		var detail models.PublicationRewardDetail
-		if err := tx.Where("submission_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", submission.SubmissionID).
+		if err := tx.Preload("ExternalFunds", func(db *gorm.DB) *gorm.DB {
+			return db.Where("publication_reward_external_funds.deleted_at IS NULL OR publication_reward_external_funds.deleted_at = '0000-00-00 00:00:00'").
+				Order("publication_reward_external_funds.external_fund_id ASC")
+		}).
+			Where("submission_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", submission.SubmissionID).
 			First(&detail).Error; err != nil {
 			return fmt.Errorf("failed to load publication reward detail: %w", err)
 		}
@@ -1301,6 +1305,20 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
 		"{{signature}}":          strings.TrimSpace(detail.Signature),
 	}
+
+	replacements["{{page_charge_amount}}"] = formatAmount(detail.PublicationFee)
+	replacements["{{manuscript_amount}}"] = formatAmount(detail.RevisionFee)
+	replacements["{{page_charge_manuscript_total}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee)
+
+	externalList, externalTotal := buildExternalFundLinesFromModels(detail.ExternalFunds)
+	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+
+	endOfContractContent, err := fetchEndOfContractContent()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load end of contract content: %w", err)
+	}
+	replacements["{{end_of_contract}}"] = endOfContractContent
 
 	return replacements, nil
 }
