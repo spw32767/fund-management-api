@@ -1234,8 +1234,15 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
-			for placeholder, value := range replacements {
-				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
+
+			keys := make([]string, 0, len(replacements))
+			for placeholder := range replacements {
+				keys = append(keys, placeholder)
+			}
+			sort.Strings(keys)
+
+			for _, placeholder := range keys {
+				content = replaceDocxPlaceholder(content, placeholder, replacements[placeholder])
 			}
 			data = []byte(content)
 		}
@@ -1264,7 +1271,8 @@ func formatDocxValue(value string) string {
 		return ""
 	}
 
-	parts := strings.Split(value, "\n")
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	parts := strings.Split(normalized, "\n")
 	for i, part := range parts {
 		parts[i] = xmlEscape(part)
 	}
@@ -1288,9 +1296,78 @@ func xmlEscape(value string) string {
 	return xmlReplacer.Replace(value)
 }
 
+func replaceDocxPlaceholder(content, placeholder, value string) string {
+	if placeholder == "" {
+		return content
+	}
+
+	runRe := runPlaceholderRegexFor(placeholder)
+	if runRe.MatchString(content) {
+		content = runRe.ReplaceAllStringFunc(content, func(match string) string {
+			parts := runRe.FindStringSubmatch(match)
+			if len(parts) != 4 {
+				return match
+			}
+			return buildDocxRunReplacement(parts[1], parts[2], parts[3], value)
+		})
+	}
+
+	if strings.Contains(content, placeholder) {
+		content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
+	}
+
+	return content
+}
+
+func buildDocxRunReplacement(runPrefixWithT, textAttrs, runSuffix, value string) string {
+	prefixEnd := strings.LastIndex(runPrefixWithT, "<w:t")
+	if prefixEnd == -1 {
+		return runPrefixWithT + textAttrs + ">" + formatDocxValue(value) + runSuffix
+	}
+
+	prefix := runPrefixWithT[:prefixEnd]
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+
+	var builder strings.Builder
+	for i, line := range lines {
+		attrs := textAttrs
+		if i > 0 {
+			attrs = ensureXMLSpacePreserve(attrs)
+		}
+
+		builder.WriteString(prefix)
+		if i > 0 {
+			builder.WriteString("<w:br/>")
+		}
+		builder.WriteString("<w:t")
+		builder.WriteString(attrs)
+		builder.WriteString(">")
+		builder.WriteString(xmlEscape(line))
+		builder.WriteString(runSuffix)
+	}
+
+	return builder.String()
+}
+
+func ensureXMLSpacePreserve(attrs string) string {
+	if strings.Contains(attrs, "xml:space=") {
+		return attrs
+	}
+	if attrs == "" {
+		return " xml:space=\"preserve\""
+	}
+	return attrs + " xml:space=\"preserve\""
+}
+
 var (
-	placeholderRegexCache sync.Map
-	proofErrTagPattern    = regexp.MustCompile(`<w:proofErr[^>]*/>`)
+	placeholderRegexCache    sync.Map
+	runPlaceholderRegexCache sync.Map
+	proofErrTagPattern       = regexp.MustCompile(`<w:proofErr[^>]*/>`)
 )
 
 func normalizeDocxPlaceholders(content string, replacements map[string]string) string {
@@ -1342,6 +1419,17 @@ func placeholderRegexFor(placeholder string) *regexp.Regexp {
 
 	re := regexp.MustCompile(builder.String())
 	placeholderRegexCache.Store(placeholder, re)
+	return re
+}
+
+func runPlaceholderRegexFor(placeholder string) *regexp.Regexp {
+	if cached, ok := runPlaceholderRegexCache.Load(placeholder); ok {
+		return cached.(*regexp.Regexp)
+	}
+
+	pattern := `(?s)(<w:r[^>]*>\s*(?:<w:rPr>.*?</w:rPr>\s*)?<w:t)([^>]*)>` + regexp.QuoteMeta(placeholder) + `(</w:t>\s*</w:r>)`
+	re := regexp.MustCompile(pattern)
+	runPlaceholderRegexCache.Store(placeholder, re)
 	return re
 }
 
