@@ -626,7 +626,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Select("submission_documents.*, dt.document_type_name").
 		Preload("File").
 		Preload("DocumentType").
-		Where("submission_id = ? AND submission_documents.deleted_at IS NULL", submissionID).
+		Where("submission_documents.submission_id = ?", submissionID).
 		Order("submission_documents.display_order, submission_documents.created_at").
 		Find(&documents).Error; err != nil {
 		documents = []models.SubmissionDocument{}
