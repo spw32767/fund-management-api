@@ -1840,8 +1840,8 @@ func GetSubmissionDocuments(c *gin.Context) {
 		Select("submission_documents.*, dt.document_type_name, pref.external_fund_id AS external_funding_id").
 		Preload("File").
 		Preload("DocumentType").
-		Where("submission_id = ?", submissionID).
-		Order("display_order, created_at").
+		Where("submission_documents.submission_id = ?", submissionID).
+		Order("submission_documents.display_order, submission_documents.created_at").
 		Find(&documents).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch documents"})
 		return
