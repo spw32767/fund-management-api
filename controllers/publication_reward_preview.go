@@ -196,7 +196,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load end of contract content"})
 		return
 	}
-	replacements["{{end_of_contract}}"] = endOfContractContent
+	replacements["{{end_of_contract}}"] = sanitizeEndOfContractContent(endOfContractContent)
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
@@ -320,7 +320,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load end of contract content: %w", err)
 	}
-	replacements["{{end_of_contract}}"] = endOfContractContent
+	replacements["{{end_of_contract}}"] = sanitizeEndOfContractContent(endOfContractContent)
 
 	return replacements, nil
 }
@@ -398,6 +398,19 @@ func fetchEndOfContractContent() (string, error) {
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+func sanitizeEndOfContractContent(value string) string {
+	if value == "" {
+		return ""
+	}
+
+	lines := strings.Split(value, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimLeft(line, "\t")
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func parseFormFloat(raw string) float64 {
