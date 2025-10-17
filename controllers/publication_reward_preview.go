@@ -26,7 +26,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -1235,13 +1234,7 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
-			if value, ok := replacements["{{end_of_contract}}"]; ok {
-				content = replaceEndOfContractParagraph(content, value)
-			}
 			for placeholder, value := range replacements {
-				if placeholder == "{{end_of_contract}}" {
-					continue
-				}
 				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
 			}
 			data = []byte(content)
@@ -1283,154 +1276,6 @@ func formatDocxValue(value string) string {
 	return strings.Join(parts, "</w:t><w:br/><w:t xml:space=\"preserve\">")
 }
 
-func replaceEndOfContractParagraph(content, value string) string {
-	const placeholder = "{{end_of_contract}}"
-	if !strings.Contains(content, placeholder) {
-		return content
-	}
-
-	return endOfContractParagraphRegex.ReplaceAllStringFunc(content, func(match string) string {
-		return buildEndOfContractParagraphs(match, value)
-	})
-}
-
-func buildEndOfContractParagraphs(originalParagraph, value string) string {
-	const (
-		indentTwips = 567
-		fontName    = "TH Sarabun New"
-		fontSize    = 28
-	)
-
-	value = strings.ReplaceAll(value, "\r\n", "\n")
-	value = strings.ReplaceAll(value, "\r", "\n")
-	lines := strings.Split(value, "\n")
-
-	paragraphAttrs := ""
-	if matches := paragraphStartTagRegex.FindStringSubmatch(originalParagraph); len(matches) > 1 {
-		paragraphAttrs = matches[1]
-	}
-
-	var baseParagraphProps string
-	var sectPr string
-	if matches := paragraphPropertyRegex.FindStringSubmatch(originalParagraph); len(matches) > 1 {
-		baseParagraphProps = matches[1]
-		if sectMatch := sectPrRegex.FindString(baseParagraphProps); sectMatch != "" {
-			sectPr = sectMatch
-			baseParagraphProps = strings.Replace(baseParagraphProps, sectMatch, "", 1)
-		}
-		baseParagraphProps = indentTagRegex.ReplaceAllString(baseParagraphProps, "")
-		baseParagraphProps = tabsTagRegex.ReplaceAllString(baseParagraphProps, "")
-		baseParagraphProps = strings.TrimSpace(baseParagraphProps)
-	}
-
-	var paragraphs []string
-	for _, rawLine := range lines {
-		checkbox, text := splitEndOfContractLine(rawLine)
-		if checkbox == "" && text == "" {
-			continue
-		}
-
-		var builder strings.Builder
-		builder.Grow(512)
-		if len(paragraphs) == 0 && paragraphAttrs != "" {
-			builder.WriteString("<w:p")
-			builder.WriteString(paragraphAttrs)
-			builder.WriteString(">")
-		} else {
-			builder.WriteString("<w:p>")
-		}
-		builder.WriteString("<w:pPr>")
-		builder.WriteString(fmt.Sprintf("<w:ind w:left=\"%d\" w:hanging=\"%d\"/>", indentTwips, indentTwips))
-		builder.WriteString(fmt.Sprintf("<w:tabs><w:tab w:val=\"left\" w:pos=\"%d\"/></w:tabs>", indentTwips))
-		if baseParagraphProps != "" {
-			builder.WriteString(baseParagraphProps)
-		}
-		builder.WriteString("</w:pPr>")
-
-		runProps := fmt.Sprintf("<w:rPr><w:rFonts w:ascii=\"%s\" w:hAnsi=\"%s\" w:cs=\"%s\"/><w:sz w:val=\"%d\"/><w:szCs w:val=\"%d\"/></w:rPr>", fontName, fontName, fontName, fontSize, fontSize)
-
-		if checkbox != "" {
-			builder.WriteString("<w:r>")
-			builder.WriteString(runProps)
-			builder.WriteString("<w:t>")
-			builder.WriteString(xmlEscape(checkbox))
-			builder.WriteString("</w:t>")
-			builder.WriteString("</w:r>")
-		}
-
-		builder.WriteString("<w:r>")
-		builder.WriteString(runProps)
-		builder.WriteString("<w:tab/>")
-		builder.WriteString("</w:r>")
-
-		if text != "" {
-			builder.WriteString("<w:r>")
-			builder.WriteString(runProps)
-			builder.WriteString("<w:t xml:space=\"preserve\">")
-			builder.WriteString(xmlEscape(text))
-			builder.WriteString("</w:t>")
-			builder.WriteString("</w:r>")
-		}
-
-		builder.WriteString("</w:p>")
-		paragraphs = append(paragraphs, builder.String())
-	}
-
-	if len(paragraphs) == 0 {
-		if sectPr == "" && baseParagraphProps == "" {
-			return ""
-		}
-
-		var builder strings.Builder
-		if paragraphAttrs != "" {
-			builder.WriteString("<w:p")
-			builder.WriteString(paragraphAttrs)
-			builder.WriteString(">")
-		} else {
-			builder.WriteString("<w:p>")
-		}
-		builder.WriteString("<w:pPr>")
-		if baseParagraphProps != "" {
-			builder.WriteString(baseParagraphProps)
-		}
-		if sectPr != "" {
-			builder.WriteString(sectPr)
-		}
-		builder.WriteString("</w:pPr></w:p>")
-		return builder.String()
-	}
-
-	if sectPr != "" {
-		last := paragraphs[len(paragraphs)-1]
-		insertion := sectPr
-		paragraphs[len(paragraphs)-1] = strings.Replace(last, "</w:pPr>", insertion+"</w:pPr>", 1)
-	}
-
-	return strings.Join(paragraphs, "")
-}
-
-func splitEndOfContractLine(rawLine string) (string, string) {
-	trimmed := strings.TrimSpace(rawLine)
-	if trimmed == "" {
-		return "", ""
-	}
-
-	runes := []rune(trimmed)
-	checkbox := string(runes[0])
-	remainder := ""
-	if len(runes) > 1 {
-		remainder = string(runes[1:])
-	}
-
-	firstRune := runes[0]
-	if unicode.IsLetter(firstRune) || unicode.IsDigit(firstRune) {
-		return "", trimmed
-	}
-
-	remainder = strings.TrimLeftFunc(remainder, unicode.IsSpace)
-	return checkbox, remainder
-}
-
 var xmlReplacer = strings.NewReplacer(
 	"&", "&amp;",
 	"<", "&lt;",
@@ -1444,14 +1289,8 @@ func xmlEscape(value string) string {
 }
 
 var (
-	placeholderRegexCache       sync.Map
-	proofErrTagPattern          = regexp.MustCompile(`<w:proofErr[^>]*/>`)
-	endOfContractParagraphRegex = regexp.MustCompile(`(?s)<w:p[^>]*>.*?\{\{end_of_contract\}\}.*?</w:p>`)
-	paragraphStartTagRegex      = regexp.MustCompile(`^<w:p([^>]*)>`)
-	paragraphPropertyRegex      = regexp.MustCompile(`(?s)<w:pPr[^>]*>(.*?)</w:pPr>`)
-	sectPrRegex                 = regexp.MustCompile(`(?s)<w:sectPr\b.*?</w:sectPr>`)
-	indentTagRegex              = regexp.MustCompile(`<w:ind\b[^>]*/>`)
-	tabsTagRegex                = regexp.MustCompile(`(?s)<w:tabs\b.*?</w:tabs>`)
+	placeholderRegexCache sync.Map
+	proofErrTagPattern    = regexp.MustCompile(`<w:proofErr[^>]*/>`)
 )
 
 func normalizeDocxPlaceholders(content string, replacements map[string]string) string {
