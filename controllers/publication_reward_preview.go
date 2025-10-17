@@ -1289,31 +1289,40 @@ func replaceEndOfContractParagraph(content, value string) string {
 		return content
 	}
 
-	replacement := buildEndOfContractParagraphs(value)
-	if replacement == "" {
-		// Remove the entire paragraph when there's no content.
-		replacement = ""
-	}
-
-	return endOfContractParagraphRegex.ReplaceAllStringFunc(content, func(string) string {
-		return replacement
+	return endOfContractParagraphRegex.ReplaceAllStringFunc(content, func(match string) string {
+		return buildEndOfContractParagraphs(match, value)
 	})
 }
 
-func buildEndOfContractParagraphs(value string) string {
+func buildEndOfContractParagraphs(originalParagraph, value string) string {
 	const (
 		indentTwips = 567
 		fontName    = "TH Sarabun New"
 		fontSize    = 28
 	)
 
-	if value == "" {
-		return ""
-	}
-
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")
 	lines := strings.Split(value, "\n")
+
+	paragraphAttrs := ""
+	if matches := paragraphStartTagRegex.FindStringSubmatch(originalParagraph); len(matches) > 1 {
+		paragraphAttrs = matches[1]
+	}
+
+	var baseParagraphProps string
+	var sectPr string
+	if matches := paragraphPropertyRegex.FindStringSubmatch(originalParagraph); len(matches) > 1 {
+		baseParagraphProps = matches[1]
+		if sectMatch := sectPrRegex.FindString(baseParagraphProps); sectMatch != "" {
+			sectPr = sectMatch
+			baseParagraphProps = strings.Replace(baseParagraphProps, sectMatch, "", 1)
+		}
+		baseParagraphProps = indentTagRegex.ReplaceAllString(baseParagraphProps, "")
+		baseParagraphProps = tabsTagRegex.ReplaceAllString(baseParagraphProps, "")
+		baseParagraphProps = strings.TrimSpace(baseParagraphProps)
+	}
+
 	var paragraphs []string
 	for _, rawLine := range lines {
 		checkbox, text := splitEndOfContractLine(rawLine)
@@ -1323,10 +1332,19 @@ func buildEndOfContractParagraphs(value string) string {
 
 		var builder strings.Builder
 		builder.Grow(512)
-		builder.WriteString("<w:p>")
+		if len(paragraphs) == 0 && paragraphAttrs != "" {
+			builder.WriteString("<w:p")
+			builder.WriteString(paragraphAttrs)
+			builder.WriteString(">")
+		} else {
+			builder.WriteString("<w:p>")
+		}
 		builder.WriteString("<w:pPr>")
 		builder.WriteString(fmt.Sprintf("<w:ind w:left=\"%d\" w:hanging=\"%d\"/>", indentTwips, indentTwips))
 		builder.WriteString(fmt.Sprintf("<w:tabs><w:tab w:val=\"left\" w:pos=\"%d\"/></w:tabs>", indentTwips))
+		if baseParagraphProps != "" {
+			builder.WriteString(baseParagraphProps)
+		}
 		builder.WriteString("</w:pPr>")
 
 		runProps := fmt.Sprintf("<w:rPr><w:rFonts w:ascii=\"%s\" w:hAnsi=\"%s\" w:cs=\"%s\"/><w:sz w:val=\"%d\"/><w:szCs w:val=\"%d\"/></w:rPr>", fontName, fontName, fontName, fontSize, fontSize)
@@ -1356,6 +1374,36 @@ func buildEndOfContractParagraphs(value string) string {
 
 		builder.WriteString("</w:p>")
 		paragraphs = append(paragraphs, builder.String())
+	}
+
+	if len(paragraphs) == 0 {
+		if sectPr == "" && baseParagraphProps == "" {
+			return ""
+		}
+
+		var builder strings.Builder
+		if paragraphAttrs != "" {
+			builder.WriteString("<w:p")
+			builder.WriteString(paragraphAttrs)
+			builder.WriteString(">")
+		} else {
+			builder.WriteString("<w:p>")
+		}
+		builder.WriteString("<w:pPr>")
+		if baseParagraphProps != "" {
+			builder.WriteString(baseParagraphProps)
+		}
+		if sectPr != "" {
+			builder.WriteString(sectPr)
+		}
+		builder.WriteString("</w:pPr></w:p>")
+		return builder.String()
+	}
+
+	if sectPr != "" {
+		last := paragraphs[len(paragraphs)-1]
+		insertion := sectPr
+		paragraphs[len(paragraphs)-1] = strings.Replace(last, "</w:pPr>", insertion+"</w:pPr>", 1)
 	}
 
 	return strings.Join(paragraphs, "")
@@ -1399,6 +1447,11 @@ var (
 	placeholderRegexCache       sync.Map
 	proofErrTagPattern          = regexp.MustCompile(`<w:proofErr[^>]*/>`)
 	endOfContractParagraphRegex = regexp.MustCompile(`(?s)<w:p[^>]*>.*?\{\{end_of_contract\}\}.*?</w:p>`)
+	paragraphStartTagRegex      = regexp.MustCompile(`^<w:p([^>]*)>`)
+	paragraphPropertyRegex      = regexp.MustCompile(`(?s)<w:pPr[^>]*>(.*?)</w:pPr>`)
+	sectPrRegex                 = regexp.MustCompile(`(?s)<w:sectPr\b.*?</w:sectPr>`)
+	indentTagRegex              = regexp.MustCompile(`<w:ind\b[^>]*/>`)
+	tabsTagRegex                = regexp.MustCompile(`(?s)<w:tabs\b.*?</w:tabs>`)
 )
 
 func normalizeDocxPlaceholders(content string, replacements map[string]string) string {
