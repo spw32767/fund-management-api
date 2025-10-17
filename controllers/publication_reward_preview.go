@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -1234,6 +1235,11 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
+			if strings.EqualFold(file.Name, "word/document.xml") {
+				if value, ok := replacements["{{end_of_contract}}"]; ok {
+					content = replaceEndOfContractParagraph(content, value)
+				}
+			}
 			for placeholder, value := range replacements {
 				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
 			}
@@ -1274,6 +1280,92 @@ func formatDocxValue(value string) string {
 	}
 
 	return strings.Join(parts, "</w:t><w:br/><w:t xml:space=\"preserve\">")
+}
+
+var (
+	endOfContractParagraphPattern = regexp.MustCompile(`(?s)<w:p\b[^>]*>.*?\{\{end_of_contract\}\}.*?</w:p>`)
+	endOfContractSectPrPattern    = regexp.MustCompile(`(?s)<w:sectPr\b[^>]*>.*?</w:sectPr>`)
+	endOfContractLineBreaks       = regexp.MustCompile("\r\n|\n")
+)
+
+const endOfContractRunProperties = `<w:rPr><w:rFonts w:ascii="TH Sarabun New" w:hAnsi="TH Sarabun New" w:cs="TH Sarabun New"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>`
+
+func replaceEndOfContractParagraph(content, replacement string) string {
+	match := endOfContractParagraphPattern.FindString(content)
+	if match == "" {
+		return content
+	}
+
+	sectPr := endOfContractSectPrPattern.FindString(match)
+	lines := endOfContractLineBreaks.Split(replacement, -1)
+	if len(lines) == 1 && lines[0] == "" {
+		lines = lines[:0]
+	}
+	if len(lines) == 0 {
+		if sectPr == "" {
+			return strings.Replace(content, match, "", 1)
+		}
+		lines = []string{""}
+	}
+
+	var builder strings.Builder
+	for i, line := range lines {
+		builder.WriteString("<w:p><w:pPr><w:ind w:left=\"567\" w:hanging=\"567\"/><w:tabs><w:tab w:val=\"left\" w:pos=\"567\"/></w:tabs>")
+		if i == len(lines)-1 && sectPr != "" {
+			builder.WriteString(sectPr)
+		}
+		builder.WriteString("</w:pPr>")
+
+		checkbox, text := splitEndOfContractLine(line)
+		if checkbox != "" {
+			builder.WriteString("<w:r>")
+			builder.WriteString(endOfContractRunProperties)
+			builder.WriteString("<w:t>")
+			builder.WriteString(xmlEscape(checkbox))
+			builder.WriteString("</w:t></w:r>")
+		}
+
+		builder.WriteString("<w:r>")
+		builder.WriteString(endOfContractRunProperties)
+		builder.WriteString("<w:tab/></w:r>")
+
+		builder.WriteString("<w:r>")
+		builder.WriteString(endOfContractRunProperties)
+		if text == "" {
+			builder.WriteString("<w:t/>")
+		} else {
+			builder.WriteString("<w:t xml:space=\"preserve\">")
+			builder.WriteString(xmlEscape(text))
+			builder.WriteString("</w:t>")
+		}
+		builder.WriteString("</w:r></w:p>")
+	}
+
+	return strings.Replace(content, match, builder.String(), 1)
+}
+
+func splitEndOfContractLine(line string) (string, string) {
+	if line == "" {
+		return "", ""
+	}
+
+	r, size := utf8.DecodeRuneInString(line)
+	if isEndOfContractCheckboxRune(r) {
+		text := line[size:]
+		text = strings.TrimPrefix(text, " ")
+		return string(r), text
+	}
+
+	return "", line
+}
+
+func isEndOfContractCheckboxRune(r rune) bool {
+	switch r {
+	case '☐', '☑', '☒':
+		return true
+	default:
+		return false
+	}
 }
 
 var xmlReplacer = strings.NewReplacer(
