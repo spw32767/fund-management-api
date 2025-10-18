@@ -880,7 +880,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			return metaCopy[i].DisplayOrder < metaCopy[j].DisplayOrder
 		})
 
-		lines := make([]string, 0, len(metaCopy))
+		entries := make([]documentAggregationEntry, 0, len(metaCopy))
 		for _, entry := range metaCopy {
 			name := strings.TrimSpace(entry.DocumentTypeName)
 			if name == "" {
@@ -889,10 +889,20 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			if name == "" {
 				continue
 			}
-			lines = append(lines, buildDocumentQuantityLine(name))
+
+			key := ""
+			if entry.DocumentTypeID != nil && *entry.DocumentTypeID > 0 {
+				key = fmt.Sprintf("id:%d", *entry.DocumentTypeID)
+			}
+
+			entries = append(entries, documentAggregationEntry{
+				Key:  key,
+				Name: name,
+			})
 		}
-		if len(lines) > 0 {
-			return strings.Join(lines, "\n")
+
+		if rendered := renderDocumentLines(entries); rendered != "" {
+			return rendered
 		}
 	}
 
@@ -900,15 +910,75 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 		return ""
 	}
 
-	lines := make([]string, 0, len(attachments))
+	entries := make([]documentAggregationEntry, 0, len(attachments))
 	for _, header := range attachments {
 		name := strings.TrimSpace(header.Filename)
 		if name == "" {
 			continue
 		}
-		lines = append(lines, buildDocumentQuantityLine(name))
+		entries = append(entries, documentAggregationEntry{
+			Name: name,
+		})
 	}
+
+	return renderDocumentLines(entries)
+}
+
+type documentAggregationEntry struct {
+	Key  string
+	Name string
+}
+
+type documentAggregationSummary struct {
+	Name     string
+	Quantity int
+}
+
+func renderDocumentLines(entries []documentAggregationEntry) string {
+	summaries := aggregateDocumentEntries(entries)
+	if len(summaries) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		line := buildDocumentQuantityLine(summary.Name, summary.Quantity)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+func aggregateDocumentEntries(entries []documentAggregationEntry) []documentAggregationSummary {
+	summaries := make([]documentAggregationSummary, 0, len(entries))
+	index := make(map[string]int)
+
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			continue
+		}
+
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			key = "name:" + strings.ToLower(name)
+		}
+
+		if idx, ok := index[key]; ok {
+			summaries[idx].Quantity++
+			continue
+		}
+
+		index[key] = len(summaries)
+		summaries = append(summaries, documentAggregationSummary{
+			Name:     name,
+			Quantity: 1,
+		})
+	}
+
+	return summaries
 }
 
 func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
@@ -1222,7 +1292,7 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 		return ""
 	}
 
-	lines := make([]string, 0, len(documents))
+	entries := make([]documentAggregationEntry, 0, len(documents))
 	for _, doc := range documents {
 		name := strings.TrimSpace(doc.DocumentTypeName)
 		if name == "" {
@@ -1237,19 +1307,28 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 		if name == "" {
 			continue
 		}
-		lines = append(lines, buildDocumentQuantityLine(name))
+
+		key := ""
+		if doc.DocumentTypeID != 0 {
+			key = fmt.Sprintf("id:%d", doc.DocumentTypeID)
+		}
+
+		entries = append(entries, documentAggregationEntry{
+			Key:  key,
+			Name: name,
+		})
 	}
 
-	return strings.Join(lines, "\n")
+	return renderDocumentLines(entries)
 }
 
-func buildDocumentQuantityLine(name string) string {
-	unit := documentUnitForName(name)
+func buildDocumentQuantityLine(name string, quantity int) string {
 	cleanName := strings.TrimSpace(name)
-	if cleanName == "" {
+	if cleanName == "" || quantity <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s จำนวน 1 %s", cleanName, unit)
+	unit := documentUnitForName(cleanName)
+	return fmt.Sprintf("%s จำนวน %d %s", cleanName, quantity, unit)
 }
 
 func documentUnitForName(name string) string {
