@@ -29,6 +29,10 @@ import (
 const publicationRewardFormDocumentCode = "publication_reward_form_docx"
 const publicationRewardFormPdfDocumentCode = "publication_reward_form_pdf"
 
+// mergedSubmissionDocumentTypeCode corresponds to the seeded document type
+// "แบบฟอร์มคำร้องรวม (merged pdf)" which stores the generated merged PDF.
+const mergedSubmissionDocumentTypeCode = "แบบฟอร์มคำร้องรวม (merged pdf)"
+
 // ===================== SUBMISSION MANAGEMENT =====================
 
 // GetSubmissions returns user's submissions
@@ -932,6 +936,16 @@ func MergeSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
+	var mergedDocumentType models.DocumentType
+	if err := config.DB.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", mergedSubmissionDocumentTypeCode).
+		First(&mergedDocumentType).Error; err != nil {
+		log.Printf("[MergeSubmissionDocuments] failed to resolve merged document type %q: %v", mergedSubmissionDocumentTypeCode, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate merged document type"})
+		return
+	}
+
+	mergedDocumentTypeID := mergedDocumentType.DocumentTypeID
+
 	documents, err := fetchSubmissionDocuments(config.DB, submission.SubmissionID)
 	if err != nil {
 		log.Printf("[MergeSubmissionDocuments] failed to load documents for submission %d: %v", submission.SubmissionID, err)
@@ -946,6 +960,11 @@ func MergeSubmissionDocuments(c *gin.Context) {
 
 	pdfPaths := make([]string, 0, len(documents))
 	for _, doc := range documents {
+		if doc.DocumentTypeID == mergedDocumentTypeID {
+			log.Printf("[MergeSubmissionDocuments] skipping document %d: merged pdf placeholder", doc.DocumentID)
+			continue
+		}
+
 		file := doc.File
 		log.Printf("[MergeSubmissionDocuments] inspecting document %d (file_id=%d) for submission %d", doc.DocumentID, file.FileID, submission.SubmissionID)
 		if file.FileID == 0 {
@@ -1045,6 +1064,75 @@ func MergeSubmissionDocuments(c *gin.Context) {
 		log.Printf("[MergeSubmissionDocuments] failed to persist file record for submission %d: %v", submission.SubmissionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
 		return
+	}
+
+	var mergedDocument models.SubmissionDocument
+	if err := config.DB.Preload("File").
+		Where("submission_id = ? AND document_type_id = ?", submission.SubmissionID, mergedDocumentTypeID).
+		First(&mergedDocument).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			os.Remove(outputPath)
+			log.Printf("[MergeSubmissionDocuments] failed to load existing merged document for submission %d: %v", submission.SubmissionID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
+			return
+		}
+
+		mergedDocument = models.SubmissionDocument{
+			SubmissionID:   submission.SubmissionID,
+			FileID:         fileRecord.FileID,
+			OriginalName:   fileRecord.OriginalName,
+			DocumentTypeID: mergedDocumentTypeID,
+			DisplayOrder:   nextDocumentDisplayOrder(documents),
+			IsRequired:     false,
+			IsVerified:     false,
+			CreatedAt:      now,
+		}
+
+		if mergedDocument.DisplayOrder <= 0 {
+			mergedDocument.DisplayOrder = len(documents) + 1
+		}
+
+		if err := createSubmissionDocumentRecord(config.DB, &mergedDocument); err != nil {
+			os.Remove(outputPath)
+			log.Printf("[MergeSubmissionDocuments] failed to register merged document for submission %d: %v", submission.SubmissionID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
+			return
+		}
+	} else {
+		previousFileID := mergedDocument.FileID
+		previousFilePath := strings.TrimSpace(mergedDocument.File.StoredPath)
+
+		mergedDocument.FileID = fileRecord.FileID
+		mergedDocument.OriginalName = fileRecord.OriginalName
+		mergedDocument.IsVerified = false
+		mergedDocument.VerifiedBy = nil
+		mergedDocument.VerifiedAt = nil
+
+		if mergedDocument.DisplayOrder <= 0 {
+			mergedDocument.DisplayOrder = nextDocumentDisplayOrder(documents)
+			if mergedDocument.DisplayOrder <= 0 {
+				mergedDocument.DisplayOrder = len(documents) + 1
+			}
+		}
+
+		if err := saveSubmissionDocumentRecord(config.DB, &mergedDocument); err != nil {
+			os.Remove(outputPath)
+			log.Printf("[MergeSubmissionDocuments] failed to update merged document for submission %d: %v", submission.SubmissionID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist merged document"})
+			return
+		}
+
+		if previousFileID > 0 && previousFileID != fileRecord.FileID {
+			if err := config.DB.Delete(&models.FileUpload{}, previousFileID).Error; err != nil {
+				log.Printf("[MergeSubmissionDocuments] failed to delete previous merged file record %d: %v", previousFileID, err)
+			}
+
+			if previousFilePath != "" {
+				if err := os.Remove(previousFilePath); err != nil && !os.IsNotExist(err) {
+					log.Printf("[MergeSubmissionDocuments] failed to remove previous merged file %s: %v", previousFilePath, err)
+				}
+			}
+		}
 	}
 
 	cleanedRoot := filepath.Clean(uploadRoot)
