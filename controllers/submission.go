@@ -936,9 +936,8 @@ func MergeSubmissionDocuments(c *gin.Context) {
 		return
 	}
 
-	var mergedDocumentType models.DocumentType
-	if err := config.DB.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", mergedSubmissionDocumentTypeCode).
-		First(&mergedDocumentType).Error; err != nil {
+	mergedDocumentType, err := resolveDocumentTypeByCode(config.DB, mergedSubmissionDocumentTypeCode)
+	if err != nil {
 		log.Printf("[MergeSubmissionDocuments] failed to resolve merged document type %q: %v", mergedSubmissionDocumentTypeCode, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate merged document type"})
 		return

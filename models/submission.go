@@ -67,6 +67,7 @@ type Submission struct {
 	// เดิม: Subcategory *FundSubcategory `gorm:"foreignKey:SubcategoryID" json:"subcategory,omitempty"`
 	Subcategory             *FundSubcategory         `gorm:"foreignKey:SubcategoryID;references:SubcategoryID" json:"subcategory,omitempty"`
 	Documents               []SubmissionDocument     `gorm:"foreignKey:SubmissionID" json:"documents,omitempty"`
+	MergedDocument          *SubmissionDocument      `gorm:"-" json:"merged_document,omitempty"`
 	SubmissionUsers         []SubmissionUser         `gorm:"foreignKey:SubmissionID" json:"submission_users,omitempty"`
 	FundApplicationDetail   *FundApplicationDetail   `json:"fund_application_detail,omitempty"`
 	PublicationRewardDetail *PublicationRewardDetail `json:"publication_reward_detail,omitempty"`

@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"errors"
+	"strings"
 	"sync"
 
 	"fund-management-api/config"
@@ -60,6 +62,25 @@ func submissionDocumentSupportsOriginalName(db *gorm.DB) bool {
 		submissionDocumentOriginalNameExists = db.Migrator().HasColumn(&models.SubmissionDocument{}, "original_name")
 	})
 	return submissionDocumentOriginalNameExists
+}
+
+func resolveDocumentTypeByCode(db *gorm.DB, code string) (*models.DocumentType, error) {
+	if db == nil {
+		db = config.DB
+	}
+
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return nil, errors.New("document type code is required")
+	}
+
+	var documentType models.DocumentType
+	if err := db.Where("code = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", trimmed).
+		First(&documentType).Error; err != nil {
+		return nil, err
+	}
+
+	return &documentType, nil
 }
 
 type submissionDocumentWithTypeOrder struct {

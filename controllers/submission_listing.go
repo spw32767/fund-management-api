@@ -421,6 +421,40 @@ func GetAdminSubmissions(c *gin.Context) {
 		return
 	}
 
+	if len(submissions) > 0 {
+		mergedDocumentType, err := resolveDocumentTypeByCode(config.DB, mergedSubmissionDocumentTypeCode)
+		if err != nil {
+			log.Printf("GetAdminSubmissions: failed to resolve merged document type: %v", err)
+		} else if mergedDocumentType != nil && mergedDocumentType.DocumentTypeID > 0 {
+			submissionIndex := make(map[int]int, len(submissions))
+			submissionIDs := make([]int, 0, len(submissions))
+			for idx, submission := range submissions {
+				submissionIndex[submission.SubmissionID] = idx
+				submissionIDs = append(submissionIDs, submission.SubmissionID)
+			}
+
+			var mergedDocs []models.SubmissionDocument
+			if err := config.DB.Preload("File").
+				Where("submission_id IN ? AND document_type_id = ?", submissionIDs, mergedDocumentType.DocumentTypeID).
+				Order("created_at DESC").
+				Find(&mergedDocs).Error; err != nil {
+				log.Printf("GetAdminSubmissions: failed to load merged documents: %v", err)
+			} else if len(mergedDocs) > 0 {
+				enrichSubmissionDocumentsWithFileMetadata(mergedDocs)
+				for i := range mergedDocs {
+					idx, ok := submissionIndex[mergedDocs[i].SubmissionID]
+					if !ok {
+						continue
+					}
+					if submissions[idx].MergedDocument != nil {
+						continue
+					}
+					submissions[idx].MergedDocument = &mergedDocs[i]
+				}
+			}
+		}
+	}
+
 	// ---------- Statistics (clone filters, count by status) ----------
 	type Stats struct {
 		TotalSubmissions int64 `json:"total_submissions"`
