@@ -38,6 +38,7 @@ type PublicationRewardPreviewSubmissionRequest struct {
 
 // PublicationRewardPreviewFormPayload represents the form-based preview payload.
 type PublicationRewardPreviewFormPayload struct {
+	YearID      *int                                 `json:"year_id"`
 	FormData    PublicationRewardPreviewFormData     `json:"formData"`
 	Applicant   PublicationRewardPreviewApplicant    `json:"applicant"`
 	Coauthors   []PublicationRewardPreviewCoauthor   `json:"coauthors"`
@@ -46,6 +47,7 @@ type PublicationRewardPreviewFormPayload struct {
 }
 
 type PublicationRewardPreviewFormData struct {
+	YearID                *int   `json:"year_id"`
 	AuthorStatus          string `json:"author_status"`
 	ArticleTitle          string `json:"article_title"`
 	JournalName           string `json:"journal_name"`
@@ -162,12 +164,21 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		return
 	}
 
+	installmentText, err := determineSubmissionInstallmentPlaceholder(&submission, sysConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve installment"})
+		return
+	}
+	if installmentText == "" {
+		installmentText = formatNullableInt(sysConfig.Installment)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
 		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
 		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
-		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(detail.TotalAmount),
 		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
 		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
@@ -285,12 +296,20 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		employmentDate = lookupEmploymentDateFromUserID(requesterID)
 	}
 
+	installmentText, err := determineFormInstallmentPlaceholder(payload, sysConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve installment: %w", err)
+	}
+	if installmentText == "" {
+		installmentText = formatNullableInt(sysConfig.Installment)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
 		"{{applicant_name}}":     buildPreviewApplicantName(payload.Applicant),
 		"{{date_of_employment}}": employmentDate,
 		"{{position}}":           strings.TrimSpace(payload.Applicant.PositionName),
-		"{{installment}}":        formatNullableInt(sysConfig.Installment),
+		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(totalAmount),
 		"{{total_amount_text}}":  utils.BahtText(totalAmount),
 		"{{author_name_list}}":   strings.TrimSpace(payload.FormData.AuthorNameList),
@@ -895,7 +914,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
 	var row systemConfigSnapshot
 	if err := config.DB.Table("system_config").
-		Select("installment, kku_report_year").
+		Select("installment, kku_report_year, current_year").
 		Order("config_id DESC").
 		Limit(1).
 		Scan(&row).Error; err != nil {
@@ -930,6 +949,184 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 type systemConfigSnapshot struct {
 	Installment   sql.NullInt64
 	KkuReportYear sql.NullString
+	CurrentYear   sql.NullString
+}
+
+func determineSubmissionInstallmentPlaceholder(submission *models.Submission, sysConfig *systemConfigSnapshot) (string, error) {
+	if submission == nil {
+		return "", nil
+	}
+
+	if submission.InstallmentNumberAtSubmit != nil {
+		return formatInstallmentNumber(submission.InstallmentNumberAtSubmit), nil
+	}
+
+	yearID := submission.YearID
+	if yearID == 0 {
+		derived, err := deriveYearIDFromSystemConfig(sysConfig)
+		if err != nil {
+			return "", err
+		}
+		yearID = derived
+	}
+
+	if yearID == 0 {
+		latest, err := lookupLatestActiveYearID()
+		if err != nil {
+			return "", err
+		}
+		yearID = latest
+	}
+
+	if yearID == 0 {
+		return "", nil
+	}
+
+	submissionTime := selectSubmissionTimestamp(submission)
+	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, submissionTime)
+	if err != nil {
+		return "", err
+	}
+
+	return formatInstallmentNumber(number), nil
+}
+
+func determineFormInstallmentPlaceholder(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot) (string, error) {
+	if payload == nil {
+		return "", nil
+	}
+
+	yearID, err := determineFormPreviewYearID(payload, sysConfig)
+	if err != nil {
+		return "", err
+	}
+
+	if yearID == 0 {
+		return "", nil
+	}
+
+	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, time.Now())
+	if err != nil {
+		return "", err
+	}
+
+	return formatInstallmentNumber(number), nil
+}
+
+func determineFormPreviewYearID(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot) (int, error) {
+	if payload == nil {
+		return 0, nil
+	}
+
+	if payload.YearID != nil && *payload.YearID > 0 {
+		return *payload.YearID, nil
+	}
+
+	if payload.FormData.YearID != nil && *payload.FormData.YearID > 0 {
+		return *payload.FormData.YearID, nil
+	}
+
+	if yearID, err := deriveYearIDFromSystemConfig(sysConfig); err != nil {
+		return 0, err
+	} else if yearID > 0 {
+		return yearID, nil
+	}
+
+	return lookupLatestActiveYearID()
+}
+
+func deriveYearIDFromSystemConfig(sysConfig *systemConfigSnapshot) (int, error) {
+	if sysConfig == nil {
+		return 0, nil
+	}
+
+	if !sysConfig.CurrentYear.Valid {
+		return 0, nil
+	}
+
+	return lookupYearIDByYearString(sysConfig.CurrentYear.String)
+}
+
+func lookupYearIDByYearString(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, nil
+	}
+
+	digits := onlyDigits(trimmed)
+	candidate := trimmed
+	if len(digits) >= 4 {
+		candidate = digits[:4]
+	} else if len(digits) > 0 {
+		candidate = digits
+	}
+
+	var row struct {
+		YearID *int `gorm:"column:year_id"`
+	}
+
+	if err := config.DB.Table("years").
+		Select("year_id").
+		Where("year = ?", candidate).
+		Order("year_id DESC").
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		return 0, err
+	}
+
+	if row.YearID != nil {
+		return *row.YearID, nil
+	}
+
+	return 0, nil
+}
+
+func lookupLatestActiveYearID() (int, error) {
+	var row struct {
+		YearID *int `gorm:"column:year_id"`
+	}
+
+	query := config.DB.Table("years").
+		Select("year_id").
+		Where("delete_at IS NULL")
+
+	query = query.Where("status IS NULL OR status = '' OR LOWER(status) = ?", "active")
+
+	if err := query.
+		Order("CAST(year AS UNSIGNED) DESC, year_id DESC").
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		return 0, err
+	}
+
+	if row.YearID != nil {
+		return *row.YearID, nil
+	}
+
+	return 0, nil
+}
+
+func selectSubmissionTimestamp(submission *models.Submission) time.Time {
+	if submission == nil {
+		return time.Now()
+	}
+
+	if submission.SubmittedAt != nil {
+		return *submission.SubmittedAt
+	}
+
+	if !submission.CreatedAt.IsZero() {
+		return submission.CreatedAt
+	}
+
+	return time.Now()
+}
+
+func formatInstallmentNumber(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
 }
 
 func buildApplicantName(user *models.User) string {
