@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func nullFloat64ToInterface(value sql.NullFloat64) interface{} {
@@ -211,32 +212,135 @@ func DeleteCategory(c *gin.Context) {
 		return
 	}
 
-	// Check if category has active subcategories
-	var subcategoryCount int64
-	config.DB.Model(&models.FundSubcategory{}).
-		Where("category_id = ? AND delete_at IS NULL", categoryID).
-		Count(&subcategoryCount)
+	// Fetch active subcategories for cascading deletion
+	var subcategories []models.FundSubcategory
+	if err := config.DB.Where("category_id = ? AND delete_at IS NULL", categoryID).
+		Find(&subcategories).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to inspect category subcategories"})
+		return
+	}
 
-	if subcategoryCount > 0 {
+	subcategoryIDs := make([]int, 0, len(subcategories))
+	budgetIDs := make([]int, 0)
+	blockingMessages := make([]string, 0)
+
+	for _, sub := range subcategories {
+		subcategoryIDs = append(subcategoryIDs, sub.SubcategoryID)
+
+		var applicationCount int64
+		config.DB.Model(&models.FundApplication{}).
+			Where("subcategory_id = ? AND delete_at IS NULL", sub.SubcategoryID).
+			Count(&applicationCount)
+
+		var submissionCount int64
+		config.DB.Raw(`
+                        SELECT COUNT(*)
+                        FROM fund_application_details fad
+                        JOIN submissions s ON fad.submission_id = s.submission_id
+                        WHERE fad.subcategory_id = ? AND s.deleted_at IS NULL`, sub.SubcategoryID).
+			Scan(&submissionCount)
+
+		if applicationCount > 0 || submissionCount > 0 {
+			name := strings.TrimSpace(sub.SubcategoryName)
+			if name == "" {
+				name = fmt.Sprintf("ทุนย่อยรหัส %d", sub.SubcategoryID)
+			}
+
+			total := applicationCount + submissionCount
+			blockingMessages = append(blockingMessages,
+				fmt.Sprintf("ทุนย่อย \"%s\" มีคำขออยู่ %d รายการ", name, total))
+			continue
+		}
+
+		var budgets []models.SubcategoryBudget
+		if err := config.DB.Where("subcategory_id = ? AND delete_at IS NULL", sub.SubcategoryID).
+			Find(&budgets).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to inspect subcategory budgets"})
+			return
+		}
+
+		for _, budget := range budgets {
+			if budget.UsedAmount > 0 {
+				name := strings.TrimSpace(sub.SubcategoryName)
+				if name == "" {
+					name = fmt.Sprintf("ทุนย่อยรหัส %d", sub.SubcategoryID)
+				}
+
+				budgetLabel := strings.TrimSpace(budget.FundDescription)
+				if budgetLabel == "" {
+					budgetLabel = strings.TrimSpace(budget.Level)
+				}
+				if budgetLabel == "" {
+					budgetLabel = fmt.Sprintf("กฎ #%d", budget.SubcategoryBudgetID)
+				}
+
+				blockingMessages = append(blockingMessages,
+					fmt.Sprintf("กฎ \"%s\" ของทุนย่อย \"%s\" มีการใช้งบแล้ว %.2f บาท",
+						budgetLabel, name, budget.UsedAmount))
+				continue
+			}
+
+			budgetIDs = append(budgetIDs, budget.SubcategoryBudgetID)
+		}
+	}
+
+	if len(blockingMessages) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Cannot delete category that has subcategories",
-			"details": fmt.Sprintf("Category has %d subcategories", subcategoryCount),
+			"error":   "ไม่สามารถลบหมวดหมู่ได้: " + strings.Join(blockingMessages, "; "),
+			"details": blockingMessages,
 		})
 		return
 	}
 
-	// Soft delete
 	now := time.Now()
-	category.DeleteAt = &now
 
-	if err := config.DB.Save(&category).Error; err != nil {
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		if len(budgetIDs) > 0 {
+			if err := tx.Model(&models.SubcategoryBudget{}).
+				Where("subcategory_budget_id IN ?", budgetIDs).
+				Updates(map[string]interface{}{
+					"delete_at": &now,
+					"update_at": &now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(subcategoryIDs) > 0 {
+			if err := tx.Model(&models.FundSubcategory{}).
+				Where("subcategory_id IN ?", subcategoryIDs).
+				Updates(map[string]interface{}{
+					"delete_at": &now,
+					"update_at": &now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Model(&models.FundCategory{}).
+			Where("category_id = ?", category.CategoryID).
+			Updates(map[string]interface{}{
+				"delete_at": &now,
+				"update_at": &now,
+			}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
 		return
 	}
 
+	category.DeleteAt = &now
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Category deleted successfully",
+		"success":               true,
+		"message":               "Category deleted successfully",
+		"deleted_subcategories": len(subcategoryIDs),
+		"deleted_budgets":       len(budgetIDs),
 	})
 }
 
@@ -625,32 +729,94 @@ func DeleteSubcategory(c *gin.Context) {
 		return
 	}
 
-	// Check if subcategory has budgets
-	var budgetCount int64
-	config.DB.Model(&models.SubcategoryBudget{}).
-		Where("subcategory_id = ? AND delete_at IS NULL", subcategoryID).
-		Count(&budgetCount)
+	var submissionCount int64
+	config.DB.Raw(`
+                SELECT COUNT(*)
+                FROM fund_application_details fad
+                JOIN submissions s ON fad.submission_id = s.submission_id
+                WHERE fad.subcategory_id = ? AND s.deleted_at IS NULL`, subcategory.SubcategoryID).
+		Scan(&submissionCount)
 
-	if budgetCount > 0 {
+	if submissionCount > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Cannot delete subcategory that has budget allocations",
-			"details": fmt.Sprintf("Subcategory has %d budget records", budgetCount),
+			"error":   "Cannot delete subcategory that has active submissions",
+			"details": fmt.Sprintf("Subcategory has %d submissions", submissionCount),
 		})
 		return
 	}
 
-	// Soft delete
-	now := time.Now()
-	subcategory.DeleteAt = &now
+	var budgets []models.SubcategoryBudget
+	if err := config.DB.Where("subcategory_id = ? AND delete_at IS NULL", subcategoryID).
+		Find(&budgets).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to inspect subcategory budgets"})
+		return
+	}
 
-	if err := config.DB.Save(&subcategory).Error; err != nil {
+	budgetIDs := make([]int, 0, len(budgets))
+	blockingMessages := make([]string, 0)
+
+	for _, budget := range budgets {
+		if budget.UsedAmount > 0 {
+			label := strings.TrimSpace(budget.FundDescription)
+			if label == "" {
+				label = strings.TrimSpace(budget.Level)
+			}
+			if label == "" {
+				label = fmt.Sprintf("กฎ #%d", budget.SubcategoryBudgetID)
+			}
+			blockingMessages = append(blockingMessages,
+				fmt.Sprintf("กฎ \"%s\" มีการใช้งบแล้ว %.2f บาท", label, budget.UsedAmount))
+			continue
+		}
+
+		budgetIDs = append(budgetIDs, budget.SubcategoryBudgetID)
+	}
+
+	if len(blockingMessages) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "ไม่สามารถลบทุนย่อยได้: " + strings.Join(blockingMessages, "; "),
+			"details": blockingMessages,
+		})
+		return
+	}
+
+	now := time.Now()
+
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		if len(budgetIDs) > 0 {
+			if err := tx.Model(&models.SubcategoryBudget{}).
+				Where("subcategory_budget_id IN ?", budgetIDs).
+				Updates(map[string]interface{}{
+					"delete_at": &now,
+					"update_at": &now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Model(&models.FundSubcategory{}).
+			Where("subcategory_id = ?", subcategory.SubcategoryID).
+			Updates(map[string]interface{}{
+				"delete_at": &now,
+				"update_at": &now,
+			}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete subcategory"})
 		return
 	}
 
+	subcategory.DeleteAt = &now
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Subcategory deleted successfully",
+		"success":         true,
+		"message":         "Subcategory deleted successfully",
+		"deleted_budgets": len(budgetIDs),
 	})
 }
 
