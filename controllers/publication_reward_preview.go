@@ -880,7 +880,7 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			return metaCopy[i].DisplayOrder < metaCopy[j].DisplayOrder
 		})
 
-		entries := make([]documentAggregationEntry, 0, len(metaCopy))
+		sources := make([]documentLineSource, 0, len(metaCopy))
 		for _, entry := range metaCopy {
 			name := strings.TrimSpace(entry.DocumentTypeName)
 			if name == "" {
@@ -891,18 +891,21 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 			}
 
 			key := ""
-			if entry.DocumentTypeID != nil && *entry.DocumentTypeID > 0 {
-				key = fmt.Sprintf("id:%d", *entry.DocumentTypeID)
+			if entry.DocumentTypeID != nil {
+				key = fmt.Sprintf("type:%d", *entry.DocumentTypeID)
+			} else if entry.DocumentTypeName != "" {
+				key = fmt.Sprintf("name:%s", strings.ToLower(strings.TrimSpace(entry.DocumentTypeName)))
 			}
 
-			entries = append(entries, documentAggregationEntry{
-				Key:  key,
-				Name: name,
+			sources = append(sources, documentLineSource{
+				key:      key,
+				name:     name,
+				order:    entry.DisplayOrder,
+				hasOrder: entry.DisplayOrder != 0,
 			})
 		}
-
-		if rendered := renderDocumentLines(entries); rendered != "" {
-			return rendered
+		if result := aggregateDocumentLines(sources); result != "" {
+			return result
 		}
 	}
 
@@ -910,75 +913,19 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 		return ""
 	}
 
-	entries := make([]documentAggregationEntry, 0, len(attachments))
-	for _, header := range attachments {
+	sources := make([]documentLineSource, 0, len(attachments))
+	for idx, header := range attachments {
 		name := strings.TrimSpace(header.Filename)
 		if name == "" {
 			continue
 		}
-		entries = append(entries, documentAggregationEntry{
-			Name: name,
+		sources = append(sources, documentLineSource{
+			name:     name,
+			order:    idx,
+			hasOrder: true,
 		})
 	}
-
-	return renderDocumentLines(entries)
-}
-
-type documentAggregationEntry struct {
-	Key  string
-	Name string
-}
-
-type documentAggregationSummary struct {
-	Name     string
-	Quantity int
-}
-
-func renderDocumentLines(entries []documentAggregationEntry) string {
-	summaries := aggregateDocumentEntries(entries)
-	if len(summaries) == 0 {
-		return ""
-	}
-
-	lines := make([]string, 0, len(summaries))
-	for _, summary := range summaries {
-		line := buildDocumentQuantityLine(summary.Name, summary.Quantity)
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func aggregateDocumentEntries(entries []documentAggregationEntry) []documentAggregationSummary {
-	summaries := make([]documentAggregationSummary, 0, len(entries))
-	index := make(map[string]int)
-
-	for _, entry := range entries {
-		name := strings.TrimSpace(entry.Name)
-		if name == "" {
-			continue
-		}
-
-		key := strings.TrimSpace(entry.Key)
-		if key == "" {
-			key = "name:" + strings.ToLower(name)
-		}
-
-		if idx, ok := index[key]; ok {
-			summaries[idx].Quantity++
-			continue
-		}
-
-		index[key] = len(summaries)
-		summaries = append(summaries, documentAggregationSummary{
-			Name:     name,
-			Quantity: 1,
-		})
-	}
-
-	return summaries
+	return aggregateDocumentLines(sources)
 }
 
 func fetchLatestSystemConfig() (*systemConfigSnapshot, error) {
@@ -1292,7 +1239,7 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 		return ""
 	}
 
-	entries := make([]documentAggregationEntry, 0, len(documents))
+	sources := make([]documentLineSource, 0, len(documents))
 	for _, doc := range documents {
 		name := strings.TrimSpace(doc.DocumentTypeName)
 		if name == "" {
@@ -1310,25 +1257,118 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 
 		key := ""
 		if doc.DocumentTypeID != 0 {
-			key = fmt.Sprintf("id:%d", doc.DocumentTypeID)
+			key = fmt.Sprintf("type:%d", doc.DocumentTypeID)
+		} else if doc.DocumentTypeName != "" {
+			key = fmt.Sprintf("name:%s", strings.ToLower(strings.TrimSpace(doc.DocumentTypeName)))
+		} else if doc.DocumentType.DocumentTypeName != "" {
+			key = fmt.Sprintf("name:%s", strings.ToLower(strings.TrimSpace(doc.DocumentType.DocumentTypeName)))
+		}
+		if key == "" {
+			key = fmt.Sprintf("name:%s", strings.ToLower(name))
 		}
 
-		entries = append(entries, documentAggregationEntry{
-			Key:  key,
-			Name: name,
+		sources = append(sources, documentLineSource{
+			key:      key,
+			name:     name,
+			order:    doc.DisplayOrder,
+			hasOrder: doc.DisplayOrder != 0,
 		})
 	}
 
-	return renderDocumentLines(entries)
+	return aggregateDocumentLines(sources)
 }
 
 func buildDocumentQuantityLine(name string, quantity int) string {
+	unit := documentUnitForName(name)
 	cleanName := strings.TrimSpace(name)
-	if cleanName == "" || quantity <= 0 {
+	if cleanName == "" {
 		return ""
 	}
-	unit := documentUnitForName(cleanName)
+	if quantity <= 0 {
+		quantity = 1
+	}
 	return fmt.Sprintf("%s จำนวน %d %s", cleanName, quantity, unit)
+}
+
+type documentLineSource struct {
+	key      string
+	name     string
+	order    int
+	hasOrder bool
+}
+
+func aggregateDocumentLines(sources []documentLineSource) string {
+	if len(sources) == 0 {
+		return ""
+	}
+
+	type aggregatedLine struct {
+		name     string
+		count    int
+		order    int
+		hasOrder bool
+		seq      int
+	}
+
+	aggregated := make([]aggregatedLine, 0, len(sources))
+	index := make(map[string]int, len(sources))
+
+	for _, src := range sources {
+		name := strings.TrimSpace(src.name)
+		if name == "" {
+			continue
+		}
+
+		key := strings.TrimSpace(src.key)
+		if key == "" {
+			key = strings.ToLower(name)
+		}
+
+		if idx, ok := index[key]; ok {
+			aggregated[idx].count++
+			if src.hasOrder {
+				if !aggregated[idx].hasOrder || src.order < aggregated[idx].order {
+					aggregated[idx].order = src.order
+					aggregated[idx].hasOrder = true
+				}
+			}
+			continue
+		}
+
+		entry := aggregatedLine{
+			name:     name,
+			count:    1,
+			order:    src.order,
+			hasOrder: src.hasOrder,
+			seq:      len(aggregated),
+		}
+		aggregated = append(aggregated, entry)
+		index[key] = len(aggregated) - 1
+	}
+
+	if len(aggregated) == 0 {
+		return ""
+	}
+
+	sort.SliceStable(aggregated, func(i, j int) bool {
+		if aggregated[i].hasOrder && aggregated[j].hasOrder {
+			if aggregated[i].order == aggregated[j].order {
+				return aggregated[i].seq < aggregated[j].seq
+			}
+			return aggregated[i].order < aggregated[j].order
+		}
+		if aggregated[i].hasOrder != aggregated[j].hasOrder {
+			return aggregated[i].hasOrder
+		}
+		return aggregated[i].seq < aggregated[j].seq
+	})
+
+	lines := make([]string, 0, len(aggregated))
+	for _, entry := range aggregated {
+		lines = append(lines, buildDocumentQuantityLine(entry.name, entry.count))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func documentUnitForName(name string) string {
