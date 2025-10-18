@@ -871,15 +871,56 @@ func resolveNodeBinary() (string, error) {
 }
 
 func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachments []*multipart.FileHeader) string {
-	if len(meta) > 0 {
-		metaCopy := append([]PublicationRewardPreviewAttachment(nil), meta...)
+	metaCopy := append([]PublicationRewardPreviewAttachment(nil), meta...)
+	if len(metaCopy) > 0 {
 		sort.SliceStable(metaCopy, func(i, j int) bool {
 			if metaCopy[i].DisplayOrder == metaCopy[j].DisplayOrder {
 				return i < j
 			}
 			return metaCopy[i].DisplayOrder < metaCopy[j].DisplayOrder
 		})
+	}
 
+	// Always prefer counting actual attachments while using the metadata to
+	// resolve document keys and names. This prevents duplicate uploads with
+	// identical filenames (for example, several “เอกสารอื่นๆ” files) from
+	// collapsing into a single item with quantity 1.
+	if len(attachments) > 0 {
+		entries := make([]documentAggregationEntry, 0, len(attachments))
+		for idx, header := range attachments {
+			var key string
+			var name string
+
+			if idx < len(metaCopy) {
+				metaEntry := metaCopy[idx]
+				if metaEntry.DocumentTypeID != nil && *metaEntry.DocumentTypeID > 0 {
+					key = fmt.Sprintf("id:%d", *metaEntry.DocumentTypeID)
+				}
+				name = strings.TrimSpace(metaEntry.DocumentTypeName)
+				if name == "" {
+					name = strings.TrimSpace(metaEntry.Filename)
+				}
+			}
+
+			if name == "" {
+				name = strings.TrimSpace(header.Filename)
+			}
+			if name == "" {
+				continue
+			}
+
+			entries = append(entries, documentAggregationEntry{
+				Key:  key,
+				Name: name,
+			})
+		}
+
+		if rendered := renderDocumentLines(entries); rendered != "" {
+			return rendered
+		}
+	}
+
+	if len(metaCopy) > 0 {
 		entries := make([]documentAggregationEntry, 0, len(metaCopy))
 		for _, entry := range metaCopy {
 			name := strings.TrimSpace(entry.DocumentTypeName)
