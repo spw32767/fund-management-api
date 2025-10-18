@@ -26,7 +26,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -1235,23 +1234,8 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
 			content := string(data)
 			content = normalizeDocxPlaceholders(content, replacements)
-			// >>> new: ทำ special handling เฉพาะ document.xml
-			if strings.EqualFold(file.Name, "word/document.xml") {
-				if v, ok := replacements["{{end_of_contract}}"]; ok {
-					content = replaceEndOfContractInDocumentXML(content, v)
-				}
-				// กันแทนที่ซ้ำ: ข้าม end_of_contract ในลูปปกติ
-				for placeholder, value := range replacements {
-					if placeholder == "{{end_of_contract}}" {
-						continue
-					}
-					content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
-				}
-			} else {
-				// ไฟล์ .xml อื่น ๆ ใช้วิธีเดิมทั้งหมด
-				for placeholder, value := range replacements {
-					content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
-				}
+			for placeholder, value := range replacements {
+				content = strings.ReplaceAll(content, placeholder, formatDocxValue(value))
 			}
 			data = []byte(content)
 		}
@@ -1273,149 +1257,6 @@ func fillDocxTemplate(templatePath, outputPath string, replacements map[string]s
 		return fmt.Errorf("failed to finalize docx: %w", err)
 	}
 	return nil
-}
-
-// >>> new: แทนที่ <w:p> ที่มี {{end_of_contract}} ด้วยหลายย่อหน้า พร้อมย้าย <w:sectPr> (ถ้ามี)
-func replaceEndOfContractInDocumentXML(content, raw string) string {
-	if !strings.Contains(content, "{{end_of_contract}}") {
-		return content
-	}
-	return endOfContractParaRe.ReplaceAllStringFunc(content, func(p string) string {
-		// 1) ดึง inner ของ <w:p>...</w:p>
-		openIdx := strings.Index(p, ">")
-		closeIdx := strings.LastIndex(p, "</w:p>")
-		if openIdx == -1 || closeIdx == -1 || closeIdx <= openIdx {
-			return p // รูปแบบไม่คาดคิด — ปล่อยเดิม
-		}
-		inner := p[openIdx+1 : closeIdx]
-
-		// 2) แยก pPr และรันเนื้อหา
-		pPr := pPrRe.FindString(inner)
-		body := inner
-		if pPr != "" {
-			if loc := pPrRe.FindStringIndex(inner); loc != nil {
-				// ตัด <w:pPr>…</w:pPr> ออกหนึ่งครั้ง
-				body = inner[:loc[0]] + inner[loc[1]:]
-			}
-		}
-
-		// 3) แยกก่อน/หลัง placeholder ภายในย่อหน้าเดิม
-		parts := strings.SplitN(body, "{{end_of_contract}}", 2)
-		before := parts[0]
-		after := ""
-		if len(parts) == 2 {
-			after = parts[1]
-		}
-
-		// 4) เก็บ/ถอด sectPr จาก pPr เดิม
-		sect := sectPrRe.FindString(pPr)
-		pPrNoSect := sectPrRe.ReplaceAllString(pPr, "")
-
-		// 5) ประกอบผลลัพธ์: [ก่อน] + [ย่อหน้ารายการหลายบรรทัด] + [หลัง]
-		var out strings.Builder
-
-		trim := func(s string) bool { return strings.TrimSpace(s) != "" }
-
-		// ย่อหน้าสำหรับรันก่อน placeholder
-		if trim(before) {
-			out.WriteString("<w:p>")
-			out.WriteString(pPrNoSect)
-			out.WriteString(before)
-			out.WriteString("</w:p>")
-		}
-
-		// ย่อหน้ารายการ (ยังไม่แปะ sectPr ตรงนี้)
-		listXML := buildEndOfContractParagraphs(raw, "")
-		out.WriteString(listXML)
-
-		// ย่อหน้าสำหรับรันหลัง placeholder
-		if trim(after) {
-			out.WriteString("<w:p>")
-			if pPrNoSect != "" {
-				// แปะ pPr เดิม (ไม่ใส่ sectPr ที่นี่)
-				out.WriteString(pPrNoSect)
-			}
-			// ถ้าตอนท้ายของย่อหน้าเดิมมี sectPr ให้แปะในย่อหน้าหลัง (ท้ายบล็อก)
-			if sect != "" {
-				out.WriteString(sect)
-			}
-			out.WriteString(after)
-			out.WriteString("</w:p>")
-		} else if sect != "" && listXML != "" {
-			// ไม่มี "หลัง" ⇒ ย้าย sectPr ไปแปะที่ย่อหน้ารายการ "บรรทัดสุดท้าย"
-			res := out.String()
-			idx := strings.LastIndex(res, "</w:pPr>")
-			if idx != -1 {
-				res = res[:idx] + sect + res[idx:]
-				return res
-			}
-		}
-
-		return out.String()
-	})
-}
-
-// >>> new: สร้างหลาย <w:p> (หนึ่งบรรทัดต่อหนึ่งย่อหน้า) + hanging indent 567 twips + tab stop ตรงกัน
-func buildEndOfContractParagraphs(value, sectPr string) string {
-	const (
-		indentTwips = 567
-		fontName    = "TH Sarabun New"
-		fontSize    = 28
-	)
-	v := strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n")
-	lines := strings.Split(v, "\n")
-
-	runProps := fmt.Sprintf(
-		`<w:rPr><w:rFonts w:ascii="%s" w:hAnsi="%s" w:cs="%s"/><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr>`,
-		fontName, fontName, fontName, fontSize, fontSize,
-	)
-
-	var out strings.Builder
-	for i, line := range lines {
-		s := strings.TrimSpace(line)
-		if s == "" {
-			continue
-		}
-		var checkbox, text string
-		r := []rune(s)
-		if len(r) > 0 && !(unicode.IsLetter(r[0]) || unicode.IsDigit(r[0])) {
-			checkbox = string(r[0])
-			text = strings.TrimLeftFunc(string(r[1:]), unicode.IsSpace)
-		} else {
-			text = s
-		}
-
-		out.WriteString("<w:p><w:pPr>")
-		out.WriteString(fmt.Sprintf(`<w:ind w:left="%d" w:hanging="%d"/>`, indentTwips, indentTwips))
-		out.WriteString(fmt.Sprintf(`<w:tabs><w:tab w:val="left" w:pos="%d"/></w:tabs>`, indentTwips))
-		// ถ้า caller ส่ง sectPr มา (กรณีที่มี "after" ต่อท้าย) ให้แปะเฉพาะบรรทัดสุดท้าย
-		if i == len(lines)-1 && sectPr != "" {
-			out.WriteString(sectPr)
-		}
-		out.WriteString("</w:pPr>")
-
-		if checkbox != "" {
-			out.WriteString("<w:r>")
-			out.WriteString(runProps)
-			out.WriteString("<w:t>")
-			out.WriteString(xmlEscape(checkbox))
-			out.WriteString("</w:t></w:r>")
-		}
-
-		out.WriteString("<w:r>")
-		out.WriteString(runProps)
-		out.WriteString("<w:tab/></w:r>")
-
-		if text != "" {
-			out.WriteString("<w:r>")
-			out.WriteString(runProps)
-			out.WriteString(`<w:t xml:space="preserve">`)
-			out.WriteString(xmlEscape(text))
-			out.WriteString("</w:t></w:r>")
-		}
-		out.WriteString("</w:p>")
-	}
-	return out.String()
 }
 
 func formatDocxValue(value string) string {
@@ -1448,13 +1289,8 @@ func xmlEscape(value string) string {
 }
 
 var (
-	// ของเดิมที่ normalizeDocxPlaceholders ใช้
 	placeholderRegexCache sync.Map
 	proofErrTagPattern    = regexp.MustCompile(`<w:proofErr[^>]*/>`)
-	// ของใหม่สำหรับ end_of_contract
-	endOfContractParaRe = regexp.MustCompile(`(?s)<w:p[^>]*>.*?\{\{end_of_contract\}\}.*?</w:p>`)
-	sectPrRe            = regexp.MustCompile(`(?s)<w:sectPr\b.*?</w:sectPr>`)
-	pPrRe               = regexp.MustCompile(`(?s)<w:pPr[^>]*>.*?</w:pPr>`)
 )
 
 func normalizeDocxPlaceholders(content string, replacements map[string]string) string {
