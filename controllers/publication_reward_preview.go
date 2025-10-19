@@ -304,11 +304,16 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		installmentText = formatNullableInt(sysConfig.Installment)
 	}
 
+	positionText := lookupPositionFromUserID(requesterID)
+	if positionText == "" {
+		positionText = strings.TrimSpace(payload.Applicant.PositionName)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
 		"{{applicant_name}}":     buildPreviewApplicantName(payload.Applicant),
 		"{{date_of_employment}}": employmentDate,
-		"{{position}}":           strings.TrimSpace(payload.Applicant.PositionName),
+		"{{position}}":           positionText,
 		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(totalAmount),
 		"{{total_amount_text}}":  utils.BahtText(totalAmount),
@@ -602,6 +607,23 @@ func lookupEmploymentDateFromUserID(userID int) string {
 	}
 
 	return ""
+}
+
+func lookupPositionFromUserID(userID int) string {
+	if userID <= 0 {
+		return ""
+	}
+
+	var user models.User
+	if err := config.DB.
+		Select("user_id", "position", "position_id").
+		Preload("Position").
+		Where("user_id = ?", userID).
+		First(&user).Error; err != nil {
+		return ""
+	}
+
+	return resolveApplicantPosition(&user)
 }
 
 func buildPreviewApplicantName(app PublicationRewardPreviewApplicant) string {
