@@ -1330,9 +1330,25 @@ func buildApplicantName(user *models.User) string {
 	if user == nil {
 		return ""
 	}
-	fname := strings.TrimSpace(user.UserFname)
-	lname := strings.TrimSpace(user.UserLname)
-	return strings.TrimSpace(strings.Join([]string{fname, lname}, " "))
+	var prefix string
+	if user.Prefix != nil {
+		prefix = strings.TrimSpace(*user.Prefix)
+	}
+
+	parts := []string{
+		prefix,
+		strings.TrimSpace(user.UserFname),
+		strings.TrimSpace(user.UserLname),
+	}
+
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			filtered = append(filtered, part)
+		}
+	}
+
+	return strings.Join(filtered, " ")
 }
 
 func formatNullableInt(value sql.NullInt64) string {
