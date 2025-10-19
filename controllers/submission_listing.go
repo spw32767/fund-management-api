@@ -295,7 +295,7 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "1000"))
 	submissionType := c.Query("type")
 	status := c.Query("status")
 	yearIDStr := c.Query("year_id")
@@ -311,9 +311,9 @@ func GetAdminSubmissions(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	// Hardened limit handling: default to 50 if <= 0, and cap at 1000
+	// Hardened limit handling: default to 1000 if <= 0, and cap at 1000
 	if limit <= 0 {
-		limit = 50
+		limit = 1000
 	}
 	if limit > 1000 {
 		limit = 1000
