@@ -1367,10 +1367,7 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 		documentDate = time.Now()
 	}
 
-	positionName := ""
-	if submission.User != nil {
-		positionName = strings.TrimSpace(submission.User.Position.PositionName)
-	}
+	positionName := resolveApplicantPosition(submission.User)
 
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(documentDate),
