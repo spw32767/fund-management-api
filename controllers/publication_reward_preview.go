@@ -177,7 +177,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
 		"{{applicant_name}}":     buildApplicantName(submission.User),
 		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
-		"{{position}}":           strings.TrimSpace(submission.User.Position.PositionName),
+		"{{position}}":           resolveApplicantPosition(submission.User),
 		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(detail.TotalAmount),
 		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
@@ -304,11 +304,16 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		installmentText = formatNullableInt(sysConfig.Installment)
 	}
 
+	positionText := lookupPositionFromUserID(requesterID)
+	if positionText == "" {
+		positionText = strings.TrimSpace(payload.Applicant.PositionName)
+	}
+
 	replacements := map[string]string{
 		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
 		"{{applicant_name}}":     buildPreviewApplicantName(payload.Applicant),
 		"{{date_of_employment}}": employmentDate,
-		"{{position}}":           strings.TrimSpace(payload.Applicant.PositionName),
+		"{{position}}":           positionText,
 		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(totalAmount),
 		"{{total_amount_text}}":  utils.BahtText(totalAmount),
@@ -1244,9 +1249,25 @@ func buildApplicantName(user *models.User) string {
 	if user == nil {
 		return ""
 	}
-	fname := strings.TrimSpace(user.UserFname)
-	lname := strings.TrimSpace(user.UserLname)
-	return strings.TrimSpace(strings.Join([]string{fname, lname}, " "))
+	var prefix string
+	if user.Prefix != nil {
+		prefix = strings.TrimSpace(*user.Prefix)
+	}
+
+	parts := []string{
+		prefix,
+		strings.TrimSpace(user.UserFname),
+		strings.TrimSpace(user.UserLname),
+	}
+
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			filtered = append(filtered, part)
+		}
+	}
+
+	return strings.Join(filtered, " ")
 }
 
 func formatNullableInt(value sql.NullInt64) string {
