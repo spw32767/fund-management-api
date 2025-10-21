@@ -217,6 +217,7 @@ func SetupRoutes(router *gin.Engine) {
 				// Documents management
 				submissions.POST("/:id/documents", controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
+				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
 
 				// === Co-authors Management (ใหม่) ===
 				// submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
@@ -239,6 +240,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				// เพิ่ม route ใหม่สำหรับแนบไฟล์
 				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
+				submissions.DELETE("/:id/detach-document/:doc_id", controllers.DetachDocument)
 			}
 
 			// Files management
