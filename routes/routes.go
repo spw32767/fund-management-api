@@ -136,6 +136,9 @@ func SetupRoutes(router *gin.Engine) {
 
 			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
 
+			// Publication reward agreements / conditions
+			protected.GET("/end-of-contract", controllers.GetEndOfContractTerms)
+
 			// Fund installment periods
 			protected.GET("/fund-installment-periods", controllers.GetFundInstallmentPeriods)
 
@@ -469,6 +472,15 @@ func SetupRoutes(router *gin.Engine) {
 					rewardConfigAdmin.DELETE("/:id", controllers.DeleteRewardConfig)             // DELETE /api/v1/admin/reward-config/:id
 					rewardConfigAdmin.PATCH("/:id/toggle", controllers.ToggleRewardConfigStatus) // PATCH /api/v1/admin/reward-config/:id/toggle
 					rewardConfigAdmin.POST("/:id/toggle", controllers.ToggleRewardConfigStatus)  // alias
+				}
+
+				endOfContractAdmin := admin.Group("/end-of-contract")
+				{
+					endOfContractAdmin.GET("", controllers.GetEndOfContractTermsAdmin)
+					endOfContractAdmin.POST("", controllers.CreateEndOfContractTerm)
+					endOfContractAdmin.PUT("/:id", controllers.UpdateEndOfContractTerm)
+					endOfContractAdmin.DELETE("/:id", controllers.DeleteEndOfContractTerm)
+					endOfContractAdmin.PATCH("/reorder", controllers.ReorderEndOfContractTerms)
 				}
 
 				// ========== USER MANAGEMENT (if needed in future) ==========
