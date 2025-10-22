@@ -315,17 +315,40 @@ func ReorderEndOfContractTerms(c *gin.Context) {
 	}
 
 	if err := config.DB.Transaction(func(tx *gorm.DB) error {
+		var existing []models.EndOfContract
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("eoc_id IN ?", req.OrderedIDs).
+			Find(&existing).Error; err != nil {
+			return err
+		}
+
+		if len(existing) != len(req.OrderedIDs) {
+			return gorm.ErrRecordNotFound
+		}
+
+		lookup := make(map[int]models.EndOfContract, len(existing))
+		for _, term := range existing {
+			lookup[term.EocID] = term
+		}
+
 		for index, id := range req.OrderedIDs {
-			res := tx.Model(&models.EndOfContract{}).
-				Where("eoc_id = ?", id).
-				Update("display_order", index+1)
-			if res.Error != nil {
-				return res.Error
-			}
-			if res.RowsAffected == 0 {
+			term, ok := lookup[id]
+			if !ok {
 				return gorm.ErrRecordNotFound
 			}
+
+			desiredOrder := index + 1
+			if term.DisplayOrder == desiredOrder {
+				continue
+			}
+
+			if err := tx.Model(&models.EndOfContract{}).
+				Where("eoc_id = ?", id).
+				Update("display_order", desiredOrder).Error; err != nil {
+				return err
+			}
 		}
+
 		return nil
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
