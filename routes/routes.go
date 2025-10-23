@@ -536,6 +536,15 @@ func SetupRoutes(router *gin.Engine) {
 					submissionManagement.POST("/:id/request-revision", controllers.RequestSubmissionRevision)
 				}
 
+				legacySubmissions := admin.Group("/legacy-submissions")
+				{
+					legacySubmissions.GET("", controllers.AdminLegacyListSubmissions)
+					legacySubmissions.GET("/:id", controllers.AdminLegacyGetSubmission)
+					legacySubmissions.POST("", controllers.AdminLegacyCreateSubmission)
+					legacySubmissions.PUT("/:id", controllers.AdminLegacyUpdateSubmission)
+					legacySubmissions.DELETE("/:id", controllers.AdminLegacyDeleteSubmission)
+				}
+
 				documentTypes := admin.Group("/document-types")
 				{
 					documentTypes.GET("", controllers.GetDocumentTypesAdmin)     // GET /api/v1/admin/document-types
