@@ -2,11 +2,14 @@ package controllers
 
 import (
 	"fmt"
+	"math"
+	"net/http"
+	"strings"
+	"time"
+
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/utils"
-	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -262,6 +265,26 @@ func getAdminDashboard() map[string]interface{} {
 	stats["pending_applications"] = buildAdminPendingApplications(pendingStatusIDs)
 	stats["quota_summary"] = buildAdminQuotaSummary(currentYear)
 
+	if statusBreakdown := buildAdminStatusBreakdown(); len(statusBreakdown) > 0 {
+		stats["status_breakdown"] = statusBreakdown
+	}
+
+	if financialOverview := buildAdminFinancialOverview(pendingStatusIDs, approvedStatusID, rejectedStatusIDs); len(financialOverview) > 0 {
+		stats["financial_overview"] = financialOverview
+	}
+
+	if upcoming := buildAdminUpcomingInstallments(currentYear); len(upcoming) > 0 {
+		stats["upcoming_periods"] = upcoming
+	}
+
+	if activities := buildAdminActivityFeed(); len(activities) > 0 {
+		stats["activity_feed"] = activities
+	}
+
+	if topUsers := buildAdminTopUsers(); len(topUsers) > 0 {
+		stats["top_users"] = topUsers
+	}
+
 	trendBreakdown := buildSystemTrendBreakdown(currentYear, approvedStatusID)
 	if len(trendBreakdown) > 0 {
 		stats["trend_breakdown"] = trendBreakdown
@@ -338,21 +361,25 @@ func buildAdminOverview(currentYear string, pendingStatusIDs []int, approvedStat
 		Count(&pendingCount)
 	overview["pending_count"] = pendingCount
 
+	var approvedCount int64
 	if approvedStatusID > 0 {
-		var approvedCount int64
 		config.DB.Table("submissions").
 			Where("submission_type IN ? AND status_id = ? AND deleted_at IS NULL", submissionTypes, approvedStatusID).
 			Count(&approvedCount)
-		overview["approved_count"] = approvedCount
-	} else {
-		overview["approved_count"] = 0
 	}
+	overview["approved_count"] = approvedCount
 
 	var rejectedCount int64
 	config.DB.Table("submissions").
 		Where("submission_type IN ? AND status_id IN ? AND deleted_at IS NULL", submissionTypes, rejectedStatusIDs).
 		Count(&rejectedCount)
 	overview["rejected_count"] = rejectedCount
+
+	if totalApplications > 0 {
+		overview["approval_rate"] = (float64(approvedCount) / float64(totalApplications)) * 100
+	} else {
+		overview["approval_rate"] = 0.0
+	}
 
 	// Total users in the system
 	var totalUsers int64
@@ -498,6 +525,400 @@ func buildAdminQuotaSummary(currentYear string) []map[string]interface{} {
 			"max_grants":       row.MaxGrants,
 			"used_grants":      row.UsedGrantsTotal,
 			"remaining_grants": row.RemainingGrant,
+		})
+	}
+
+	return summaries
+}
+
+func buildAdminStatusBreakdown() map[string]map[string]interface{} {
+	submissionTypes := []string{"fund_application", "publication_reward"}
+
+	var rows []struct {
+		SubmissionType string
+		StatusCode     string
+		Total          int64
+	}
+
+	config.DB.Table("submissions s").
+		Select("s.submission_type, ast.status_code, COUNT(*) AS total").
+		Joins("LEFT JOIN application_status ast ON s.status_id = ast.application_status_id").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes).
+		Group("s.submission_type, ast.status_code").
+		Scan(&rows)
+
+	stageDefinitions := []struct {
+		Key   string
+		Label string
+	}{
+		{Key: "draft", Label: "ร่างคำร้อง"},
+		{Key: "dept_review", Label: "รอหัวหน้าสาขา"},
+		{Key: "admin_review", Label: "รอผู้ดูแล"},
+		{Key: "needs_revision", Label: "ขอข้อมูลเพิ่มเติม"},
+		{Key: "approved", Label: "อนุมัติแล้ว"},
+		{Key: "rejected", Label: "ไม่อนุมัติ"},
+		{Key: "closed", Label: "ปิดคำร้อง"},
+	}
+
+	totals := map[string]int64{
+		"overall": 0,
+	}
+	counts := map[string]map[string]int64{
+		"overall": {},
+	}
+
+	for _, submissionType := range submissionTypes {
+		totals[submissionType] = 0
+		counts[submissionType] = make(map[string]int64)
+	}
+
+	for _, row := range rows {
+		stage := stageKeyFromStatusCode(row.StatusCode)
+		if stage == "" {
+			stage = "other"
+		}
+
+		totals["overall"] += row.Total
+		totals[row.SubmissionType] += row.Total
+
+		counts["overall"][stage] += row.Total
+		counts[row.SubmissionType][stage] += row.Total
+	}
+
+	result := make(map[string]map[string]interface{})
+	targetKeys := append([]string{"overall"}, submissionTypes...)
+
+	for _, target := range targetKeys {
+		total := totals[target]
+		stages := make([]map[string]interface{}, 0, len(stageDefinitions)+1)
+
+		for _, def := range stageDefinitions {
+			count := counts[target][def.Key]
+			percentage := 0.0
+			if total > 0 {
+				percentage = (float64(count) / float64(total)) * 100
+			}
+			stages = append(stages, map[string]interface{}{
+				"stage":      def.Key,
+				"label":      def.Label,
+				"count":      count,
+				"percentage": percentage,
+			})
+		}
+
+		if otherCount := counts[target]["other"]; otherCount > 0 {
+			percentage := 0.0
+			if total > 0 {
+				percentage = (float64(otherCount) / float64(total)) * 100
+			}
+			stages = append(stages, map[string]interface{}{
+				"stage":      "other",
+				"label":      "สถานะอื่น ๆ",
+				"count":      otherCount,
+				"percentage": percentage,
+			})
+		}
+
+		result[target] = map[string]interface{}{
+			"total":  total,
+			"stages": stages,
+		}
+	}
+
+	return result
+}
+
+func stageKeyFromStatusCode(code string) string {
+	normalized := strings.ToLower(strings.TrimSpace(code))
+	switch normalized {
+	case strings.ToLower(utils.StatusCodeDraft), "4", "draft":
+		return "draft"
+	case strings.ToLower(utils.StatusCodeDeptHeadPending), "5", "dept_head_pending", "department_pending":
+		return "dept_review"
+	case strings.ToLower(utils.StatusCodeNeedsMoreInfo), "3", "needs_more_info", "revision":
+		return "needs_revision"
+	case strings.ToLower(utils.StatusCodePending), "0", "pending":
+		return "admin_review"
+	case strings.ToLower(utils.StatusCodeApproved), "1", "approved":
+		return "approved"
+	case strings.ToLower(utils.StatusCodeRejected), "2", "rejected", "dept_head_not_recommended":
+		return "rejected"
+	case strings.ToLower(utils.StatusCodeAdminClosed), "6", "closed", "admin_closed":
+		return "closed"
+	default:
+		return ""
+	}
+}
+
+func buildAdminFinancialOverview(pendingStatusIDs []int, approvedStatusID int, rejectedStatusIDs []int) map[string]interface{} {
+	type amountSummary struct {
+		Requested float64
+		Approved  float64
+		Pending   float64
+		Rejected  float64
+	}
+
+	var fundAmounts amountSummary
+	config.DB.Table("fund_application_details fad").
+		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application").
+		Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN fad.approved_amount ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
+		Scan(&fundAmounts)
+
+	var rewardAmounts amountSummary
+	config.DB.Table("publication_reward_details prd").
+		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward").
+		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN prd.reward_approve_amount ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
+		Scan(&rewardAmounts)
+
+	var fundCount, fundApprovedCount, fundPendingCount, fundRejectedCount int64
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND deleted_at IS NULL", "fund_application").
+		Count(&fundCount)
+
+	if approvedStatusID > 0 {
+		config.DB.Table("submissions").
+			Where("submission_type = ? AND status_id = ? AND deleted_at IS NULL", "fund_application", approvedStatusID).
+			Count(&fundApprovedCount)
+	}
+
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "fund_application", pendingStatusIDs).
+		Count(&fundPendingCount)
+
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "fund_application", rejectedStatusIDs).
+		Count(&fundRejectedCount)
+
+	var rewardCount, rewardApprovedCount, rewardPendingCount, rewardRejectedCount int64
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND deleted_at IS NULL", "publication_reward").
+		Count(&rewardCount)
+
+	if approvedStatusID > 0 {
+		config.DB.Table("submissions").
+			Where("submission_type = ? AND status_id = ? AND deleted_at IS NULL", "publication_reward", approvedStatusID).
+			Count(&rewardApprovedCount)
+	}
+
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "publication_reward", pendingStatusIDs).
+		Count(&rewardPendingCount)
+
+	config.DB.Table("submissions").
+		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "publication_reward", rejectedStatusIDs).
+		Count(&rewardRejectedCount)
+
+	totalRequested := fundAmounts.Requested + rewardAmounts.Requested
+	totalApproved := fundAmounts.Approved + rewardAmounts.Approved
+	totalPending := fundAmounts.Pending + rewardAmounts.Pending
+	totalRejected := fundAmounts.Rejected + rewardAmounts.Rejected
+
+	totalCount := fundCount + rewardCount
+	totalApprovedCount := fundApprovedCount + rewardApprovedCount
+	totalPendingCount := fundPendingCount + rewardPendingCount
+	totalRejectedCount := fundRejectedCount + rewardRejectedCount
+
+	approvalRate := 0.0
+	if totalCount > 0 {
+		approvalRate = (float64(totalApprovedCount) / float64(totalCount)) * 100
+	}
+
+	fundApprovalRate := 0.0
+	if fundCount > 0 {
+		fundApprovalRate = (float64(fundApprovedCount) / float64(fundCount)) * 100
+	}
+
+	rewardApprovalRate := 0.0
+	if rewardCount > 0 {
+		rewardApprovalRate = (float64(rewardApprovedCount) / float64(rewardCount)) * 100
+	}
+
+	return map[string]interface{}{
+		"total_requested": totalRequested,
+		"total_approved":  totalApproved,
+		"total_pending":   totalPending,
+		"total_rejected":  totalRejected,
+		"approval_rate":   approvalRate,
+		"total_count":     totalCount,
+		"approved_count":  totalApprovedCount,
+		"pending_count":   totalPendingCount,
+		"rejected_count":  totalRejectedCount,
+		"fund_application": map[string]interface{}{
+			"requested":      fundAmounts.Requested,
+			"approved":       fundAmounts.Approved,
+			"pending":        fundAmounts.Pending,
+			"rejected":       fundAmounts.Rejected,
+			"total_count":    fundCount,
+			"approved_count": fundApprovedCount,
+			"pending_count":  fundPendingCount,
+			"rejected_count": fundRejectedCount,
+			"approval_rate":  fundApprovalRate,
+		},
+		"publication_reward": map[string]interface{}{
+			"requested":      rewardAmounts.Requested,
+			"approved":       rewardAmounts.Approved,
+			"pending":        rewardAmounts.Pending,
+			"rejected":       rewardAmounts.Rejected,
+			"total_count":    rewardCount,
+			"approved_count": rewardApprovedCount,
+			"pending_count":  rewardPendingCount,
+			"rejected_count": rewardRejectedCount,
+			"approval_rate":  rewardApprovalRate,
+		},
+	}
+}
+
+func buildAdminUpcomingInstallments(currentYear string) []map[string]interface{} {
+	now := time.Now()
+
+	var rows []struct {
+		InstallmentNumber int
+		Name              string
+		CutoffDate        time.Time
+		Year              string
+	}
+
+	config.DB.Table("fund_installment_periods fip").
+		Select("fip.installment_number, fip.name, fip.cutoff_date, y.year").
+		Joins("JOIN years y ON fip.year_id = y.year_id").
+		Where("fip.deleted_at IS NULL AND fip.status = ?", "active").
+		Where("y.year >= ?", currentYear).
+		Order("fip.cutoff_date ASC").
+		Limit(10).
+		Scan(&rows)
+
+	if len(rows) == 0 {
+		config.DB.Table("fund_installment_periods fip").
+			Select("fip.installment_number, fip.name, fip.cutoff_date, y.year").
+			Joins("JOIN years y ON fip.year_id = y.year_id").
+			Where("fip.deleted_at IS NULL AND fip.status = ?", "active").
+			Order("fip.cutoff_date DESC").
+			Limit(5).
+			Scan(&rows)
+	}
+
+	periods := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		cutoff := row.CutoffDate
+		cutoffStr := cutoff.Format("2006-01-02")
+		periodLabel := strings.TrimSpace(row.Name)
+		if periodLabel == "" {
+			periodLabel = fmt.Sprintf("รอบที่ %d", row.InstallmentNumber)
+		}
+
+		diff := cutoff.Sub(now)
+		remainingDays := int(math.Ceil(diff.Hours() / 24))
+		status := "upcoming"
+		if remainingDays < 0 {
+			status = "overdue"
+		} else if remainingDays <= 7 {
+			status = "due_soon"
+		}
+
+		periods = append(periods, map[string]interface{}{
+			"installment":     row.InstallmentNumber,
+			"name":            periodLabel,
+			"cutoff_date":     cutoffStr,
+			"year":            row.Year,
+			"days_remaining":  remainingDays,
+			"status":          status,
+			"is_overdue":      remainingDays < 0,
+			"cutoff_datetime": cutoff.Format(time.RFC3339),
+		})
+	}
+
+	return periods
+}
+
+func buildAdminActivityFeed() []map[string]interface{} {
+	var rows []struct {
+		LogID        int
+		CreatedAt    time.Time
+		UserName     string
+		Action       string
+		EntityType   string
+		EntityNumber string
+		Description  string
+		IPAddress    string
+	}
+
+	config.DB.Table("v_recent_audit_logs").
+		Select("log_id, created_at, user_name, action, entity_type, entity_number, description, ip_address").
+		Order("created_at DESC").
+		Limit(12).
+		Scan(&rows)
+
+	feed := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		feed = append(feed, map[string]interface{}{
+			"log_id":        row.LogID,
+			"created_at":    row.CreatedAt.Format(time.RFC3339),
+			"user_name":     row.UserName,
+			"action":        row.Action,
+			"entity_type":   row.EntityType,
+			"entity_number": row.EntityNumber,
+			"description":   row.Description,
+			"ip_address":    row.IPAddress,
+		})
+	}
+
+	return feed
+}
+
+func buildAdminTopUsers() []map[string]interface{} {
+	submissionTypes := []string{"fund_application", "publication_reward"}
+
+	submissionsSubQuery := config.DB.Table("submissions").
+		Select("user_id, COUNT(*) AS submission_count").
+		Where("submission_type IN ? AND deleted_at IS NULL", submissionTypes).
+		Group("user_id")
+
+	var rows []struct {
+		UserID          int
+		UserName        string
+		LoginCount      int64
+		CreateCount     int64
+		UpdateCount     int64
+		DownloadCount   int64
+		TotalActions    int64
+		LastLogin       *time.Time
+		SubmissionCount int64
+	}
+
+	config.DB.Table("v_user_activity_summary vus").
+		Select(`vus.user_id,
+            vus.user_name,
+            COALESCE(vus.login_count,0) AS login_count,
+            COALESCE(vus.create_count,0) AS create_count,
+            COALESCE(vus.update_count,0) AS update_count,
+            COALESCE(vus.download_count,0) AS download_count,
+            COALESCE(vus.total_actions,0) AS total_actions,
+            vus.last_login,
+            COALESCE(subs.submission_count,0) AS submission_count`).
+		Joins("LEFT JOIN (?) AS subs ON subs.user_id = vus.user_id", submissionsSubQuery).
+		Order("total_actions DESC").
+		Limit(8).
+		Scan(&rows)
+
+	summaries := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		lastLogin := ""
+		if row.LastLogin != nil {
+			lastLogin = row.LastLogin.Format(time.RFC3339)
+		}
+
+		summaries = append(summaries, map[string]interface{}{
+			"user_id":          row.UserID,
+			"user_name":        row.UserName,
+			"login_count":      row.LoginCount,
+			"create_count":     row.CreateCount,
+			"update_count":     row.UpdateCount,
+			"download_count":   row.DownloadCount,
+			"total_actions":    row.TotalActions,
+			"submission_count": row.SubmissionCount,
+			"last_login":       lastLogin,
 		})
 	}
 
