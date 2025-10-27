@@ -389,6 +389,9 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/approval-records/totals", controllers.GetApprovalTotals)
 				admin.GET("/approval-records", controllers.GetApprovalRecords)
 
+				// ===== CP PROFILE IMPORT =====
+				admin.POST("/trigger/cp-profile", controllers.AdminTriggerCpProfile)
+
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
 				{
