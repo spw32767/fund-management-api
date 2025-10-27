@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // GetDashboardStats returns dashboard statistics
@@ -38,7 +41,12 @@ func GetDashboardStats(c *gin.Context) {
 
 	var stats map[string]interface{}
 	if roleID == 3 || roleID == 4 { // Admin dashboard (includes dept heads)
-		stats = getAdminDashboard()
+		scopeParam := c.Query("scope")
+		yearParam := c.Query("year")
+		installmentParam := c.Query("installment")
+
+		filter, options := resolveDashboardFilter(scopeParam, yearParam, installmentParam)
+		stats = getAdminDashboard(filter, options)
 	} else { // Teacher/Staff dashboard
 		stats = getUserDashboard(userID)
 	}
@@ -53,6 +61,275 @@ func GetDashboardStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"stats": stats,
 	})
+}
+
+type dashboardFilter struct {
+	Scope               string
+	Years               []string
+	YearIDs             []int
+	YearIDMap           map[string]int
+	Installments        []int
+	SelectedInstallment *int
+	SelectedYear        string
+	IncludeAll          bool
+	CurrentYear         string
+	ActiveInstallment   *int
+}
+
+type yearOption struct {
+	YearID int
+	Year   string
+}
+
+type installmentOption struct {
+	Year        string
+	Installment int
+	Name        string
+	CutoffDate  *time.Time
+}
+
+type dashboardFilterOptions struct {
+	CurrentYear  string
+	Years        []yearOption
+	Installments map[string][]installmentOption
+	Scopes       []string
+}
+
+func (o dashboardFilterOptions) toMap() map[string]interface{} {
+	years := make([]map[string]interface{}, 0, len(o.Years))
+	for _, year := range o.Years {
+		years = append(years, map[string]interface{}{
+			"year_id": year.YearID,
+			"year":    year.Year,
+		})
+	}
+
+	installMap := make(map[string][]map[string]interface{}, len(o.Installments))
+	for year, list := range o.Installments {
+		items := make([]map[string]interface{}, 0, len(list))
+		for _, inst := range list {
+			cutoff := ""
+			if inst.CutoffDate != nil {
+				cutoff = inst.CutoffDate.Format("2006-01-02")
+			}
+			name := strings.TrimSpace(inst.Name)
+			items = append(items, map[string]interface{}{
+				"installment": inst.Installment,
+				"name":        name,
+				"cutoff_date": cutoff,
+			})
+		}
+		installMap[year] = items
+	}
+
+	return map[string]interface{}{
+		"current_year": o.CurrentYear,
+		"years":        years,
+		"scopes":       o.Scopes,
+		"installments": installMap,
+	}
+}
+
+func (f dashboardFilter) toMap() map[string]interface{} {
+	result := map[string]interface{}{
+		"scope": f.Scope,
+	}
+	if f.SelectedYear != "" {
+		result["year"] = f.SelectedYear
+	}
+	if f.SelectedInstallment != nil {
+		result["installment"] = *f.SelectedInstallment
+	}
+	return result
+}
+
+func (f dashboardFilter) yearStrings() []string {
+	if len(f.Years) == 0 {
+		return nil
+	}
+	values := make([]string, len(f.Years))
+	copy(values, f.Years)
+	return values
+}
+
+func applyFilterToSubmissions(query *gorm.DB, alias string, filter dashboardFilter) *gorm.DB {
+	if alias == "" {
+		alias = "s"
+	}
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		query = query.Where(fmt.Sprintf("%s.year_id IN ?", alias), filter.YearIDs)
+	}
+	if filter.Scope == "installment" && len(filter.Installments) > 0 {
+		query = query.Where(fmt.Sprintf("%s.installment_number_at_submit IN ?", alias), filter.Installments)
+	}
+	return query
+}
+
+func applyFilterToYearColumn(query *gorm.DB, column string, filter dashboardFilter) *gorm.DB {
+	if !filter.IncludeAll {
+		if years := filter.yearStrings(); len(years) > 0 {
+			query = query.Where(fmt.Sprintf("%s IN ?", column), years)
+		}
+	}
+	return query
+}
+
+func resolveDashboardFilter(scopeParam, yearParam, installmentParam string) (dashboardFilter, dashboardFilterOptions) {
+	filter := dashboardFilter{}
+	options := dashboardFilterOptions{
+		Scopes: []string{"all", "current_year", "year", "installment"},
+	}
+
+	var yearRows []struct {
+		YearID int
+		Year   string
+	}
+
+	config.DB.Table("years").
+		Select("year_id, year").
+		Order("year DESC").
+		Scan(&yearRows)
+
+	options.Years = make([]yearOption, 0, len(yearRows))
+	yearMap := make(map[string]int, len(yearRows))
+	for _, row := range yearRows {
+		options.Years = append(options.Years, yearOption{YearID: row.YearID, Year: row.Year})
+		yearMap[row.Year] = row.YearID
+	}
+
+	filter.YearIDMap = yearMap
+
+	var cfg struct {
+		CurrentYear *string
+		Installment *int
+	}
+
+	config.DB.Table("system_config").
+		Select("current_year, installment").
+		Order("config_id DESC").
+		Limit(1).
+		Scan(&cfg)
+
+	if cfg.CurrentYear != nil && strings.TrimSpace(*cfg.CurrentYear) != "" {
+		filter.CurrentYear = strings.TrimSpace(*cfg.CurrentYear)
+	} else if len(options.Years) > 0 {
+		filter.CurrentYear = options.Years[0].Year
+	} else {
+		filter.CurrentYear = time.Now().AddDate(543, 0, 0).Format("2006")
+	}
+
+	if cfg.Installment != nil && *cfg.Installment > 0 {
+		filter.ActiveInstallment = cfg.Installment
+	}
+
+	options.CurrentYear = filter.CurrentYear
+
+	var installmentRows []struct {
+		YearID      int
+		Year        string
+		Installment int
+		Name        *string
+		CutoffDate  *time.Time
+	}
+
+	config.DB.Table("fund_installment_periods fip").
+		Select("fip.year_id, y.year, fip.installment_number AS installment, fip.name, fip.cutoff_date").
+		Joins("JOIN years y ON fip.year_id = y.year_id").
+		Where("fip.deleted_at IS NULL").
+		Order("y.year DESC, fip.installment_number ASC").
+		Scan(&installmentRows)
+
+	options.Installments = make(map[string][]installmentOption)
+	for _, row := range installmentRows {
+		name := ""
+		if row.Name != nil {
+			name = strings.TrimSpace(*row.Name)
+		}
+		options.Installments[row.Year] = append(options.Installments[row.Year], installmentOption{
+			Year:        row.Year,
+			Installment: row.Installment,
+			Name:        name,
+			CutoffDate:  row.CutoffDate,
+		})
+	}
+
+	for year := range options.Installments {
+		sort.Slice(options.Installments[year], func(i, j int) bool {
+			return options.Installments[year][i].Installment < options.Installments[year][j].Installment
+		})
+	}
+
+	scope := strings.TrimSpace(strings.ToLower(scopeParam))
+	switch scope {
+	case "", "default":
+		scope = "current_year"
+	case "all", "current_year", "year", "installment":
+		// valid scopes
+	default:
+		scope = "current_year"
+	}
+
+	filter.Scope = scope
+
+	cleanedYear := strings.TrimSpace(yearParam)
+	if cleanedYear == "" {
+		cleanedYear = filter.CurrentYear
+	}
+
+	switch scope {
+	case "all":
+		filter.IncludeAll = true
+	case "current_year":
+		if id, ok := yearMap[filter.CurrentYear]; ok {
+			filter.YearIDs = []int{id}
+			filter.Years = []string{filter.CurrentYear}
+			filter.SelectedYear = filter.CurrentYear
+		}
+	case "year", "installment":
+		targetYear := cleanedYear
+		if id, ok := yearMap[targetYear]; ok {
+			filter.YearIDs = []int{id}
+			filter.Years = []string{targetYear}
+			filter.SelectedYear = targetYear
+		} else if id, ok := yearMap[filter.CurrentYear]; ok {
+			filter.YearIDs = []int{id}
+			filter.Years = []string{filter.CurrentYear}
+			filter.SelectedYear = filter.CurrentYear
+		} else if len(options.Years) > 0 {
+			filter.YearIDs = []int{options.Years[0].YearID}
+			filter.Years = []string{options.Years[0].Year}
+			filter.SelectedYear = options.Years[0].Year
+		}
+	}
+
+	if scope == "installment" {
+		cleanedInstallment := strings.TrimSpace(installmentParam)
+		if cleanedInstallment != "" {
+			parts := strings.Split(cleanedInstallment, ",")
+			for _, part := range parts {
+				trimmed := strings.TrimSpace(part)
+				if trimmed == "" {
+					continue
+				}
+				if val, err := strconv.Atoi(trimmed); err == nil {
+					filter.Installments = append(filter.Installments, val)
+				}
+			}
+		}
+
+		if len(filter.Installments) == 0 {
+			if filter.SelectedYear == filter.CurrentYear && filter.ActiveInstallment != nil {
+				filter.Installments = []int{*filter.ActiveInstallment}
+			}
+		}
+
+		if len(filter.Installments) > 0 {
+			first := filter.Installments[0]
+			filter.SelectedInstallment = &first
+		}
+	}
+
+	return filter, options
 }
 
 // getUserDashboard returns dashboard for regular users
@@ -227,7 +504,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 }
 
 // getAdminDashboard returns dashboard for admin users
-func getAdminDashboard() map[string]interface{} {
+func getAdminDashboard(filter dashboardFilter, options dashboardFilterOptions) map[string]interface{} {
 	stats := make(map[string]interface{})
 
 	pendingStatusIDs := make([]int, 0, 2)
@@ -257,41 +534,41 @@ func getAdminDashboard() map[string]interface{} {
 		rejectedStatusIDs = []int{-1}
 	}
 
-	// Determine current Buddhist Era year to align with budgeting tables
-	currentYear := time.Now().AddDate(543, 0, 0).Format("2006")
+	stats["overview"] = buildAdminOverview(filter, pendingStatusIDs, approvedStatusID, rejectedStatusIDs)
+	stats["category_budgets"] = buildAdminCategoryBudgets(filter, approvedStatusID)
+	stats["pending_applications"] = buildAdminPendingApplications(filter, pendingStatusIDs)
+	stats["quota_summary"] = buildAdminQuotaSummary(filter)
 
-	stats["overview"] = buildAdminOverview(currentYear, pendingStatusIDs, approvedStatusID, rejectedStatusIDs)
-	stats["category_budgets"] = buildAdminCategoryBudgets(currentYear)
-	stats["pending_applications"] = buildAdminPendingApplications(pendingStatusIDs)
-	stats["quota_summary"] = buildAdminQuotaSummary(currentYear)
-
-	if statusBreakdown := buildAdminStatusBreakdown(); len(statusBreakdown) > 0 {
+	if statusBreakdown := buildAdminStatusBreakdown(filter); len(statusBreakdown) > 0 {
 		stats["status_breakdown"] = statusBreakdown
 	}
 
-	if financialOverview := buildAdminFinancialOverview(pendingStatusIDs, approvedStatusID, rejectedStatusIDs); len(financialOverview) > 0 {
+	if financialOverview := buildAdminFinancialOverview(filter, pendingStatusIDs, approvedStatusID, rejectedStatusIDs); len(financialOverview) > 0 {
 		stats["financial_overview"] = financialOverview
 	}
 
-	if upcoming := buildAdminUpcomingInstallments(currentYear); len(upcoming) > 0 {
+	if upcoming := buildAdminUpcomingInstallments(filter); len(upcoming) > 0 {
 		stats["upcoming_periods"] = upcoming
 	}
 
-	if activities := buildAdminActivityFeed(); len(activities) > 0 {
+	if activities := buildAdminActivityFeed(filter); len(activities) > 0 {
 		stats["activity_feed"] = activities
 	}
 
-	if topUsers := buildAdminTopUsers(); len(topUsers) > 0 {
+	if topUsers := buildAdminTopUsers(filter, approvedStatusID); len(topUsers) > 0 {
 		stats["top_users"] = topUsers
 	}
 
-	trendBreakdown := buildSystemTrendBreakdown(currentYear, approvedStatusID)
+	trendBreakdown := buildSystemTrendBreakdown(filter, approvedStatusID)
 	if len(trendBreakdown) > 0 {
 		stats["trend_breakdown"] = trendBreakdown
 		if monthly, ok := trendBreakdown["monthly"]; ok {
 			stats["monthly_trends"] = monthly
 		}
 	}
+
+	stats["filter_options"] = options.toMap()
+	stats["selected_filter"] = filter.toMap()
 
 	return stats
 }
@@ -321,30 +598,29 @@ func getMonthlyStats(userID int, months int) []map[string]interface{} {
 	return monthlyData
 }
 
-func buildAdminOverview(currentYear string, pendingStatusIDs []int, approvedStatusID int, rejectedStatusIDs []int) map[string]interface{} {
+func buildAdminOverview(filter dashboardFilter, pendingStatusIDs []int, approvedStatusID int, rejectedStatusIDs []int) map[string]interface{} {
 	overview := make(map[string]interface{})
 
-	// Total submissions across supported submission types
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
 	var totalApplications int64
-	config.DB.Table("submissions").
-		Where("submission_type IN ? AND deleted_at IS NULL", submissionTypes).
-		Count(&totalApplications)
-
+	submissionQuery := config.DB.Table("submissions s").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes)
+	submissionQuery = applyFilterToSubmissions(submissionQuery, "s", filter)
+	submissionQuery.Count(&totalApplications)
 	overview["total_applications"] = totalApplications
 
-	// Breakdown by submission type
 	typeCounts := make(map[string]int64)
 	var typeRows []struct {
 		SubmissionType string
 		Total          int64
 	}
 
-	config.DB.Table("submissions").
-		Select("submission_type, COUNT(*) AS total").
-		Where("submission_type IN ? AND deleted_at IS NULL", submissionTypes).
-		Group("submission_type").
+	typeQuery := config.DB.Table("submissions s").
+		Select("s.submission_type, COUNT(*) AS total").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes)
+	typeQuery = applyFilterToSubmissions(typeQuery, "s", filter)
+	typeQuery.Group("s.submission_type").
 		Scan(&typeRows)
 
 	for _, row := range typeRows {
@@ -354,25 +630,27 @@ func buildAdminOverview(currentYear string, pendingStatusIDs []int, approvedStat
 	overview["fund_applications"] = typeCounts["fund_application"]
 	overview["publication_rewards"] = typeCounts["publication_reward"]
 
-	// Pending / approved / rejected counts
 	var pendingCount int64
-	config.DB.Table("submissions").
-		Where("submission_type IN ? AND status_id IN ? AND deleted_at IS NULL", submissionTypes, pendingStatusIDs).
-		Count(&pendingCount)
+	pendingQuery := config.DB.Table("submissions s").
+		Where("s.submission_type IN ? AND s.status_id IN ? AND s.deleted_at IS NULL", submissionTypes, pendingStatusIDs)
+	pendingQuery = applyFilterToSubmissions(pendingQuery, "s", filter)
+	pendingQuery.Count(&pendingCount)
 	overview["pending_count"] = pendingCount
 
 	var approvedCount int64
 	if approvedStatusID > 0 {
-		config.DB.Table("submissions").
-			Where("submission_type IN ? AND status_id = ? AND deleted_at IS NULL", submissionTypes, approvedStatusID).
-			Count(&approvedCount)
+		approvedQuery := config.DB.Table("submissions s").
+			Where("s.submission_type IN ? AND s.status_id = ? AND s.deleted_at IS NULL", submissionTypes, approvedStatusID)
+		approvedQuery = applyFilterToSubmissions(approvedQuery, "s", filter)
+		approvedQuery.Count(&approvedCount)
 	}
 	overview["approved_count"] = approvedCount
 
 	var rejectedCount int64
-	config.DB.Table("submissions").
-		Where("submission_type IN ? AND status_id IN ? AND deleted_at IS NULL", submissionTypes, rejectedStatusIDs).
-		Count(&rejectedCount)
+	rejectedQuery := config.DB.Table("submissions s").
+		Where("s.submission_type IN ? AND s.status_id IN ? AND s.deleted_at IS NULL", submissionTypes, rejectedStatusIDs)
+	rejectedQuery = applyFilterToSubmissions(rejectedQuery, "s", filter)
+	rejectedQuery.Count(&rejectedCount)
 	overview["rejected_count"] = rejectedCount
 
 	if totalApplications > 0 {
@@ -381,77 +659,258 @@ func buildAdminOverview(currentYear string, pendingStatusIDs []int, approvedStat
 		overview["approval_rate"] = 0.0
 	}
 
-	// Total users in the system
 	var totalUsers int64
 	config.DB.Table("users").
 		Where("delete_at IS NULL").
 		Count(&totalUsers)
 	overview["total_users"] = totalUsers
 
-	// Budget totals using the consolidated budget summary view
 	var budget struct {
-		Total     float64
+		Allocated float64
 		Used      float64
 		Remaining float64
 	}
 
-	config.DB.Table("view_budget_summary").
-		Select("COALESCE(SUM(allocated_amount),0) AS total, COALESCE(SUM(used_amount),0) AS used, COALESCE(SUM(remaining_budget),0) AS remaining").
-		Where("year = ?", currentYear).
-		Scan(&budget)
+	budgetQuery := config.DB.Table("view_budget_summary").
+		Select("COALESCE(SUM(allocated_amount),0) AS allocated, COALESCE(SUM(used_amount),0) AS used, COALESCE(SUM(remaining_budget),0) AS remaining")
+	budgetQuery = applyFilterToYearColumn(budgetQuery, "year", filter)
+	budgetQuery.Scan(&budget)
 
-	overview["total_budget"] = budget.Total
+	overview["total_budget"] = budget.Allocated
+	overview["allocated_budget"] = budget.Allocated
 	overview["used_budget"] = budget.Used
+	overview["approved_amount_total"] = budget.Used
 	overview["remaining_budget"] = budget.Remaining
-	overview["current_year"] = currentYear
+
+	type amountSummary struct {
+		Requested float64
+		Approved  float64
+	}
+
+	var fundAmounts amountSummary
+	fundQuery := config.DB.Table("fund_application_details fad").
+		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application")
+	fundQuery = applyFilterToSubmissions(fundQuery, "s", filter)
+	fundQuery.Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN fad.approved_amount ELSE 0 END),0) AS approved", approvedStatusID).
+		Scan(&fundAmounts)
+
+	var rewardAmounts amountSummary
+	rewardQuery := config.DB.Table("publication_reward_details prd").
+		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward")
+	rewardQuery = applyFilterToSubmissions(rewardQuery, "s", filter)
+	rewardQuery.Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved", approvedStatusID).
+		Scan(&rewardAmounts)
+
+	overview["total_requested_amount"] = fundAmounts.Requested + rewardAmounts.Requested
+	overview["total_approved_amount"] = fundAmounts.Approved + rewardAmounts.Approved
+
+	if filter.SelectedYear != "" {
+		overview["current_year"] = filter.SelectedYear
+	} else {
+		overview["current_year"] = filter.CurrentYear
+	}
+	overview["scope"] = filter.Scope
 
 	return overview
 }
 
-func buildAdminCategoryBudgets(currentYear string) []map[string]interface{} {
-	var rows []struct {
+func buildAdminCategoryBudgets(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
+	type categoryRow struct {
+		CategoryID           int
 		CategoryName         string
+		Year                 string
+		YearID               int
+		SubcategoryID        *int
+		SubcategoryName      *string
 		TotalApplications    int64
 		ApprovedApplications int64
+		RequestedAmount      float64
+		ApprovedAmount       float64
 		AllocatedAmount      float64
-		UsedAmount           float64
 		RemainingBudget      float64
+		MaxGrants            float64
+		RemainingGrant       float64
+		MaxAmountPerYear     float64
+		MaxAmountPerGrant    float64
 	}
 
-	config.DB.Table("view_budget_summary").
-		Select(`category_name,
-                    COALESCE(SUM(total_applications),0) AS total_applications,
-                    COALESCE(SUM(approved_applications),0) AS approved_applications,
-                    COALESCE(SUM(allocated_amount),0) AS allocated_amount,
-                    COALESCE(SUM(used_amount),0) AS used_amount,
-                    COALESCE(SUM(remaining_budget),0) AS remaining_budget`).
-		Where("year = ?", currentYear).
-		Group("category_name").
-		Order("category_name ASC").
+	query := config.DB.Table("fund_categories fc").
+		Select(`fc.category_id,
+                    fc.category_name,
+                    y.year,
+                    y.year_id,
+                    fsc.subcategory_id,
+                    fsc.subcategory_name,
+                    COUNT(DISTINCT s.submission_id) AS total_applications,
+                    SUM(CASE WHEN s.status_id = ? THEN 1 ELSE 0 END) AS approved_applications,
+                    COALESCE(SUM(CASE
+                        WHEN s.submission_type = 'fund_application' THEN fad.requested_amount
+                        WHEN s.submission_type = 'publication_reward' THEN prd.reward_amount
+                        ELSE 0 END),0) AS requested_amount,
+                    COALESCE(SUM(CASE WHEN s.status_id = ? THEN CASE
+                        WHEN s.submission_type = 'fund_application' THEN fad.approved_amount
+                        WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount)
+                        ELSE 0 END ELSE 0 END),0) AS approved_amount,
+                    COALESCE(MAX(sb.allocated_amount),0) AS allocated_amount,
+                    COALESCE(MAX(sb.remaining_budget),0) AS remaining_budget,
+                    COALESCE(MAX(sb.max_grants),0) AS max_grants,
+                    COALESCE(MAX(sb.remaining_grant),0) AS remaining_grant,
+                    COALESCE(MAX(sb.max_amount_per_year),0) AS max_amount_per_year,
+                    COALESCE(MAX(sb.max_amount_per_grant),0) AS max_amount_per_grant`, approvedStatusID, approvedStatusID).
+		Joins("JOIN years y ON fc.year_id = y.year_id").
+		Joins("LEFT JOIN fund_subcategories fsc ON fsc.category_id = fc.category_id AND fsc.delete_at IS NULL").
+		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
+		Joins("LEFT JOIN submissions s ON s.subcategory_id = fsc.subcategory_id AND s.deleted_at IS NULL AND s.submission_type IN ('fund_application', 'publication_reward')").
+		Joins("LEFT JOIN fund_application_details fad ON fad.submission_id = s.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON prd.submission_id = s.submission_id")
+
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		query = query.Where("fc.year_id IN ?", filter.YearIDs)
+	}
+
+	if filter.Scope == "installment" && len(filter.Installments) > 0 {
+		query = query.Where("s.installment_number_at_submit IN ?", filter.Installments)
+	}
+
+	var rows []categoryRow
+	query.Group("fc.category_id, fc.category_name, y.year, y.year_id, fsc.subcategory_id, fsc.subcategory_name").
+		Order("fc.category_name ASC, fsc.subcategory_name ASC").
 		Scan(&rows)
 
-	budgets := make([]map[string]interface{}, 0, len(rows))
+	type categoryAggregate struct {
+		CategoryID           int
+		CategoryName         string
+		Year                 string
+		YearID               int
+		TotalApplications    int64
+		ApprovedApplications int64
+		RequestedAmount      float64
+		ApprovedAmount       float64
+		AllocatedAmount      float64
+		RemainingBudget      float64
+		MaxGrants            float64
+		RemainingGrant       float64
+		Subcategories        []map[string]interface{}
+	}
+
+	categories := make(map[string]*categoryAggregate)
+	order := make([]string, 0)
+
 	for _, row := range rows {
-		budgets = append(budgets, map[string]interface{}{
-			"category_name":         row.CategoryName,
-			"total_applications":    row.TotalApplications,
-			"approved_applications": row.ApprovedApplications,
-			"approved_amount":       row.UsedAmount,
-			"allocated_budget":      row.AllocatedAmount,
-			"used_amount":           row.UsedAmount,
-			"remaining_budget":      row.RemainingBudget,
+		key := fmt.Sprintf("%d-%s", row.CategoryID, row.Year)
+		aggregate, exists := categories[key]
+		if !exists {
+			aggregate = &categoryAggregate{
+				CategoryID:   row.CategoryID,
+				CategoryName: row.CategoryName,
+				Year:         row.Year,
+				YearID:       row.YearID,
+			}
+			categories[key] = aggregate
+			order = append(order, key)
+		}
+
+		allocated := row.AllocatedAmount
+		if allocated == 0 {
+			if row.MaxAmountPerYear > 0 {
+				allocated = row.MaxAmountPerYear
+			} else if row.MaxAmountPerGrant > 0 && row.MaxGrants > 0 {
+				allocated = row.MaxAmountPerGrant * row.MaxGrants
+			}
+		}
+
+		usedAmount := row.ApprovedAmount
+		remainingBudget := row.RemainingBudget
+		if remainingBudget == 0 && allocated > 0 {
+			remainingBudget = math.Max(allocated-usedAmount, 0)
+		}
+
+		aggregate.TotalApplications += row.TotalApplications
+		aggregate.ApprovedApplications += row.ApprovedApplications
+		aggregate.RequestedAmount += row.RequestedAmount
+		aggregate.ApprovedAmount += usedAmount
+		aggregate.AllocatedAmount += allocated
+		aggregate.RemainingBudget += remainingBudget
+		aggregate.MaxGrants += row.MaxGrants
+		aggregate.RemainingGrant += row.RemainingGrant
+
+		if row.SubcategoryID != nil && *row.SubcategoryID != 0 {
+			subcategoryName := ""
+			if row.SubcategoryName != nil {
+				subcategoryName = *row.SubcategoryName
+			}
+
+			aggregate.Subcategories = append(aggregate.Subcategories, map[string]interface{}{
+				"subcategory_id":        *row.SubcategoryID,
+				"subcategory_name":      subcategoryName,
+				"total_applications":    row.TotalApplications,
+				"approved_applications": row.ApprovedApplications,
+				"requested_amount":      row.RequestedAmount,
+				"approved_amount":       usedAmount,
+				"used_amount":           usedAmount,
+				"allocated_amount":      allocated,
+				"remaining_budget":      remainingBudget,
+				"max_grants":            row.MaxGrants,
+				"remaining_grant":       row.RemainingGrant,
+			})
+		}
+	}
+
+	results := make([]map[string]interface{}, 0, len(order))
+
+	sort.Slice(order, func(i, j int) bool {
+		left := categories[order[i]]
+		right := categories[order[j]]
+		if left.ApprovedAmount == right.ApprovedAmount {
+			return left.CategoryName < right.CategoryName
+		}
+		return left.ApprovedAmount > right.ApprovedAmount
+	})
+
+	for _, key := range order {
+		aggregate := categories[key]
+
+		sort.Slice(aggregate.Subcategories, func(i, j int) bool {
+			left := aggregate.Subcategories[i]["approved_amount"].(float64)
+			right := aggregate.Subcategories[j]["approved_amount"].(float64)
+			if left == right {
+				leftName, _ := aggregate.Subcategories[i]["subcategory_name"].(string)
+				rightName, _ := aggregate.Subcategories[j]["subcategory_name"].(string)
+				return leftName < rightName
+			}
+			return left > right
+		})
+
+		results = append(results, map[string]interface{}{
+			"category_id":           aggregate.CategoryID,
+			"category_name":         aggregate.CategoryName,
+			"year":                  aggregate.Year,
+			"year_id":               aggregate.YearID,
+			"total_applications":    aggregate.TotalApplications,
+			"approved_applications": aggregate.ApprovedApplications,
+			"requested_amount":      aggregate.RequestedAmount,
+			"approved_amount":       aggregate.ApprovedAmount,
+			"used_amount":           aggregate.ApprovedAmount,
+			"allocated_budget":      aggregate.AllocatedAmount,
+			"remaining_budget":      aggregate.RemainingBudget,
+			"max_grants":            aggregate.MaxGrants,
+			"remaining_grant":       aggregate.RemainingGrant,
+			"subcategory_count":     len(aggregate.Subcategories),
+			"subcategories":         aggregate.Subcategories,
 		})
 	}
 
-	return budgets
+	return results
 }
 
-func buildAdminPendingApplications(pendingStatusIDs []int) []map[string]interface{} {
+func buildAdminPendingApplications(filter dashboardFilter, pendingStatusIDs []int) []map[string]interface{} {
 	var pendingApplications []map[string]interface{}
 
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
-	config.DB.Table("submissions s").
+	query := config.DB.Table("submissions s").
 		Select(`s.submission_id,
                     s.submission_number,
                     s.submission_type,
@@ -469,69 +928,109 @@ func buildAdminPendingApplications(pendingStatusIDs []int) []map[string]interfac
 		Joins("LEFT JOIN fund_categories fc ON s.category_id = fc.category_id").
 		Joins("LEFT JOIN fund_subcategories fsc ON s.subcategory_id = fsc.subcategory_id").
 		Joins("LEFT JOIN application_status ast ON s.status_id = ast.application_status_id").
-		Where("s.submission_type IN ? AND s.status_id IN ? AND s.deleted_at IS NULL", submissionTypes, pendingStatusIDs).
-		Order("s.submitted_at DESC").
+		Where("s.submission_type IN ? AND s.status_id IN ? AND s.deleted_at IS NULL", submissionTypes, pendingStatusIDs)
+
+	query = applyFilterToSubmissions(query, "s", filter)
+
+	query.Order("s.submitted_at DESC").
 		Limit(10).
 		Scan(&pendingApplications)
 
 	return pendingApplications
 }
 
-func buildAdminQuotaSummary(currentYear string) []map[string]interface{} {
+func buildAdminQuotaSummary(filter dashboardFilter) []map[string]interface{} {
 	var rows []struct {
-		CategoryName    string
-		SubcategoryName string
-		AllocatedAmount float64
-		RemainingBudget float64
-		MaxGrants       float64
-		RemainingGrant  float64
-		UsedGrantsTotal float64
-		UsedAmountTotal float64
+		Year              string
+		CategoryID        int
+		CategoryName      string
+		SubcategoryID     int
+		SubcategoryName   string
+		AllocatedAmount   float64
+		RemainingBudget   float64
+		MaxGrants         float64
+		RemainingGrant    float64
+		UsedGrantsTotal   float64
+		UsedAmountTotal   float64
+		MaxAmountPerYear  float64
+		MaxAmountPerGrant float64
 	}
 
-	config.DB.Table("subcategory_budgets sb").
-		Select(`fc.category_name AS category_name,
+	query := config.DB.Table("subcategory_budgets sb").
+		Select(`y.year AS year,
+                    fc.category_id AS category_id,
+                    fc.category_name AS category_name,
+                    fsc.subcategory_id AS subcategory_id,
                     fsc.subcategory_name AS subcategory_name,
                     COALESCE(sb.allocated_amount,0) AS allocated_amount,
                     COALESCE(sb.remaining_budget,0) AS remaining_budget,
                     COALESCE(sb.max_grants,0) AS max_grants,
                     COALESCE(sb.remaining_grant,0) AS remaining_grant,
-                    COALESCE(SUM(usage.used_grants_total),0) AS used_grants_total,
-                    COALESCE(SUM(usage.used_amount_total),0) AS used_amount_total`).
+                    COALESCE(SUM(usage.used_grants),0) AS used_grants_total,
+                    COALESCE(SUM(usage.used_amount),0) AS used_amount_total,
+                    COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
+                    COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
 		Joins("JOIN fund_subcategories fsc ON sb.subcategory_id = fsc.subcategory_id").
 		Joins("JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 		Joins("JOIN years y ON fc.year_id = y.year_id").
 		Joins("LEFT JOIN v_subcategory_user_usage_total usage ON usage.subcategory_id = sb.subcategory_id AND usage.year_id = y.year_id").
-		Where("sb.record_scope = 'overall' AND sb.delete_at IS NULL").
-		Where("y.year = ?", currentYear).
-		Group("sb.subcategory_id, fc.category_name, fsc.subcategory_name, sb.allocated_amount, sb.remaining_budget, sb.max_grants, sb.remaining_grant").
+		Where("sb.record_scope = 'overall' AND sb.delete_at IS NULL")
+
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		query = query.Where("y.year_id IN ?", filter.YearIDs)
+	}
+
+	query.Group("y.year, fc.category_id, fc.category_name, fsc.subcategory_id, fsc.subcategory_name, sb.allocated_amount, sb.remaining_budget, sb.max_grants, sb.remaining_grant").
 		Order("fc.category_name ASC, fsc.subcategory_name ASC").
 		Scan(&rows)
 
 	summaries := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
+		allocated := row.AllocatedAmount
+		if allocated == 0 {
+			if row.MaxAmountPerYear > 0 {
+				allocated = row.MaxAmountPerYear
+			} else if row.MaxAmountPerGrant > 0 && row.MaxGrants > 0 {
+				allocated = row.MaxAmountPerGrant * row.MaxGrants
+			}
+		}
+
 		usedAmount := row.UsedAmountTotal
+		if usedAmount == 0 && row.MaxGrants > 0 && row.MaxAmountPerGrant > 0 && row.UsedGrantsTotal > 0 {
+			usedAmount = row.UsedGrantsTotal * row.MaxAmountPerGrant
+		}
+
 		remainingBudget := row.RemainingBudget
-		if remainingBudget < 0 {
-			remainingBudget = 0
+		if remainingBudget <= 0 && allocated > 0 {
+			remainingBudget = math.Max(allocated-usedAmount, 0)
+		}
+
+		remainingGrants := row.RemainingGrant
+		if remainingGrants <= 0 && row.MaxGrants > 0 {
+			remainingGrants = math.Max(row.MaxGrants-row.UsedGrantsTotal, 0)
 		}
 
 		summaries = append(summaries, map[string]interface{}{
-			"category_name":    row.CategoryName,
-			"subcategory_name": row.SubcategoryName,
-			"allocated_amount": row.AllocatedAmount,
-			"used_amount":      usedAmount,
-			"remaining_budget": remainingBudget,
-			"max_grants":       row.MaxGrants,
-			"used_grants":      row.UsedGrantsTotal,
-			"remaining_grants": row.RemainingGrant,
+			"year":                 row.Year,
+			"category_id":          row.CategoryID,
+			"category_name":        row.CategoryName,
+			"subcategory_id":       row.SubcategoryID,
+			"subcategory_name":     row.SubcategoryName,
+			"allocated_amount":     allocated,
+			"used_amount":          usedAmount,
+			"remaining_budget":     remainingBudget,
+			"max_grants":           row.MaxGrants,
+			"used_grants":          row.UsedGrantsTotal,
+			"remaining_grants":     remainingGrants,
+			"max_amount_per_year":  row.MaxAmountPerYear,
+			"max_amount_per_grant": row.MaxAmountPerGrant,
 		})
 	}
 
 	return summaries
 }
 
-func buildAdminStatusBreakdown() map[string]map[string]interface{} {
+func buildAdminStatusBreakdown(filter dashboardFilter) map[string]map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
 	var rows []struct {
@@ -540,11 +1039,14 @@ func buildAdminStatusBreakdown() map[string]map[string]interface{} {
 		Total          int64
 	}
 
-	config.DB.Table("submissions s").
+	query := config.DB.Table("submissions s").
 		Select("s.submission_type, ast.status_code, COUNT(*) AS total").
 		Joins("LEFT JOIN application_status ast ON s.status_id = ast.application_status_id").
-		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes).
-		Group("s.submission_type, ast.status_code").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes)
+
+	query = applyFilterToSubmissions(query, "s", filter)
+
+	query.Group("s.submission_type, ast.status_code").
 		Scan(&rows)
 
 	stageDefinitions := []struct {
@@ -650,7 +1152,7 @@ func stageKeyFromStatusCode(code string) string {
 	}
 }
 
-func buildAdminFinancialOverview(pendingStatusIDs []int, approvedStatusID int, rejectedStatusIDs []int) map[string]interface{} {
+func buildAdminFinancialOverview(filter dashboardFilter, pendingStatusIDs []int, approvedStatusID int, rejectedStatusIDs []int) map[string]interface{} {
 	type amountSummary struct {
 		Requested float64
 		Approved  float64
@@ -659,56 +1161,66 @@ func buildAdminFinancialOverview(pendingStatusIDs []int, approvedStatusID int, r
 	}
 
 	var fundAmounts amountSummary
-	config.DB.Table("fund_application_details fad").
+	fundQuery := config.DB.Table("fund_application_details fad").
 		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
-		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application").
-		Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN fad.approved_amount ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application")
+	fundQuery = applyFilterToSubmissions(fundQuery, "s", filter)
+	fundQuery.Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN fad.approved_amount ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.requested_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
 		Scan(&fundAmounts)
 
 	var rewardAmounts amountSummary
-	config.DB.Table("publication_reward_details prd").
+	rewardQuery := config.DB.Table("publication_reward_details prd").
 		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
-		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward").
-		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN prd.reward_approve_amount ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward")
+	rewardQuery = applyFilterToSubmissions(rewardQuery, "s", filter)
+	rewardQuery.Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS rejected", approvedStatusID, pendingStatusIDs, rejectedStatusIDs).
 		Scan(&rewardAmounts)
 
 	var fundCount, fundApprovedCount, fundPendingCount, fundRejectedCount int64
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND deleted_at IS NULL", "fund_application").
-		Count(&fundCount)
+	fundCountQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application")
+	fundCountQuery = applyFilterToSubmissions(fundCountQuery, "s", filter)
+	fundCountQuery.Count(&fundCount)
 
 	if approvedStatusID > 0 {
-		config.DB.Table("submissions").
-			Where("submission_type = ? AND status_id = ? AND deleted_at IS NULL", "fund_application", approvedStatusID).
-			Count(&fundApprovedCount)
+		approvedQuery := config.DB.Table("submissions s").
+			Where("s.submission_type = ? AND s.status_id = ? AND s.deleted_at IS NULL", "fund_application", approvedStatusID)
+		approvedQuery = applyFilterToSubmissions(approvedQuery, "s", filter)
+		approvedQuery.Count(&fundApprovedCount)
 	}
 
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "fund_application", pendingStatusIDs).
-		Count(&fundPendingCount)
+	pendingQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.status_id IN ? AND s.deleted_at IS NULL", "fund_application", pendingStatusIDs)
+	pendingQuery = applyFilterToSubmissions(pendingQuery, "s", filter)
+	pendingQuery.Count(&fundPendingCount)
 
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "fund_application", rejectedStatusIDs).
-		Count(&fundRejectedCount)
+	rejectedQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.status_id IN ? AND s.deleted_at IS NULL", "fund_application", rejectedStatusIDs)
+	rejectedQuery = applyFilterToSubmissions(rejectedQuery, "s", filter)
+	rejectedQuery.Count(&fundRejectedCount)
 
 	var rewardCount, rewardApprovedCount, rewardPendingCount, rewardRejectedCount int64
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND deleted_at IS NULL", "publication_reward").
-		Count(&rewardCount)
+	rewardCountQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward")
+	rewardCountQuery = applyFilterToSubmissions(rewardCountQuery, "s", filter)
+	rewardCountQuery.Count(&rewardCount)
 
 	if approvedStatusID > 0 {
-		config.DB.Table("submissions").
-			Where("submission_type = ? AND status_id = ? AND deleted_at IS NULL", "publication_reward", approvedStatusID).
-			Count(&rewardApprovedCount)
+		rewardApprovedQuery := config.DB.Table("submissions s").
+			Where("s.submission_type = ? AND s.status_id = ? AND s.deleted_at IS NULL", "publication_reward", approvedStatusID)
+		rewardApprovedQuery = applyFilterToSubmissions(rewardApprovedQuery, "s", filter)
+		rewardApprovedQuery.Count(&rewardApprovedCount)
 	}
 
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "publication_reward", pendingStatusIDs).
-		Count(&rewardPendingCount)
+	rewardPendingQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.status_id IN ? AND s.deleted_at IS NULL", "publication_reward", pendingStatusIDs)
+	rewardPendingQuery = applyFilterToSubmissions(rewardPendingQuery, "s", filter)
+	rewardPendingQuery.Count(&rewardPendingCount)
 
-	config.DB.Table("submissions").
-		Where("submission_type = ? AND status_id IN ? AND deleted_at IS NULL", "publication_reward", rejectedStatusIDs).
-		Count(&rewardRejectedCount)
+	rewardRejectedQuery := config.DB.Table("submissions s").
+		Where("s.submission_type = ? AND s.status_id IN ? AND s.deleted_at IS NULL", "publication_reward", rejectedStatusIDs)
+	rewardRejectedQuery = applyFilterToSubmissions(rewardRejectedQuery, "s", filter)
+	rewardRejectedQuery.Count(&rewardRejectedCount)
 
 	totalRequested := fundAmounts.Requested + rewardAmounts.Requested
 	totalApproved := fundAmounts.Approved + rewardAmounts.Approved
@@ -770,8 +1282,27 @@ func buildAdminFinancialOverview(pendingStatusIDs []int, approvedStatusID int, r
 	}
 }
 
-func buildAdminUpcomingInstallments(currentYear string) []map[string]interface{} {
-	now := time.Now()
+func buildAdminUpcomingInstallments(filter dashboardFilter) []map[string]interface{} {
+	targetYear := filter.SelectedYear
+	if targetYear == "" {
+		targetYear = filter.CurrentYear
+	}
+
+	yearID := 0
+	if filter.YearIDMap != nil {
+		if id, ok := filter.YearIDMap[targetYear]; ok {
+			yearID = id
+		} else if filter.CurrentYear != "" {
+			if id, ok := filter.YearIDMap[filter.CurrentYear]; ok {
+				yearID = id
+				targetYear = filter.CurrentYear
+			}
+		}
+	}
+
+	if yearID == 0 && len(filter.YearIDs) > 0 {
+		yearID = filter.YearIDs[0]
+	}
 
 	var rows []struct {
 		InstallmentNumber int
@@ -780,59 +1311,98 @@ func buildAdminUpcomingInstallments(currentYear string) []map[string]interface{}
 		Year              string
 	}
 
-	config.DB.Table("fund_installment_periods fip").
+	query := config.DB.Table("fund_installment_periods fip").
 		Select("fip.installment_number, fip.name, fip.cutoff_date, y.year").
 		Joins("JOIN years y ON fip.year_id = y.year_id").
-		Where("fip.deleted_at IS NULL AND fip.status = ?", "active").
-		Where("y.year >= ?", currentYear).
-		Order("fip.cutoff_date ASC").
-		Limit(10).
+		Where("fip.deleted_at IS NULL")
+
+	if yearID > 0 {
+		query = query.Where("y.year_id = ?", yearID)
+	} else {
+		query = query.Order("y.year DESC")
+	}
+
+	query.Order("fip.cutoff_date ASC").
 		Scan(&rows)
 
 	if len(rows) == 0 {
-		config.DB.Table("fund_installment_periods fip").
-			Select("fip.installment_number, fip.name, fip.cutoff_date, y.year").
-			Joins("JOIN years y ON fip.year_id = y.year_id").
-			Where("fip.deleted_at IS NULL AND fip.status = ?", "active").
-			Order("fip.cutoff_date DESC").
-			Limit(5).
-			Scan(&rows)
+		return []map[string]interface{}{}
+	}
+
+	now := time.Now()
+	activeInstallment := 0
+	if filter.ActiveInstallment != nil && targetYear == filter.CurrentYear {
+		activeInstallment = *filter.ActiveInstallment
+	}
+
+	openIndex := -1
+	if activeInstallment > 0 {
+		for idx, row := range rows {
+			if row.InstallmentNumber == activeInstallment {
+				openIndex = idx
+				break
+			}
+		}
+	}
+
+	if openIndex == -1 {
+		for idx, row := range rows {
+			if !row.CutoffDate.Before(now) {
+				openIndex = idx
+				break
+			}
+		}
 	}
 
 	periods := make([]map[string]interface{}, 0, len(rows))
-	for _, row := range rows {
+	for idx, row := range rows {
 		cutoff := row.CutoffDate
-		cutoffStr := cutoff.Format("2006-01-02")
 		periodLabel := strings.TrimSpace(row.Name)
 		if periodLabel == "" {
 			periodLabel = fmt.Sprintf("รอบที่ %d", row.InstallmentNumber)
 		}
 
-		diff := cutoff.Sub(now)
-		remainingDays := int(math.Ceil(diff.Hours() / 24))
-		status := "upcoming"
-		if remainingDays < 0 {
-			status = "overdue"
-		} else if remainingDays <= 7 {
-			status = "due_soon"
+		remainingDays := int(math.Ceil(cutoff.Sub(now).Hours() / 24))
+		status := "open"
+
+		if openIndex >= 0 {
+			switch {
+			case idx < openIndex:
+				status = "closed"
+			case idx == openIndex:
+				status = "open"
+			default:
+				status = "not_yet"
+			}
+		} else {
+			if row.CutoffDate.Before(now) {
+				status = "closed"
+			} else if idx == 0 {
+				status = "open"
+			} else {
+				status = "not_yet"
+			}
 		}
 
 		periods = append(periods, map[string]interface{}{
 			"installment":     row.InstallmentNumber,
 			"name":            periodLabel,
-			"cutoff_date":     cutoffStr,
+			"cutoff_date":     row.CutoffDate.Format("2006-01-02"),
 			"year":            row.Year,
 			"days_remaining":  remainingDays,
 			"status":          status,
-			"is_overdue":      remainingDays < 0,
-			"cutoff_datetime": cutoff.Format(time.RFC3339),
+			"cutoff_datetime": row.CutoffDate.Format(time.RFC3339),
 		})
+	}
+
+	if len(periods) > 5 {
+		periods = periods[:5]
 	}
 
 	return periods
 }
 
-func buildAdminActivityFeed() []map[string]interface{} {
+func buildAdminActivityFeed(filter dashboardFilter) []map[string]interface{} {
 	var rows []struct {
 		LogID        int
 		CreatedAt    time.Time
@@ -844,9 +1414,19 @@ func buildAdminActivityFeed() []map[string]interface{} {
 		IPAddress    string
 	}
 
-	config.DB.Table("v_recent_audit_logs").
-		Select("log_id, created_at, user_name, action, entity_type, entity_number, description, ip_address").
-		Order("created_at DESC").
+	query := config.DB.Table("audit_logs al").
+		Select("al.log_id, al.created_at, CONCAT(u.user_fname, ' ', u.user_lname) AS user_name, al.action, al.entity_type, al.entity_number, al.description, al.ip_address").
+		Joins("LEFT JOIN users u ON al.user_id = u.user_id").
+		Joins("LEFT JOIN submissions s ON (al.entity_type IN ('submission','fund_application','publication_reward') AND s.submission_number = al.entity_number)")
+
+	if !filter.IncludeAll {
+		query = query.Where("s.submission_id IS NOT NULL")
+		query = applyFilterToSubmissions(query, "s", filter)
+	} else if len(filter.YearIDs) > 0 {
+		query = query.Where("s.submission_id IS NULL OR s.year_id IN ?", filter.YearIDs)
+	}
+
+	query.Order("al.created_at DESC").
 		Limit(12).
 		Scan(&rows)
 
@@ -867,13 +1447,14 @@ func buildAdminActivityFeed() []map[string]interface{} {
 	return feed
 }
 
-func buildAdminTopUsers() []map[string]interface{} {
+func buildAdminTopUsers(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
-	submissionsSubQuery := config.DB.Table("submissions").
-		Select("user_id, COUNT(*) AS submission_count").
-		Where("submission_type IN ? AND deleted_at IS NULL", submissionTypes).
-		Group("user_id")
+	submissionsSubQuery := config.DB.Table("submissions s").
+		Select("s.user_id, COUNT(*) AS submission_count, SUM(CASE WHEN s.status_id = ? THEN 1 ELSE 0 END) AS approved_count", approvedStatusID).
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL", submissionTypes)
+	submissionsSubQuery = applyFilterToSubmissions(submissionsSubQuery, "s", filter)
+	submissionsSubQuery = submissionsSubQuery.Group("s.user_id")
 
 	var rows []struct {
 		UserID          int
@@ -885,6 +1466,7 @@ func buildAdminTopUsers() []map[string]interface{} {
 		TotalActions    int64
 		LastLogin       *time.Time
 		SubmissionCount int64
+		ApprovedCount   int64
 	}
 
 	config.DB.Table("v_user_activity_summary vus").
@@ -896,7 +1478,8 @@ func buildAdminTopUsers() []map[string]interface{} {
             COALESCE(vus.download_count,0) AS download_count,
             COALESCE(vus.total_actions,0) AS total_actions,
             vus.last_login,
-            COALESCE(subs.submission_count,0) AS submission_count`).
+            COALESCE(subs.submission_count,0) AS submission_count,
+            COALESCE(subs.approved_count,0) AS approved_count`).
 		Joins("LEFT JOIN (?) AS subs ON subs.user_id = vus.user_id", submissionsSubQuery).
 		Order("total_actions DESC").
 		Limit(8).
@@ -918,6 +1501,7 @@ func buildAdminTopUsers() []map[string]interface{} {
 			"download_count":   row.DownloadCount,
 			"total_actions":    row.TotalActions,
 			"submission_count": row.SubmissionCount,
+			"approved_count":   row.ApprovedCount,
 			"last_login":       lastLogin,
 		})
 	}
@@ -925,25 +1509,117 @@ func buildAdminTopUsers() []map[string]interface{} {
 	return summaries
 }
 
-func buildSystemTrendBreakdown(currentYear string, approvedStatusID int) map[string][]map[string]interface{} {
+func buildSystemTrendBreakdown(filter dashboardFilter, approvedStatusID int) map[string][]map[string]interface{} {
 	breakdown := make(map[string][]map[string]interface{})
 
-	breakdown["monthly"] = buildMonthlyTrend(approvedStatusID)
-	breakdown["yearly"] = buildYearlyTrend(approvedStatusID)
-	breakdown["quarterly"] = buildQuarterlyTrend(approvedStatusID)
-	breakdown["installment"] = buildInstallmentTrend(currentYear, approvedStatusID)
+	if monthly := buildMonthlyTrend(filter, approvedStatusID); len(monthly) > 0 {
+		breakdown["monthly"] = monthly
+	}
+
+	if yearly := buildYearlyTrend(filter, approvedStatusID); len(yearly) > 0 {
+		breakdown["yearly"] = yearly
+	}
+
+	if quarterly := buildQuarterlyTrend(filter, approvedStatusID); len(quarterly) > 0 {
+		breakdown["quarterly"] = quarterly
+	}
+
+	if installments := buildInstallmentTrend(filter, approvedStatusID); len(installments) > 0 {
+		breakdown["installment"] = installments
+	}
 
 	return breakdown
 }
 
-func buildMonthlyTrend(approvedStatusID int) []map[string]interface{} {
+func parseThaiYear(year string) (int, bool) {
+	trimmed := strings.TrimSpace(year)
+	if trimmed == "" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, false
+	}
+	if value >= 2400 {
+		value -= 543
+	}
+	return value, true
+}
+
+func monthPeriodsForFilter(filter dashboardFilter) []string {
+	if filter.IncludeAll || len(filter.Years) == 0 {
+		now := time.Now()
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -11, 0)
+		periods := make([]string, 0, 12)
+		for i := 0; i < 12; i++ {
+			periods = append(periods, start.AddDate(0, i, 0).Format("2006-01"))
+		}
+		return periods
+	}
+
+	unique := make(map[string]struct{})
+	years := make([]int, 0, len(filter.Years))
+	for _, yearStr := range filter.Years {
+		if parsed, ok := parseThaiYear(yearStr); ok {
+			years = append(years, parsed)
+		}
+	}
+
+	if len(years) == 0 {
+		return []string{}
+	}
+
+	sort.Ints(years)
+	periods := make([]string, 0, len(years)*12)
+	for _, year := range years {
+		for month := time.January; month <= time.December; month++ {
+			key := time.Date(year, month, 1, 0, 0, 0, 0, time.Now().Location()).Format("2006-01")
+			if _, exists := unique[key]; exists {
+				continue
+			}
+			unique[key] = struct{}{}
+			periods = append(periods, key)
+		}
+	}
+
+	sort.Strings(periods)
+	return periods
+}
+
+func buildMonthlyTrend(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
-	now := time.Now()
-	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -11, 0)
+	query := config.DB.Table("submissions s").
+		Select(`DATE_FORMAT(s.submitted_at, '%Y-%m') AS period,
+            y.year AS thai_year,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
+            SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     ELSE 0 END) AS total_requested,
+            SUM(CASE WHEN s.status_id = ? THEN
+                        CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
+                             WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount, 0)
+                             ELSE 0 END
+                     ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID).
+		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
+		Joins("LEFT JOIN years y ON s.year_id = y.year_id").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes)
+
+	query = applyFilterToSubmissions(query, "s", filter)
+
+	if filter.IncludeAll || len(filter.YearIDs) == 0 {
+		now := time.Now()
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -11, 0)
+		query = query.Where("s.submitted_at >= ?", start.Format("2006-01-02"))
+	}
 
 	var rows []struct {
 		Period         string
+		ThaiYear       *string
 		FundTotal      float64
 		RewardTotal    float64
 		FundApproved   float64
@@ -952,25 +1628,12 @@ func buildMonthlyTrend(approvedStatusID int) []map[string]interface{} {
 		TotalApproved  float64
 	}
 
-	config.DB.Table("submissions s").
-		Select(`DATE_FORMAT(s.submitted_at, '%Y-%m') AS period,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0) ELSE COALESCE(prd.reward_amount,0) END) AS total_requested,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN COALESCE(fad.approved_amount,0)
-                             WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN COALESCE(prd.total_approve_amount, COALESCE(prd.reward_approve_amount,0))
-                             ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID, approvedStatusID).
-		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
-		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
-		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes).
-		Where("s.submitted_at >= ?", start.Format("2006-01-02")).
-		Group("DATE_FORMAT(s.submitted_at, '%Y-%m')").
+	query.Group("DATE_FORMAT(s.submitted_at, '%Y-%m'), y.year").
 		Order("period ASC").
 		Scan(&rows)
 
 	dataByPeriod := make(map[string]struct {
+		ThaiYear       *string
 		FundTotal      float64
 		RewardTotal    float64
 		FundApproved   float64
@@ -981,6 +1644,7 @@ func buildMonthlyTrend(approvedStatusID int) []map[string]interface{} {
 
 	for _, row := range rows {
 		dataByPeriod[row.Period] = struct {
+			ThaiYear       *string
 			FundTotal      float64
 			RewardTotal    float64
 			FundApproved   float64
@@ -988,6 +1652,7 @@ func buildMonthlyTrend(approvedStatusID int) []map[string]interface{} {
 			TotalRequested float64
 			TotalApproved  float64
 		}{
+			ThaiYear:       row.ThaiYear,
 			FundTotal:      row.FundTotal,
 			RewardTotal:    row.RewardTotal,
 			FundApproved:   row.FundApproved,
@@ -997,51 +1662,68 @@ func buildMonthlyTrend(approvedStatusID int) []map[string]interface{} {
 		}
 	}
 
-	results := make([]map[string]interface{}, 0, 12)
-	for i := 0; i < 12; i++ {
-		current := start.AddDate(0, i, 0)
-		period := current.Format("2006-01")
-
-		values, ok := dataByPeriod[period]
-		if !ok {
-			values = struct {
-				FundTotal      float64
-				RewardTotal    float64
-				FundApproved   float64
-				RewardApproved float64
-				TotalRequested float64
-				TotalApproved  float64
-			}{}
+	periods := monthPeriodsForFilter(filter)
+	if len(periods) == 0 {
+		for period := range dataByPeriod {
+			periods = append(periods, period)
 		}
+		sort.Strings(periods)
+	}
 
-		totalApplications := values.FundTotal + values.RewardTotal
-		approvedApplications := values.FundApproved + values.RewardApproved
+	results := make([]map[string]interface{}, 0, len(periods))
+	for _, period := range periods {
+		data := dataByPeriod[period]
+		totalApplications := data.FundTotal + data.RewardTotal
+		approvedApplications := data.FundApproved + data.RewardApproved
+
+		thaiYear := ""
+		if data.ThaiYear != nil {
+			thaiYear = *data.ThaiYear
+		}
 
 		results = append(results, map[string]interface{}{
 			"period":             period,
-			"month":              period,
+			"thai_year":          thaiYear,
 			"total_applications": totalApplications,
 			"approved":           approvedApplications,
-			"fund_total":         values.FundTotal,
-			"reward_total":       values.RewardTotal,
-			"fund_approved":      values.FundApproved,
-			"reward_approved":    values.RewardApproved,
-			"total_requested":    values.TotalRequested,
-			"total_approved":     values.TotalApproved,
+			"fund_total":         data.FundTotal,
+			"reward_total":       data.RewardTotal,
+			"fund_approved":      data.FundApproved,
+			"reward_approved":    data.RewardApproved,
+			"total_requested":    data.TotalRequested,
+			"total_approved":     data.TotalApproved,
 		})
 	}
 
 	return results
 }
 
-func buildYearlyTrend(approvedStatusID int) []map[string]interface{} {
+func buildYearlyTrend(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
-	now := time.Now()
-	start := time.Date(now.Year()-4, 1, 1, 0, 0, 0, 0, now.Location())
+	query := config.DB.Table("submissions s").
+		Select(`y.year AS year,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
+            SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     ELSE 0 END) AS total_requested,
+            SUM(CASE WHEN s.status_id = ? THEN
+                        CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
+                             WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount, 0)
+                             ELSE 0 END
+                     ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID).
+		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
+		Joins("LEFT JOIN years y ON s.year_id = y.year_id").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes)
+
+	query = applyFilterToSubmissions(query, "s", filter)
 
 	var rows []struct {
-		Year           int
+		Year           string
 		FundTotal      float64
 		RewardTotal    float64
 		FundApproved   float64
@@ -1050,22 +1732,8 @@ func buildYearlyTrend(approvedStatusID int) []map[string]interface{} {
 		TotalApproved  float64
 	}
 
-	config.DB.Table("submissions s").
-		Select(`YEAR(s.submitted_at) AS year,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0) ELSE COALESCE(prd.reward_amount,0) END) AS total_requested,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN COALESCE(fad.approved_amount,0)
-                             WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN COALESCE(prd.total_approve_amount, COALESCE(prd.reward_approve_amount,0))
-                             ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID, approvedStatusID).
-		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
-		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
-		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes).
-		Where("s.submitted_at >= ?", start.Format("2006-01-02")).
-		Group("YEAR(s.submitted_at)").
-		Order("year ASC").
+	query.Group("y.year").
+		Order("y.year ASC").
 		Scan(&rows)
 
 	results := make([]map[string]interface{}, 0, len(rows))
@@ -1074,7 +1742,6 @@ func buildYearlyTrend(approvedStatusID int) []map[string]interface{} {
 		approvedApplications := row.FundApproved + row.RewardApproved
 
 		results = append(results, map[string]interface{}{
-			"period":             row.Year,
 			"year":               row.Year,
 			"total_applications": totalApplications,
 			"approved":           approvedApplications,
@@ -1090,14 +1757,33 @@ func buildYearlyTrend(approvedStatusID int) []map[string]interface{} {
 	return results
 }
 
-func buildQuarterlyTrend(approvedStatusID int) []map[string]interface{} {
+func buildQuarterlyTrend(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
 
-	now := time.Now()
-	start := time.Date(now.Year()-1, 1, 1, 0, 0, 0, 0, now.Location())
+	query := config.DB.Table("submissions s").
+		Select(`y.year AS year,
+            QUARTER(s.submitted_at) AS quarter,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
+            SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     ELSE 0 END) AS total_requested,
+            SUM(CASE WHEN s.status_id = ? THEN
+                        CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
+                             WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount, 0)
+                             ELSE 0 END
+                     ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID).
+		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
+		Joins("LEFT JOIN years y ON s.year_id = y.year_id").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes)
+
+	query = applyFilterToSubmissions(query, "s", filter)
 
 	var rows []struct {
-		Year           int
+		Year           string
 		Quarter        int
 		FundTotal      float64
 		RewardTotal    float64
@@ -1107,23 +1793,8 @@ func buildQuarterlyTrend(approvedStatusID int) []map[string]interface{} {
 		TotalApproved  float64
 	}
 
-	config.DB.Table("submissions s").
-		Select(`YEAR(s.submitted_at) AS year,
-                    QUARTER(s.submitted_at) AS quarter,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0) ELSE COALESCE(prd.reward_amount,0) END) AS total_requested,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN COALESCE(fad.approved_amount,0)
-                             WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN COALESCE(prd.total_approve_amount, COALESCE(prd.reward_approve_amount,0))
-                             ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID, approvedStatusID).
-		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
-		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
-		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.submitted_at IS NOT NULL", submissionTypes).
-		Where("s.submitted_at >= ?", start.Format("2006-01-02")).
-		Group("YEAR(s.submitted_at), QUARTER(s.submitted_at)").
-		Order("year ASC, quarter ASC").
+	query.Group("y.year, QUARTER(s.submitted_at)").
+		Order("y.year ASC, quarter ASC").
 		Scan(&rows)
 
 	results := make([]map[string]interface{}, 0, len(rows))
@@ -1132,7 +1803,6 @@ func buildQuarterlyTrend(approvedStatusID int) []map[string]interface{} {
 		approvedApplications := row.FundApproved + row.RewardApproved
 
 		results = append(results, map[string]interface{}{
-			"period":             map[string]int{"year": row.Year, "quarter": row.Quarter},
 			"year":               row.Year,
 			"quarter":            row.Quarter,
 			"total_applications": totalApplications,
@@ -1149,8 +1819,32 @@ func buildQuarterlyTrend(approvedStatusID int) []map[string]interface{} {
 	return results
 }
 
-func buildInstallmentTrend(currentYear string, approvedStatusID int) []map[string]interface{} {
+func buildInstallmentTrend(filter dashboardFilter, approvedStatusID int) []map[string]interface{} {
 	submissionTypes := []string{"fund_application", "publication_reward"}
+
+	query := config.DB.Table("submissions s").
+		Select(`y.year AS year,
+            s.installment_number_at_submit AS installment,
+            COALESCE(fip.name, CONCAT('รอบที่ ', s.installment_number_at_submit)) AS period_name,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
+            SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
+            SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
+            SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     ELSE 0 END) AS total_requested,
+            SUM(CASE WHEN s.status_id = ? THEN
+                        CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
+                             WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount, 0)
+                             ELSE 0 END
+                     ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID).
+		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
+		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
+		Joins("LEFT JOIN years y ON s.year_id = y.year_id").
+		Joins("LEFT JOIN fund_installment_periods fip ON fip.year_id = s.year_id AND fip.installment_number = s.installment_number_at_submit AND fip.deleted_at IS NULL").
+		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.installment_number_at_submit IS NOT NULL", submissionTypes)
+
+	query = applyFilterToSubmissions(query, "s", filter)
 
 	var rows []struct {
 		Year           string
@@ -1164,26 +1858,8 @@ func buildInstallmentTrend(currentYear string, approvedStatusID int) []map[strin
 		TotalApproved  float64
 	}
 
-	config.DB.Table("submissions s").
-		Select(`y.year AS year,
-                    s.installment_number_at_submit AS installment,
-                    COALESCE(fip.name, CONCAT('รอบที่ ', s.installment_number_at_submit)) AS period_name,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN 1 ELSE 0 END) AS fund_total,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' THEN 1 ELSE 0 END) AS reward_total,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN 1 ELSE 0 END) AS fund_approved,
-                    SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN 1 ELSE 0 END) AS reward_approved,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0) ELSE COALESCE(prd.reward_amount,0) END) AS total_requested,
-                    SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id = ? THEN COALESCE(fad.approved_amount,0)
-                             WHEN s.submission_type = 'publication_reward' AND s.status_id = ? THEN COALESCE(prd.total_approve_amount, COALESCE(prd.reward_approve_amount,0))
-                             ELSE 0 END) AS total_approved`, approvedStatusID, approvedStatusID, approvedStatusID, approvedStatusID).
-		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
-		Joins("LEFT JOIN publication_reward_details prd ON s.submission_id = prd.submission_id").
-		Joins("JOIN years y ON s.year_id = y.year_id").
-		Joins("LEFT JOIN fund_installment_periods fip ON fip.year_id = s.year_id AND fip.installment_number = s.installment_number_at_submit AND fip.deleted_at IS NULL").
-		Where("s.submission_type IN ? AND s.deleted_at IS NULL AND s.installment_number_at_submit IS NOT NULL", submissionTypes).
-		Where("y.year = ?", currentYear).
-		Group("y.year, s.installment_number_at_submit, period_name").
-		Order("s.installment_number_at_submit ASC").
+	query.Group("y.year, s.installment_number_at_submit, period_name").
+		Order("y.year ASC, s.installment_number_at_submit ASC").
 		Scan(&rows)
 
 	results := make([]map[string]interface{}, 0, len(rows))
@@ -1192,24 +1868,21 @@ func buildInstallmentTrend(currentYear string, approvedStatusID int) []map[strin
 		if row.Installment != nil {
 			installmentNumber = *row.Installment
 		}
+
+		periodLabel := "ไม่ระบุรอบ"
+		if row.PeriodName != nil && strings.TrimSpace(*row.PeriodName) != "" {
+			periodLabel = strings.TrimSpace(*row.PeriodName)
+		} else if installmentNumber > 0 {
+			periodLabel = fmt.Sprintf("รอบที่ %d", installmentNumber)
+		}
+
 		totalApplications := row.FundTotal + row.RewardTotal
 		approvedApplications := row.FundApproved + row.RewardApproved
-
-		periodLabel := row.PeriodName
-		if periodLabel == nil || *periodLabel == "" {
-			fallback := "รอบที่ "
-			if installmentNumber > 0 {
-				fallback = fallback + fmt.Sprintf("%d", installmentNumber)
-			} else {
-				fallback = "ไม่ระบุรอบ"
-			}
-			periodLabel = &fallback
-		}
 
 		results = append(results, map[string]interface{}{
 			"year":               row.Year,
 			"installment":        installmentNumber,
-			"period_label":       *periodLabel,
+			"period_label":       periodLabel,
 			"total_applications": totalApplications,
 			"approved":           approvedApplications,
 			"fund_total":         row.FundTotal,
