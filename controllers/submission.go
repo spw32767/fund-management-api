@@ -2232,18 +2232,25 @@ func AddPublicationDetails(c *gin.Context) {
 		return
 	}
 
+	modeParam := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	allowIncomplete := modeParam == "draft"
+	if !allowIncomplete {
+		rawAllow := strings.TrimSpace(c.Query("allow_incomplete"))
+		if rawAllow != "" {
+			normalizedAllow := strings.ToLower(rawAllow)
+			if normalizedAllow == "1" || normalizedAllow == "true" || normalizedAllow == "yes" || normalizedAllow == "on" {
+				allowIncomplete = true
+			}
+		}
+	}
+
+	publicationDateRaw := strings.TrimSpace(req.PublicationDate)
+
 	// ตรวจสอบ submission เป็นของ user นี้
 	var submission models.Submission
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).
 		First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
-		return
-	}
-
-	// แปลงวันตีพิมพ์
-	pubDate, err := time.Parse("2006-01-02", req.PublicationDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid publication date format"})
 		return
 	}
 
@@ -2281,11 +2288,11 @@ func AddPublicationDetails(c *gin.Context) {
 
 	authorNameList := strings.TrimSpace(req.AuthorNameList)
 	signature := strings.TrimSpace(req.Signature)
-	if authorNameList == "" {
+	if authorNameList == "" && !allowIncomplete {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "author_name_list is required"})
 		return
 	}
-	if signature == "" {
+	if signature == "" && !allowIncomplete {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "signature is required"})
 		return
 	}
@@ -2319,6 +2326,26 @@ func AddPublicationDetails(c *gin.Context) {
 	detail := existing
 	if detail.DetailID == 0 {
 		detail.SubmissionID = submission.SubmissionID
+	}
+
+	var pubDate time.Time
+	if publicationDateRaw != "" {
+		parsedDate, err := time.Parse("2006-01-02", publicationDateRaw)
+		if err != nil {
+			if !allowIncomplete {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid publication date format"})
+				return
+			}
+		} else {
+			pubDate = parsedDate
+		}
+	}
+	if pubDate.IsZero() {
+		if !detail.PublicationDate.IsZero() {
+			pubDate = detail.PublicationDate
+		} else {
+			pubDate = time.Now()
+		}
 	}
 
 	detail.SubmissionID = submission.SubmissionID

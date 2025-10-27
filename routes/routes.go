@@ -136,6 +136,9 @@ func SetupRoutes(router *gin.Engine) {
 
 			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
 
+			// Publication reward agreements / conditions
+			protected.GET("/end-of-contract", controllers.GetEndOfContractTerms)
+
 			// Fund installment periods
 			protected.GET("/fund-installment-periods", controllers.GetFundInstallmentPeriods)
 
@@ -217,6 +220,7 @@ func SetupRoutes(router *gin.Engine) {
 				// Documents management
 				submissions.POST("/:id/documents", controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
+				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
 
 				// === Co-authors Management (ใหม่) ===
 				// submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
@@ -239,6 +243,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				// เพิ่ม route ใหม่สำหรับแนบไฟล์
 				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
+				submissions.DELETE("/:id/detach-document/:doc_id", controllers.DetachDocument)
 			}
 
 			// Files management
@@ -469,6 +474,15 @@ func SetupRoutes(router *gin.Engine) {
 					rewardConfigAdmin.POST("/:id/toggle", controllers.ToggleRewardConfigStatus)  // alias
 				}
 
+				endOfContractAdmin := admin.Group("/end-of-contract")
+				{
+					endOfContractAdmin.GET("", controllers.GetEndOfContractTermsAdmin)
+					endOfContractAdmin.POST("", controllers.CreateEndOfContractTerm)
+					endOfContractAdmin.PUT("/:id", controllers.UpdateEndOfContractTerm)
+					endOfContractAdmin.DELETE("/:id", controllers.DeleteEndOfContractTerm)
+					endOfContractAdmin.PATCH("/reorder", controllers.ReorderEndOfContractTerms)
+				}
+
 				// ========== USER MANAGEMENT (if needed in future) ==========
 				// users := admin.Group("/users")
 				// {
@@ -520,6 +534,15 @@ func SetupRoutes(router *gin.Engine) {
 					submissionManagement.POST("/:id/approve", controllers.ApproveSubmission)
 					submissionManagement.POST("/:id/reject", controllers.RejectSubmission)
 					submissionManagement.POST("/:id/request-revision", controllers.RequestSubmissionRevision)
+				}
+
+				legacySubmissions := admin.Group("/legacy-submissions")
+				{
+					legacySubmissions.GET("", controllers.AdminLegacyListSubmissions)
+					legacySubmissions.GET("/:id", controllers.AdminLegacyGetSubmission)
+					legacySubmissions.POST("", controllers.AdminLegacyCreateSubmission)
+					legacySubmissions.PUT("/:id", controllers.AdminLegacyUpdateSubmission)
+					legacySubmissions.DELETE("/:id", controllers.AdminLegacyDeleteSubmission)
 				}
 
 				documentTypes := admin.Group("/document-types")
