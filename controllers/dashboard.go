@@ -586,14 +586,6 @@ func getAdminDashboard(filter dashboardFilter, options dashboardFilterOptions) m
 		stats["upcoming_periods"] = upcoming
 	}
 
-	if activities := buildAdminActivityFeed(filter); len(activities) > 0 {
-		stats["activity_feed"] = activities
-	}
-
-	if topUsers := buildAdminTopUsers(filter, statusSets); len(topUsers) > 0 {
-		stats["top_users"] = topUsers
-	}
-
 	trendBreakdown := buildSystemTrendBreakdown(filter, statusSets)
 	if len(trendBreakdown) > 0 {
 		stats["trend_breakdown"] = trendBreakdown
@@ -1139,6 +1131,14 @@ func buildAdminPendingApplications(filter dashboardFilter, statuses dashboardSta
 }
 
 func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets) []map[string]interface{} {
+	usageSubQuery := config.DB.Table("v_subcategory_user_usage_total usage").
+		Select("usage.year_id, usage.subcategory_id, SUM(usage.used_grants) AS used_grants, SUM(usage.used_amount) AS used_amount").
+		Group("usage.year_id, usage.subcategory_id")
+
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		usageSubQuery = usageSubQuery.Where("usage.year_id IN ?", filter.YearIDs)
+	}
+
 	var rows []struct {
 		Year              string
 		CategoryID        int
@@ -1167,22 +1167,21 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
                     COALESCE(sb.remaining_budget,0) AS remaining_budget,
                     COALESCE(sb.max_grants,0) AS max_grants,
                     COALESCE(sb.remaining_grant,0) AS remaining_grant,
-                    COALESCE(SUM(usage.used_grants),0) AS used_grants_total,
-                    COALESCE(SUM(usage.used_amount),0) AS used_amount_total,
+                    COALESCE(usage.used_grants,0) AS used_grants_total,
+                    COALESCE(usage.used_amount,0) AS used_amount_total,
                     COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
                     COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
 		Joins("JOIN fund_subcategories fsc ON sb.subcategory_id = fsc.subcategory_id").
 		Joins("JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 		Joins("JOIN years y ON fc.year_id = y.year_id").
-		Joins("LEFT JOIN v_subcategory_user_usage_total usage ON usage.subcategory_id = sb.subcategory_id AND usage.year_id = y.year_id").
+		Joins("LEFT JOIN (?) usage ON usage.year_id = y.year_id AND usage.subcategory_id = fsc.subcategory_id", usageSubQuery).
 		Where("sb.record_scope = 'overall' AND sb.delete_at IS NULL")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
 		query = query.Where("y.year_id IN ?", filter.YearIDs)
 	}
 
-	query.Group("y.year, fc.category_id, fc.category_name, fsc.subcategory_id, fsc.subcategory_name, sb.allocated_amount, sb.remaining_budget, sb.max_grants, sb.remaining_grant").
-		Order("fc.category_name ASC, fsc.subcategory_name ASC").
+	query.Order("fc.category_name ASC, fsc.subcategory_name ASC").
 		Scan(&rows)
 
 	approvedUsage := fetchApprovedUsageBySubcategory(filter, statuses)
