@@ -568,6 +568,33 @@
       box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
     }
 
+    .copy-btn {
+      padding: 0.5rem 1rem;
+      background: linear-gradient(45deg, #00b894, #00cec9);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .copy-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 206, 201, 0.4);
+    }
+
+    .action-buttons {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
     mark {
       background: rgba(102, 126, 234, 0.2);
       color: inherit;
@@ -1311,11 +1338,13 @@
         const typeClass = item.type === 'folder' ? 'type-badge folder' : 'type-badge';
         const sizeLabel = item.type === 'folder' ? '—' : formatFileSize(item.size);
 
+        const safeItemName = item.name.replace(/'/g, "\\'");
+
         row.innerHTML = `
           <td>
             <input type="checkbox" class="file-checkbox item-row-checkbox"
                    data-itemname="${item.name}"
-                   onchange="toggleItemSelection('${item.name}', this)"
+                   onchange="toggleItemSelection('${safeItemName}', this)"
                    ${isSelected ? 'checked' : ''}>
           </td>
           <td>
@@ -1328,9 +1357,16 @@
             <span class="file-size">${sizeLabel}</span>
           </td>
           <td>
-            <button onclick="deleteItem('${item.name}', '${item.type}')" class="delete-btn">
-              🗑️ Delete
-            </button>
+            <div class="action-buttons">
+              ${item.type === 'file' ? `
+                <button type="button" onclick="copyItemPath('${safeItemName}')" class="copy-btn">
+                  📋 Copy Path
+                </button>
+              ` : ''}
+              <button onclick="deleteItem('${safeItemName}', '${item.type}')" class="delete-btn">
+                🗑️ Delete
+              </button>
+            </div>
           </td>
         `;
         tbody.appendChild(row);
@@ -1343,7 +1379,7 @@
 
     async function deleteItem(name, type) {
       if (!confirm(`Are you sure you want to delete ${type} "${name}"?`)) return;
-      
+
       try {
         const itemPath = currentPath ? `${currentPath}/${name}` : name;
         const endpoint = type === 'folder' ? '/api/v1/folders' : '/api/v1/files';
@@ -1355,6 +1391,29 @@
       } catch (error) {
         console.error(`Error deleting ${type}:`, error);
         alert(`Failed to delete ${type}`);
+      }
+    }
+
+    async function copyItemPath(name) {
+      const rawPath = currentPath ? `${currentPath}/${name}` : name;
+      const prefixedPath = `uploads/${rawPath}`;
+      const windowsPath = prefixedPath.replace(/\\/g, '/').replace(/\//g, '\\');
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(windowsPath);
+        } else {
+          const tempInput = document.createElement('input');
+          tempInput.value = windowsPath;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempInput);
+        }
+        alert(`Copied path to clipboard:\n${windowsPath}`);
+      } catch (error) {
+        console.error('Failed to copy path:', error);
+        alert('Unable to copy the file path. Please try again.');
       }
     }
 
