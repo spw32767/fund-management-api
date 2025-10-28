@@ -1141,8 +1141,8 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 
 	var rows []struct {
 		Year              string
-		CategoryID        int
 		YearID            int
+		CategoryID        int
 		CategoryName      string
 		SubcategoryID     int
 		SubcategoryName   string
@@ -1156,30 +1156,32 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 		MaxAmountPerGrant float64
 	}
 
-	query := config.DB.Table("subcategory_budgets sb").
+	query := config.DB.Table("fund_subcategories fsc").
 		Select(`y.year AS year,
-                    y.year_id AS year_id,
-                    fc.category_id AS category_id,
-                    fc.category_name AS category_name,
-                    fsc.subcategory_id AS subcategory_id,
-                    fsc.subcategory_name AS subcategory_name,
-                    COALESCE(sb.allocated_amount,0) AS allocated_amount,
-                    COALESCE(sb.remaining_budget,0) AS remaining_budget,
-                    COALESCE(sb.max_grants,0) AS max_grants,
-                    COALESCE(sb.remaining_grant,0) AS remaining_grant,
-                    COALESCE(usage.used_grants,0) AS used_grants_total,
-                    COALESCE(usage.used_amount,0) AS used_amount_total,
-                    COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
-                    COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
-		Joins("JOIN fund_subcategories fsc ON sb.subcategory_id = fsc.subcategory_id").
+                y.year_id AS year_id,
+                fc.category_id AS category_id,
+                fc.category_name AS category_name,
+                fsc.subcategory_id AS subcategory_id,
+                fsc.subcategory_name AS subcategory_name,
+                COALESCE(sb.allocated_amount,0) AS allocated_amount,
+                COALESCE(sb.remaining_budget,0) AS remaining_budget,
+                COALESCE(sb.max_grants,0) AS max_grants,
+                COALESCE(sb.remaining_grant,0) AS remaining_grant,
+                COALESCE(usage.used_grants,0) AS used_grants_total,
+                COALESCE(usage.used_amount,0) AS used_amount_total,
+                COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
+                COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
 		Joins("JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 		Joins("JOIN years y ON fc.year_id = y.year_id").
+		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
 		Joins("LEFT JOIN (?) usage ON usage.year_id = y.year_id AND usage.subcategory_id = fsc.subcategory_id", usageSubQuery).
-		Where("sb.record_scope = 'overall' AND sb.delete_at IS NULL")
+		Where("fsc.delete_at IS NULL")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
 		query = query.Where("y.year_id IN ?", filter.YearIDs)
 	}
+
+	query = query.Where("fc.delete_at IS NULL")
 
 	query.Order("fc.category_name ASC, fsc.subcategory_name ASC").
 		Scan(&rows)
@@ -1188,6 +1190,10 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 
 	summaries := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
+		if strings.TrimSpace(row.Year) == "" {
+			continue
+		}
+
 		allocated := row.AllocatedAmount
 		if allocated == 0 {
 			if row.MaxAmountPerYear > 0 {
@@ -1220,6 +1226,10 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 		remainingGrants := row.RemainingGrant
 		if remainingGrants <= 0 && row.MaxGrants > 0 {
 			remainingGrants = math.Max(row.MaxGrants-row.UsedGrantsTotal, 0)
+		}
+
+		if allocated == 0 && row.UsedGrantsTotal == 0 && usedAmount == 0 {
+			continue
 		}
 
 		summaries = append(summaries, map[string]interface{}{
@@ -1608,27 +1618,11 @@ func buildAdminUpcomingInstallments(filter dashboardFilter) []map[string]interfa
 	}
 
 	now := time.Now()
-	activeInstallment := 0
-	if filter.ActiveInstallment != nil && targetYear == filter.CurrentYear {
-		activeInstallment = *filter.ActiveInstallment
-	}
-
 	openIndex := -1
-	if activeInstallment > 0 {
-		for idx, row := range rows {
-			if row.InstallmentNumber == activeInstallment {
-				openIndex = idx
-				break
-			}
-		}
-	}
-
-	if openIndex == -1 {
-		for idx, row := range rows {
-			if !row.CutoffDate.Before(now) {
-				openIndex = idx
-				break
-			}
+	for idx, row := range rows {
+		if !row.CutoffDate.Before(now) {
+			openIndex = idx
+			break
 		}
 	}
 
@@ -1641,23 +1635,17 @@ func buildAdminUpcomingInstallments(filter dashboardFilter) []map[string]interfa
 		}
 
 		remainingDays := int(math.Ceil(cutoff.Sub(now).Hours() / 24))
-		status := "open"
+		status := "closed"
 
-		if openIndex >= 0 {
+		if openIndex == -1 {
+			status = "closed"
+		} else {
 			switch {
 			case idx < openIndex:
 				status = "closed"
 			case idx == openIndex:
 				status = "open"
 			default:
-				status = "not_yet"
-			}
-		} else {
-			if row.CutoffDate.Before(now) {
-				status = "closed"
-			} else if idx == 0 {
-				status = "open"
-			} else {
 				status = "not_yet"
 			}
 		}
