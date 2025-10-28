@@ -12,6 +12,8 @@ type Submission struct {
 	SubmissionNumber          string     `gorm:"column:submission_number" json:"submission_number"`
 	SubmissionType            string     `gorm:"column:submission_type" json:"submission_type"`
 	UserID                    int        `gorm:"column:user_id" json:"user_id"`
+	ApplicantName             *string    `gorm:"column:applicant_name;->" json:"applicant_name,omitempty"`
+	ApplicantEmail            *string    `gorm:"column:applicant_email;->" json:"applicant_email,omitempty"`
 	YearID                    int        `gorm:"column:year_id" json:"year_id"`
 	CategoryID                *int       `gorm:"column:category_id" json:"category_id"`                     // ✅ เพิ่มใหม่
 	CategoryName              *string    `gorm:"column:category_name;->" json:"category_name"`              // ✅ เพิ่มใหม่ (read-only, มาจาก join)

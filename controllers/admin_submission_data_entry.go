@@ -382,7 +382,8 @@ func baseLegacySubmissionQuery(db *gorm.DB) *gorm.DB {
 	return db.Model(&models.Submission{}).
 		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
 		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id AND fund_subcategories.category_id = submissions.category_id").
-		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name").
+		Joins("LEFT JOIN users ON users.user_id = submissions.user_id").
+		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name, NULLIF(TRIM(CONCAT(COALESCE(users.user_fname, ''), ' ', COALESCE(users.user_lname, ''))), '') AS applicant_name, users.email AS applicant_email").
 		Preload("User", func(db *gorm.DB) *gorm.DB {
 			return db.Select("user_id", "user_fname", "user_lname", "email")
 		}).
