@@ -573,6 +573,9 @@ func getAdminDashboard(filter dashboardFilter, options dashboardFilterOptions) m
 	stats["category_budgets"] = buildAdminCategoryBudgets(filter, statusSets)
 	stats["pending_applications"] = buildAdminPendingApplications(filter, statusSets)
 	stats["quota_summary"] = buildAdminQuotaSummary(filter, statusSets)
+	if viewRows := collectQuotaUsageViewRows(filter); len(viewRows) > 0 {
+		stats["quota_usage_view_rows"] = viewRows
+	}
 
 	if statusBreakdown := buildAdminStatusBreakdown(filter); len(statusBreakdown) > 0 {
 		stats["status_breakdown"] = statusBreakdown
@@ -1131,6 +1134,8 @@ func buildAdminPendingApplications(filter dashboardFilter, statuses dashboardSta
 }
 
 func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets) []map[string]interface{} {
+	logQuotaUsageViewData(filter)
+
 	usageSubQuery := config.DB.Table("v_subcategory_user_usage_total usage").
 		Select("usage.year_id, usage.subcategory_id, SUM(usage.used_grants) AS used_grants, SUM(usage.used_amount) AS used_amount").
 		Group("usage.year_id, usage.subcategory_id")
@@ -1251,6 +1256,38 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 	}
 
 	return summaries
+}
+
+func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} {
+	query := config.DB.Table("v_subcategory_user_usage_total usage")
+
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		query = query.Where("usage.year_id IN ?", filter.YearIDs)
+	}
+
+	var rows []map[string]interface{}
+	if err := query.Limit(50).Find(&rows).Error; err != nil {
+		fmt.Printf("[dashboard] failed to query v_subcategory_user_usage_total: %v\n", err)
+		return []map[string]interface{}{}
+	}
+
+	return rows
+}
+
+func logQuotaUsageViewData(filter dashboardFilter) {
+	rows := collectQuotaUsageViewRows(filter)
+	if len(rows) == 0 {
+		fmt.Printf("[dashboard] v_subcategory_user_usage_total returned no rows for filter: %+v\n", filter.toMap())
+		return
+	}
+
+	fmt.Printf("[dashboard] logging first %d rows from v_subcategory_user_usage_total\n", len(rows))
+	for idx, row := range rows {
+		if idx >= 25 {
+			break
+		}
+		fmt.Printf("[dashboard] usage_view_row[%d]: %v\n", idx, row)
+	}
 }
 
 type usageAggregate struct {
