@@ -95,9 +95,9 @@ func AdminLegacyListSubmissions(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	if limit < 1 {
-		limit = 50
+		limit = 100
 	}
 	if limit > 200 {
 		limit = 200
