@@ -128,9 +128,40 @@ func AdminLegacyListSubmissions(c *gin.Context) {
 	if categoryID != "" {
 		query = query.Where("submissions.category_id = ?", categoryID)
 	}
-	if search != "" {
-		like := "%" + search + "%"
-		query = query.Where("submissions.submission_number LIKE ?", like)
+	if strings.TrimSpace(search) != "" {
+		cleanedSearch := strings.TrimSpace(search)
+		likeRaw := "%" + cleanedSearch + "%"
+		like := "%" + strings.ToLower(cleanedSearch) + "%"
+
+		query = query.Joins("LEFT JOIN application_status statuses ON statuses.application_status_id = submissions.status_id").
+			Where(`(
+                                CAST(submissions.submission_id AS CHAR) LIKE ? OR
+                                LOWER(submissions.submission_number) LIKE ? OR
+                                LOWER(submissions.submission_type) LIKE ? OR
+                                LOWER(COALESCE(users.user_fname, '')) LIKE ? OR
+                                LOWER(COALESCE(users.user_lname, '')) LIKE ? OR
+                                LOWER(TRIM(CONCAT(COALESCE(users.user_fname, ''), ' ', COALESCE(users.user_lname, '')))) LIKE ? OR
+                                LOWER(COALESCE(users.email, '')) LIKE ? OR
+                                LOWER(COALESCE(fund_categories.category_name, '')) LIKE ? OR
+                                LOWER(COALESCE(fund_subcategories.subcategory_name, '')) LIKE ? OR
+                                LOWER(COALESCE(publication_reward_details.paper_title, '')) LIKE ? OR
+                                LOWER(COALESCE(publication_reward_details.journal_name, '')) LIKE ? OR
+                                LOWER(COALESCE(fund_application_details.project_title, '')) LIKE ? OR
+                                LOWER(COALESCE(statuses.status_name, '')) LIKE ?
+                        )`,
+				likeRaw,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like,
+				like)
 	}
 
 	var total int64
