@@ -1137,8 +1137,8 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 	logQuotaUsageViewData(filter)
 
 	usageSubQuery := config.DB.Table("v_subcategory_user_usage_total usage").
-		Select("usage.year_id, usage.subcategory_id, SUM(usage.used_grants) AS used_grants, SUM(usage.used_amount) AS used_amount").
-		Group("usage.year_id, usage.subcategory_id")
+		Select("usage.year_id, usage.user_id, usage.subcategory_id, SUM(usage.used_grants) AS used_grants, SUM(usage.used_amount) AS used_amount").
+		Group("usage.year_id, usage.user_id, usage.subcategory_id")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
 		usageSubQuery = usageSubQuery.Where("usage.year_id IN ?", filter.YearIDs)
@@ -1147,12 +1147,13 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 	var rows []struct {
 		Year              string
 		YearID            int
+		UserID            int
+		UserName          string
 		CategoryID        int
 		CategoryName      string
 		SubcategoryID     int
 		SubcategoryName   string
 		AllocatedAmount   float64
-		RemainingBudget   float64
 		MaxGrants         float64
 		RemainingGrant    float64
 		UsedGrantsTotal   float64
@@ -1164,22 +1165,24 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 	query := config.DB.Table("fund_subcategories fsc").
 		Select(`y.year AS year,
                 y.year_id AS year_id,
+                usage.user_id AS user_id,
+                TRIM(CONCAT(COALESCE(u.user_fname,''),' ',COALESCE(u.user_lname,''))) AS user_name,
                 fc.category_id AS category_id,
                 fc.category_name AS category_name,
                 fsc.subcategory_id AS subcategory_id,
                 fsc.subcategory_name AS subcategory_name,
-                COALESCE(sb.allocated_amount,0) AS allocated_amount,
-                COALESCE(sb.remaining_budget,0) AS remaining_budget,
+                COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
+                COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant,
                 COALESCE(sb.max_grants,0) AS max_grants,
                 COALESCE(sb.remaining_grant,0) AS remaining_grant,
+                COALESCE(sb.allocated_amount,0) AS allocated_amount,
                 COALESCE(usage.used_grants,0) AS used_grants_total,
-                COALESCE(usage.used_amount,0) AS used_amount_total,
-                COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
-                COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
+                COALESCE(usage.used_amount,0) AS used_amount_total`).
 		Joins("JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 		Joins("JOIN years y ON fc.year_id = y.year_id").
+		Joins("JOIN (?) usage ON usage.year_id = y.year_id AND usage.subcategory_id = fsc.subcategory_id", usageSubQuery).
+		Joins("LEFT JOIN users u ON usage.user_id = u.user_id").
 		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
-		Joins("LEFT JOIN (?) usage ON usage.year_id = y.year_id AND usage.subcategory_id = fsc.subcategory_id", usageSubQuery).
 		Where("fsc.delete_at IS NULL")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
@@ -1188,67 +1191,76 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 
 	query = query.Where("fc.delete_at IS NULL")
 
-	query.Order("fc.category_name ASC, fsc.subcategory_name ASC").
+	query.Order("used_amount_total DESC, used_grants_total DESC").
+		Limit(100).
 		Scan(&rows)
 
-	approvedUsage := fetchApprovedUsageBySubcategory(filter, statuses)
+	approvedUsage := fetchApprovedUsageByUser(filter, statuses)
 
 	summaries := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
-		if strings.TrimSpace(row.Year) == "" {
+		if strings.TrimSpace(row.Year) == "" || row.UserID == 0 {
 			continue
 		}
 
-		allocated := row.AllocatedAmount
-		if allocated == 0 {
-			if row.MaxAmountPerYear > 0 {
-				allocated = row.MaxAmountPerYear
-			} else if row.MaxAmountPerGrant > 0 && row.MaxGrants > 0 {
-				allocated = row.MaxAmountPerGrant * row.MaxGrants
-			}
-		}
+		maxGrants := math.Max(row.MaxGrants, 0)
+		usedGrants := math.Max(row.UsedGrantsTotal, 0)
 
-		key := usageKey(row.YearID, row.SubcategoryID)
-		if usage, ok := approvedUsage[key]; ok {
-			if usage.UsedGrants > row.UsedGrantsTotal {
-				row.UsedGrantsTotal = usage.UsedGrants
+		if usage, ok := approvedUsage[usageKey(row.YearID, row.SubcategoryID, row.UserID)]; ok {
+			if usage.UsedGrants > usedGrants {
+				usedGrants = usage.UsedGrants
 			}
 			if usage.UsedAmount > row.UsedAmountTotal {
 				row.UsedAmountTotal = usage.UsedAmount
 			}
 		}
 
+		budgetLimit := row.AllocatedAmount
+		if budgetLimit <= 0 && row.MaxAmountPerYear > 0 {
+			budgetLimit = row.MaxAmountPerYear
+		}
+		if budgetLimit <= 0 && row.MaxAmountPerGrant > 0 && maxGrants > 0 {
+			budgetLimit = row.MaxAmountPerGrant * maxGrants
+		}
+
 		usedAmount := row.UsedAmountTotal
-		if usedAmount == 0 && row.MaxGrants > 0 && row.MaxAmountPerGrant > 0 && row.UsedGrantsTotal > 0 {
-			usedAmount = row.UsedGrantsTotal * row.MaxAmountPerGrant
+		if usedAmount <= 0 && row.MaxAmountPerGrant > 0 && usedGrants > 0 {
+			usedAmount = row.MaxAmountPerGrant * usedGrants
 		}
 
-		remainingBudget := row.RemainingBudget
-		if remainingBudget <= 0 && allocated > 0 {
-			remainingBudget = math.Max(allocated-usedAmount, 0)
+		remainingBudget := 0.0
+		if budgetLimit > 0 {
+			remainingBudget = math.Max(budgetLimit-usedAmount, 0)
 		}
 
-		remainingGrants := row.RemainingGrant
-		if remainingGrants <= 0 && row.MaxGrants > 0 {
-			remainingGrants = math.Max(row.MaxGrants-row.UsedGrantsTotal, 0)
+		remainingGrants := 0.0
+		if maxGrants > 0 {
+			remainingGrants = math.Max(maxGrants-usedGrants, 0)
 		}
 
-		if allocated == 0 && row.UsedGrantsTotal == 0 && usedAmount == 0 {
+		if budgetLimit <= 0 && usedGrants == 0 && usedAmount == 0 {
 			continue
+		}
+
+		userName := strings.TrimSpace(row.UserName)
+		if userName == "" {
+			userName = "ไม่ระบุชื่อ"
 		}
 
 		summaries = append(summaries, map[string]interface{}{
 			"year":                 row.Year,
 			"year_id":              row.YearID,
+			"user_id":              row.UserID,
+			"user_name":            userName,
 			"category_id":          row.CategoryID,
 			"category_name":        row.CategoryName,
 			"subcategory_id":       row.SubcategoryID,
 			"subcategory_name":     row.SubcategoryName,
-			"allocated_amount":     allocated,
+			"allocated_amount":     budgetLimit,
 			"used_amount":          usedAmount,
 			"remaining_budget":     remainingBudget,
-			"max_grants":           row.MaxGrants,
-			"used_grants":          row.UsedGrantsTotal,
+			"max_grants":           maxGrants,
+			"used_grants":          usedGrants,
 			"remaining_grants":     remainingGrants,
 			"max_amount_per_year":  row.MaxAmountPerYear,
 			"max_amount_per_grant": row.MaxAmountPerGrant,
@@ -1293,15 +1305,16 @@ func logQuotaUsageViewData(filter dashboardFilter) {
 type usageAggregate struct {
 	YearID        int
 	SubcategoryID int
+	UserID        int
 	UsedGrants    float64
 	UsedAmount    float64
 }
 
-func usageKey(yearID, subcategoryID int) string {
-	return fmt.Sprintf("%d:%d", yearID, subcategoryID)
+func usageKey(yearID, subcategoryID, userID int) string {
+	return fmt.Sprintf("%d:%d:%d", yearID, subcategoryID, userID)
 }
 
-func fetchApprovedUsageBySubcategory(filter dashboardFilter, statuses dashboardStatusSets) map[string]usageAggregate {
+func fetchApprovedUsageByUser(filter dashboardFilter, statuses dashboardStatusSets) map[string]usageAggregate {
 	if len(statuses.Approved) == 0 {
 		return map[string]usageAggregate{}
 	}
@@ -1312,6 +1325,7 @@ func fetchApprovedUsageBySubcategory(filter dashboardFilter, statuses dashboardS
 	var rows []struct {
 		YearID        int
 		SubcategoryID *int
+		UserID        *int
 		UsedGrants    float64
 		UsedAmount    float64
 	}
@@ -1319,6 +1333,7 @@ func fetchApprovedUsageBySubcategory(filter dashboardFilter, statuses dashboardS
 	query := config.DB.Table("submissions s").
 		Select(`s.year_id,
             s.subcategory_id,
+            s.user_id,
             COUNT(*) AS used_grants,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
                      WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount)
@@ -1331,18 +1346,19 @@ func fetchApprovedUsageBySubcategory(filter dashboardFilter, statuses dashboardS
 
 	query = applyFilterToSubmissions(query, "s", filter)
 
-	query.Group("s.year_id, s.subcategory_id").
+	query.Group("s.year_id, s.subcategory_id, s.user_id").
 		Scan(&rows)
 
 	usage := make(map[string]usageAggregate, len(rows))
 	for _, row := range rows {
-		if row.SubcategoryID == nil {
+		if row.SubcategoryID == nil || row.UserID == nil {
 			continue
 		}
-		key := usageKey(row.YearID, *row.SubcategoryID)
+		key := usageKey(row.YearID, *row.SubcategoryID, *row.UserID)
 		usage[key] = usageAggregate{
 			YearID:        row.YearID,
 			SubcategoryID: *row.SubcategoryID,
+			UserID:        *row.UserID,
 			UsedGrants:    row.UsedGrants,
 			UsedAmount:    row.UsedAmount,
 		}
