@@ -95,9 +95,9 @@ func AdminLegacyListSubmissions(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	if limit < 1 {
-		limit = 25
+		limit = 50
 	}
 	if limit > 200 {
 		limit = 200
@@ -382,8 +382,8 @@ func baseLegacySubmissionQuery(db *gorm.DB) *gorm.DB {
 	return db.Model(&models.Submission{}).
 		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
 		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id AND fund_subcategories.category_id = submissions.category_id").
-		Joins("LEFT JOIN users ON users.user_id = submissions.user_id").
-		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name, NULLIF(TRIM(CONCAT(COALESCE(users.user_fname, ''), ' ', COALESCE(users.user_lname, ''))), '') AS applicant_name, users.email AS applicant_email").
+		Joins("LEFT JOIN publication_reward_details ON publication_reward_details.submission_id = submissions.submission_id").
+		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name, publication_reward_details.journal_name AS publication_reward_journal_name").
 		Preload("User", func(db *gorm.DB) *gorm.DB {
 			return db.Select("user_id", "user_fname", "user_lname", "email")
 		}).
