@@ -383,7 +383,8 @@ func baseLegacySubmissionQuery(db *gorm.DB) *gorm.DB {
 		Joins("LEFT JOIN fund_categories ON fund_categories.category_id = submissions.category_id").
 		Joins("LEFT JOIN fund_subcategories ON fund_subcategories.subcategory_id = submissions.subcategory_id AND fund_subcategories.category_id = submissions.category_id").
 		Joins("LEFT JOIN publication_reward_details ON publication_reward_details.submission_id = submissions.submission_id").
-		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name, publication_reward_details.journal_name AS publication_reward_journal_name").
+		Joins("LEFT JOIN fund_application_details ON fund_application_details.submission_id = submissions.submission_id").
+		Select("submissions.*, fund_categories.category_name AS category_name, CASE WHEN fund_subcategories.subcategory_id IS NULL THEN NULL ELSE submissions.subcategory_id END AS subcategory_id, fund_subcategories.subcategory_name AS subcategory_name, CASE WHEN submissions.submission_type = 'publication_reward' THEN publication_reward_details.paper_title WHEN submissions.submission_type = 'fund_application' THEN fund_application_details.project_title ELSE NULL END AS publication_reward_journal_name").
 		Preload("User", func(db *gorm.DB) *gorm.DB {
 			return db.Select("user_id", "user_fname", "user_lname", "email")
 		}).
