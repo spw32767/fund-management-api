@@ -1182,18 +1182,21 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 		Joins("JOIN years y ON fc.year_id = y.year_id").
 		Joins("JOIN (?) usage ON usage.year_id = y.year_id AND usage.subcategory_id = fsc.subcategory_id", usageSubQuery).
 		Joins("LEFT JOIN users u ON usage.user_id = u.user_id").
-		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
-		Where("fsc.delete_at IS NULL")
+		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.deleted_at IS NULL").
+		Where("fsc.deleted_at IS NULL")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
 		query = query.Where("y.year_id IN ?", filter.YearIDs)
 	}
 
-	query = query.Where("fc.delete_at IS NULL")
+	query = query.Where("fc.deleted_at IS NULL")
 
-	query.Order("used_amount_total DESC, used_grants_total DESC").
+	if err := query.Order("used_amount_total DESC, used_grants_total DESC").
 		Limit(100).
-		Scan(&rows)
+		Scan(&rows).Error; err != nil {
+		fmt.Printf("[dashboard] failed to build quota summary: %v\n", err)
+		return nil
+	}
 
 	approvedUsage := fetchApprovedUsageByUser(filter, statuses)
 
