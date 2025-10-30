@@ -13,9 +13,10 @@ type Submission struct {
 	SubmissionType               string     `gorm:"column:submission_type" json:"submission_type"`
 	UserID                       int        `gorm:"column:user_id" json:"user_id"`
 	YearID                       int        `gorm:"column:year_id" json:"year_id"`
-	CategoryID                   *int       `gorm:"column:category_id" json:"category_id"`              // ✅ เพิ่มใหม่
-	CategoryName                 *string    `gorm:"column:category_name;->" json:"category_name"`       // ✅ เพิ่มใหม่ (read-only, มาจาก join)
-	SubcategoryID                *int       `gorm:"column:subcategory_id" json:"subcategory_id"`        // ✅ เพิ่มใหม่
+	CategoryID                   *int       `gorm:"column:category_id" json:"category_id"`        // ✅ เพิ่มใหม่
+	CategoryName                 *string    `gorm:"column:category_name;->" json:"category_name"` // ✅ เพิ่มใหม่ (read-only, มาจาก join)
+	SubcategoryID                *int       `gorm:"column:subcategory_id" json:"subcategory_id"`  // ✅ เพิ่มใหม่
+	ApplicantName                *string    `gorm:"column:applicant_name;->" json:"applicant_name,omitempty"`
 	SubcategoryName              *string    `gorm:"column:subcategory_name;->" json:"subcategory_name"` // ✅ เพิ่มใหม่ (read-only, มาจาก join)
 	PublicationRewardJournalName *string    `gorm:"column:publication_reward_journal_name;->" json:"publication_reward_journal_name,omitempty"`
 	SubcategoryBudgetID          *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
