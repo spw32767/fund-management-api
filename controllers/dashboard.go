@@ -1431,14 +1431,34 @@ func fetchUsageAggregatesFromView(filter dashboardFilter) []usageAggregate {
 }
 
 func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} {
-	query := config.DB.Table("v_subcategory_user_usage_total usage_view")
+	query := config.DB.Table("v_subcategory_user_usage_total usage_view").
+		Select(`usage_view.year_id,
+            usage_view.subcategory_id,
+            usage_view.user_id,
+            usage_view.used_grants,
+            usage_view.used_amount,
+            y.year,
+            fsc.subcategory_name,
+            fc.category_id,
+            fc.category_name,
+            TRIM(CONCAT(COALESCE(u.user_fname,''),' ',COALESCE(u.user_lname,''))) AS user_name,
+            COALESCE(sb.allocated_amount,0) AS allocated_amount,
+            COALESCE(sb.max_grants,0) AS max_grants,
+            COALESCE(sb.remaining_grant,0) AS remaining_grants,
+            COALESCE(sb.max_amount_per_year,0) AS max_amount_per_year,
+            COALESCE(sb.max_amount_per_grant,0) AS max_amount_per_grant`).
+		Joins("LEFT JOIN fund_subcategories fsc ON usage_view.subcategory_id = fsc.subcategory_id").
+		Joins("LEFT JOIN fund_categories fc ON fsc.category_id = fc.category_id").
+		Joins("LEFT JOIN years y ON usage_view.year_id = y.year_id").
+		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.deleted_at IS NULL").
+		Joins("LEFT JOIN users u ON usage_view.user_id = u.user_id")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
 		query = query.Where("usage_view.year_id IN ?", filter.YearIDs)
 	}
 
 	var rows []map[string]interface{}
-	if err := query.Limit(50).Find(&rows).Error; err != nil {
+	if err := query.Limit(100).Find(&rows).Error; err != nil {
 		fmt.Printf("[dashboard] failed to query v_subcategory_user_usage_total: %v\n", err)
 		return []map[string]interface{}{}
 	}
