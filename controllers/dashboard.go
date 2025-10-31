@@ -1409,7 +1409,7 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 }
 
 func fetchUsageAggregatesFromView(filter dashboardFilter) []usageAggregate {
-	query := config.DB.Table("v_subcategory_user_usage_total usage_view").
+	query := config.DB.Table("v_subcategory_user_usage_total AS usage_view").
 		Select("usage_view.year_id, usage_view.subcategory_id, usage_view.user_id, SUM(usage_view.used_grants) AS used_grants, SUM(usage_view.used_amount) AS used_amount").
 		Group("usage_view.year_id, usage_view.subcategory_id, usage_view.user_id")
 
@@ -1430,8 +1430,26 @@ func fetchUsageAggregatesFromView(filter dashboardFilter) []usageAggregate {
 	return rows
 }
 
+type quotaUsageViewRow struct {
+	YearID            int     `gorm:"column:year_id"`
+	SubcategoryID     int     `gorm:"column:subcategory_id"`
+	UserID            int     `gorm:"column:user_id"`
+	UsedGrants        float64 `gorm:"column:used_grants"`
+	UsedAmount        float64 `gorm:"column:used_amount"`
+	Year              int     `gorm:"column:year"`
+	SubcategoryName   string  `gorm:"column:subcategory_name"`
+	CategoryID        int     `gorm:"column:category_id"`
+	CategoryName      string  `gorm:"column:category_name"`
+	UserName          string  `gorm:"column:user_name"`
+	AllocatedAmount   float64 `gorm:"column:allocated_amount"`
+	MaxGrants         float64 `gorm:"column:max_grants"`
+	RemainingGrants   float64 `gorm:"column:remaining_grants"`
+	MaxAmountPerYear  float64 `gorm:"column:max_amount_per_year"`
+	MaxAmountPerGrant float64 `gorm:"column:max_amount_per_grant"`
+}
+
 func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} {
-	query := config.DB.Table("v_subcategory_user_usage_total usage_view").
+	query := config.DB.Table("v_subcategory_user_usage_total AS usage_view").
 		Select(`usage_view.year_id,
     usage_view.subcategory_id,
     usage_view.user_id,
@@ -1457,10 +1475,31 @@ func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} 
 		query = query.Where("usage_view.year_id IN ?", filter.YearIDs)
 	}
 
-	var rows []map[string]interface{}
-	if err := query.Limit(100).Find(&rows).Error; err != nil {
+	var records []quotaUsageViewRow
+	if err := query.Order("usage_view.used_amount DESC").Limit(100).Scan(&records).Error; err != nil {
 		fmt.Printf("[dashboard] failed to query v_subcategory_user_usage_total: %v\n", err)
 		return []map[string]interface{}{}
+	}
+
+	rows := make([]map[string]interface{}, 0, len(records))
+	for _, record := range records {
+		rows = append(rows, map[string]interface{}{
+			"year_id":              record.YearID,
+			"subcategory_id":       record.SubcategoryID,
+			"user_id":              record.UserID,
+			"used_grants":          record.UsedGrants,
+			"used_amount":          record.UsedAmount,
+			"year":                 record.Year,
+			"subcategory_name":     record.SubcategoryName,
+			"category_id":          record.CategoryID,
+			"category_name":        record.CategoryName,
+			"user_name":            strings.TrimSpace(record.UserName),
+			"allocated_amount":     record.AllocatedAmount,
+			"max_grants":           record.MaxGrants,
+			"remaining_grants":     record.RemainingGrants,
+			"max_amount_per_year":  record.MaxAmountPerYear,
+			"max_amount_per_grant": record.MaxAmountPerGrant,
+		})
 	}
 
 	return rows
