@@ -3,13 +3,15 @@ package controllers
 import (
 	"errors"
 	"fmt"
-	"fund-management-api/config"
-	"fund-management-api/models"
-	"fund-management-api/utils"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"fund-management-api/config"
+	"fund-management-api/models"
+	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -53,19 +55,37 @@ type adminLegacySubmissionCore struct {
 }
 
 type adminLegacyDocumentInput struct {
-	DocumentID        *int    `json:"document_id"`
-	FileID            int     `json:"file_id" binding:"required"`
-	DocumentTypeID    int     `json:"document_type_id" binding:"required"`
-	StoredPath        *string `json:"stored_path"`
-	OriginalName      *string `json:"original_name"`
-	Description       *string `json:"description"`
-	DisplayOrder      *int    `json:"display_order"`
-	IsRequired        *bool   `json:"is_required"`
-	IsVerified        *bool   `json:"is_verified"`
-	VerifiedBy        *int    `json:"verified_by"`
-	VerifiedAt        *string `json:"verified_at"`
-	ExternalFundingID *int    `json:"external_funding_id"`
-	CreatedAt         *string `json:"created_at"`
+	DocumentID        *int                  `json:"document_id"`
+	FileID            *int                  `json:"file_id"`
+	DocumentTypeID    int                   `json:"document_type_id" binding:"required"`
+	StoredPath        *string               `json:"stored_path"`
+	FileName          *string               `json:"file_name"`
+	OriginalName      *string               `json:"original_name"`
+	Description       *string               `json:"description"`
+	DisplayOrder      *int                  `json:"display_order"`
+	IsRequired        *bool                 `json:"is_required"`
+	IsVerified        *bool                 `json:"is_verified"`
+	VerifiedBy        *int                  `json:"verified_by"`
+	VerifiedAt        *string               `json:"verified_at"`
+	ExternalFundingID *int                  `json:"external_funding_id"`
+	CreatedAt         *string               `json:"created_at"`
+	NewFile           *adminLegacyFileInput `json:"new_file"`
+}
+
+type adminLegacyFileInput struct {
+	OriginalName *string `json:"original_name"`
+	StoredPath   *string `json:"stored_path"`
+	FileName     *string `json:"file_name"`
+	MimeType     *string `json:"mime_type"`
+	FileSize     *int64  `json:"file_size"`
+	UploadedBy   *int    `json:"uploaded_by"`
+	UploadedAt   *string `json:"uploaded_at"`
+	FolderType   *string `json:"folder_type"`
+	Metadata     *string `json:"metadata"`
+	IsPublic     *bool   `json:"is_public"`
+	FileHash     *string `json:"file_hash"`
+	CreatedAt    *string `json:"created_at"`
+	UpdatedAt    *string `json:"updated_at"`
 }
 
 type adminLegacyUserInput struct {
@@ -247,7 +267,7 @@ func AdminLegacyCreateSubmission(c *gin.Context) {
 		}
 
 		if payload.Documents != nil {
-			if err := replaceSubmissionDocuments(tx, submission.SubmissionID, payload.Documents); err != nil {
+			if err := replaceSubmissionDocuments(tx, &submission, payload.Documents); err != nil {
 				return err
 			}
 		}
@@ -317,7 +337,7 @@ func AdminLegacyUpdateSubmission(c *gin.Context) {
 		}
 
 		if payload.Documents != nil {
-			if err := replaceSubmissionDocuments(tx, submission.SubmissionID, payload.Documents); err != nil {
+			if err := replaceSubmissionDocuments(tx, &submission, payload.Documents); err != nil {
 				return err
 			}
 		}
@@ -672,7 +692,8 @@ func ensureActiveUser(db *gorm.DB, userID int) error {
 	return nil
 }
 
-func replaceSubmissionDocuments(db *gorm.DB, submissionID int, inputs []adminLegacyDocumentInput) error {
+func replaceSubmissionDocuments(db *gorm.DB, submission *models.Submission, inputs []adminLegacyDocumentInput) error {
+	submissionID := submission.SubmissionID
 	if err := db.Unscoped().Where("submission_id = ?", submissionID).Delete(&models.SubmissionDocument{}).Error; err != nil {
 		return err
 	}
@@ -681,33 +702,42 @@ func replaceSubmissionDocuments(db *gorm.DB, submissionID int, inputs []adminLeg
 	}
 
 	for idx, input := range inputs {
-		if input.FileID <= 0 {
-			return newLegacyValidationError(fmt.Sprintf("documents[%d].file_id is required", idx))
-		}
 		if input.DocumentTypeID <= 0 {
 			return newLegacyValidationError(fmt.Sprintf("documents[%d].document_type_id is required", idx))
 		}
 
 		var file models.FileUpload
-		if err := db.Where("file_id = ? AND (delete_at IS NULL)", input.FileID).First(&file).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return newLegacyValidationError(fmt.Sprintf("documents[%d]: file not found", idx))
-			}
-			return err
-		}
+		var fileID int
 
-		if input.StoredPath != nil {
-			trimmed := strings.TrimSpace(*input.StoredPath)
-			if trimmed == "" {
-				return newLegacyValidationError(fmt.Sprintf("documents[%d].stored_path is required", idx))
+		if input.FileID != nil && *input.FileID > 0 {
+			fileID = *input.FileID
+			if err := db.Where("file_id = ? AND (delete_at IS NULL)", fileID).First(&file).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return newLegacyValidationError(fmt.Sprintf("documents[%d]: file not found", idx))
+				}
+				return err
 			}
-			if trimmed != file.StoredPath {
-				file.StoredPath = trimmed
-				file.UpdateAt = time.Now()
-				if err := saveFileUploadRecord(db, &file); err != nil {
-					return fmt.Errorf("documents[%d]: failed to update file path: %w", idx, err)
+
+			if input.StoredPath != nil {
+				trimmed := strings.TrimSpace(*input.StoredPath)
+				if trimmed == "" {
+					return newLegacyValidationError(fmt.Sprintf("documents[%d].stored_path is required", idx))
+				}
+				if trimmed != file.StoredPath {
+					file.StoredPath = trimmed
+					file.UpdateAt = time.Now()
+					if err := saveFileUploadRecord(db, &file); err != nil {
+						return fmt.Errorf("documents[%d]: failed to update file path: %w", idx, err)
+					}
 				}
 			}
+		} else {
+			created, err := createLegacySubmissionFile(db, submission, idx, input)
+			if err != nil {
+				return err
+			}
+			file = *created
+			fileID = file.FileID
 		}
 
 		var docType models.DocumentType
@@ -721,7 +751,7 @@ func replaceSubmissionDocuments(db *gorm.DB, submissionID int, inputs []adminLeg
 
 		doc := models.SubmissionDocument{
 			SubmissionID:   submissionID,
-			FileID:         input.FileID,
+			FileID:         fileID,
 			DocumentTypeID: input.DocumentTypeID,
 			Description:    "",
 			DisplayOrder:   idx + 1,
@@ -781,6 +811,179 @@ func replaceSubmissionDocuments(db *gorm.DB, submissionID int, inputs []adminLeg
 	}
 
 	return resequenceSubmissionDocumentsByDocumentType(db, submissionID)
+}
+
+func createLegacySubmissionFile(db *gorm.DB, submission *models.Submission, index int, input adminLegacyDocumentInput) (*models.FileUpload, error) {
+	fileInput := input.NewFile
+
+	storedPath := firstTrimmedString(input.StoredPath)
+	if fileInput != nil {
+		candidate := firstTrimmedString(fileInput.StoredPath)
+		if candidate != "" {
+			storedPath = candidate
+		}
+	}
+	if storedPath == "" {
+		return nil, newLegacyValidationError(fmt.Sprintf("documents[%d].new_file.stored_path is required", index))
+	}
+
+	originalName := firstTrimmedString(input.OriginalName)
+	if fileInput != nil {
+		candidate := firstTrimmedString(fileInput.OriginalName)
+		if candidate != "" {
+			originalName = candidate
+		}
+	}
+	if originalName == "" {
+		originalName = strings.TrimSpace(filepath.Base(storedPath))
+	}
+	if originalName == "" {
+		return nil, newLegacyValidationError(fmt.Sprintf("documents[%d]: original_name is required when creating a new file", index))
+	}
+
+	fileName := firstTrimmedString(input.FileName)
+	if fileInput != nil {
+		candidate := firstTrimmedString(fileInput.FileName)
+		if candidate != "" {
+			fileName = candidate
+		}
+	}
+	if fileName == "" {
+		fileName = originalName
+	}
+
+	folderType := ""
+	if fileInput != nil && fileInput.FolderType != nil {
+		folderType = strings.TrimSpace(*fileInput.FolderType)
+	}
+	if folderType == "" {
+		folderType = inferLegacyFolderType(storedPath)
+	}
+
+	metadata := ""
+	if fileInput != nil && fileInput.Metadata != nil {
+		metadata = strings.TrimSpace(*fileInput.Metadata)
+	}
+
+	mimeType := ""
+	if fileInput != nil && fileInput.MimeType != nil {
+		mimeType = strings.TrimSpace(*fileInput.MimeType)
+	}
+	if mimeType == "" {
+		mimeType = utils.GetMimeTypeFromExtension(filepath.Ext(fileName))
+	}
+
+	var fileSize int64
+	if fileInput != nil && fileInput.FileSize != nil && *fileInput.FileSize > 0 {
+		fileSize = *fileInput.FileSize
+	}
+
+	uploadedBy := submission.UserID
+	if fileInput != nil && fileInput.UploadedBy != nil {
+		uploadedBy = *fileInput.UploadedBy
+	}
+	if uploadedBy <= 0 {
+		return nil, newLegacyValidationError(fmt.Sprintf("documents[%d].new_file.uploaded_by is required", index))
+	}
+	if err := ensureActiveUser(db, uploadedBy); err != nil {
+		return nil, newLegacyValidationError(fmt.Sprintf("documents[%d]: %v", index, err))
+	}
+
+	now := time.Now()
+	uploadedAt := now
+	if fileInput != nil && fileInput.UploadedAt != nil {
+		t, err := parseOptionalTime(fileInput.UploadedAt)
+		if err != nil {
+			return nil, fmt.Errorf("documents[%d].new_file.uploaded_at: %w", index, err)
+		}
+		if t != nil {
+			uploadedAt = *t
+		}
+	}
+
+	createdAt := uploadedAt
+	if fileInput != nil && fileInput.CreatedAt != nil {
+		t, err := parseOptionalTime(fileInput.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("documents[%d].new_file.created_at: %w", index, err)
+		}
+		if t != nil {
+			createdAt = *t
+		}
+	}
+
+	updatedAt := createdAt
+	if fileInput != nil && fileInput.UpdatedAt != nil {
+		t, err := parseOptionalTime(fileInput.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("documents[%d].new_file.updated_at: %w", index, err)
+		}
+		if t != nil {
+			updatedAt = *t
+		}
+	}
+
+	fileHash := ""
+	if fileInput != nil && fileInput.FileHash != nil {
+		fileHash = strings.TrimSpace(*fileInput.FileHash)
+	}
+
+	isPublic := false
+	if fileInput != nil && fileInput.IsPublic != nil {
+		isPublic = *fileInput.IsPublic
+	}
+
+	submissionID := submission.SubmissionID
+
+	fileUpload := models.FileUpload{
+		OriginalName: originalName,
+		StoredPath:   storedPath,
+		FolderType:   folderType,
+		SubmissionID: &submissionID,
+		Metadata:     metadata,
+		FileSize:     fileSize,
+		MimeType:     mimeType,
+		FileHash:     fileHash,
+		IsPublic:     isPublic,
+		UploadedBy:   uploadedBy,
+		UploadedAt:   uploadedAt,
+		CreateAt:     createdAt,
+		UpdateAt:     updatedAt,
+	}
+
+	if err := createFileUploadRecord(db, &fileUpload); err != nil {
+		return nil, fmt.Errorf("documents[%d]: failed to create file record: %w", index, err)
+	}
+
+	return &fileUpload, nil
+}
+
+func inferLegacyFolderType(path string) string {
+	lowered := strings.ToLower(path)
+	switch {
+	case strings.Contains(lowered, "/temp/") || strings.Contains(lowered, "\\temp\\"):
+		return "temp"
+	case strings.Contains(lowered, "/submissions/") || strings.Contains(lowered, "\\submissions\\") ||
+		strings.Contains(lowered, "/submission/") || strings.Contains(lowered, "\\submission\\"):
+		return "submission"
+	case strings.Contains(lowered, "/users/") || strings.Contains(lowered, "\\users\\"):
+		return "user"
+	default:
+		return ""
+	}
+}
+
+func firstTrimmedString(values ...*string) string {
+	for _, candidate := range values {
+		if candidate == nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(*candidate)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func replaceSubmissionUsers(db *gorm.DB, submissionID int, inputs []adminLegacyUserInput) error {
