@@ -1242,7 +1242,7 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
                 COALESCE(sb.remaining_grant,0) AS remaining_grant`).
 			Joins("JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 			Joins("JOIN years y ON fc.year_id = y.year_id").
-			Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.deleted_at IS NULL").
+			Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
 			Where("fsc.deleted_at IS NULL AND fc.deleted_at IS NULL").
 			Where("fsc.subcategory_id IN ?", subcategoryIDs)
 
@@ -1468,7 +1468,7 @@ func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} 
 		Joins("LEFT JOIN fund_subcategories fsc ON usage_view.subcategory_id = fsc.subcategory_id").
 		Joins("LEFT JOIN fund_categories fc ON fsc.category_id = fc.category_id").
 		Joins("LEFT JOIN years y ON usage_view.year_id = y.year_id").
-		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.deleted_at IS NULL").
+		Joins("LEFT JOIN subcategory_budgets sb ON sb.subcategory_id = fsc.subcategory_id AND sb.record_scope = 'overall' AND sb.delete_at IS NULL").
 		Joins("LEFT JOIN users u ON usage_view.user_id = u.user_id")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
