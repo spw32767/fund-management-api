@@ -16,6 +16,7 @@ type FileUpload struct {
 	OriginalName string     `gorm:"column:original_name" json:"original_name"`
 	StoredPath   string     `gorm:"column:stored_path" json:"stored_path"`
 	FolderType   string     `gorm:"column:folder_type" json:"folder_type"`
+	SubmissionID *int       `gorm:"column:submission_id" json:"submission_id,omitempty"`
 	Metadata     string     `gorm:"column:metadata" json:"metadata"`
 	FileSize     int64      `gorm:"column:file_size" json:"file_size"`
 	MimeType     string     `gorm:"column:mime_type" json:"mime_type"`

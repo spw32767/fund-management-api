@@ -933,10 +933,13 @@ func createLegacySubmissionFile(db *gorm.DB, submission *models.Submission, inde
 		isPublic = *fileInput.IsPublic
 	}
 
+	submissionID := submission.SubmissionID
+
 	fileUpload := models.FileUpload{
 		OriginalName: originalName,
 		StoredPath:   storedPath,
 		FolderType:   folderType,
+		SubmissionID: &submissionID,
 		Metadata:     metadata,
 		FileSize:     fileSize,
 		MimeType:     mimeType,
