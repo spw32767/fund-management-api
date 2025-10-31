@@ -1400,12 +1400,12 @@ func buildAdminQuotaSummary(filter dashboardFilter, statuses dashboardStatusSets
 }
 
 func fetchUsageAggregatesFromView(filter dashboardFilter) []usageAggregate {
-	query := config.DB.Table("v_subcategory_user_usage_total usage").
-		Select("usage.year_id, usage.subcategory_id, usage.user_id, SUM(usage.used_grants) AS used_grants, SUM(usage.used_amount) AS used_amount").
-		Group("usage.year_id, usage.subcategory_id, usage.user_id")
+	query := config.DB.Table("v_subcategory_user_usage_total usage_view").
+		Select("usage_view.year_id, usage_view.subcategory_id, usage_view.user_id, SUM(usage_view.used_grants) AS used_grants, SUM(usage_view.used_amount) AS used_amount").
+		Group("usage_view.year_id, usage_view.subcategory_id, usage_view.user_id")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
-		query = query.Where("usage.year_id IN ?", filter.YearIDs)
+		query = query.Where("usage_view.year_id IN ?", filter.YearIDs)
 	}
 
 	var rows []usageAggregate
@@ -1422,10 +1422,10 @@ func fetchUsageAggregatesFromView(filter dashboardFilter) []usageAggregate {
 }
 
 func collectQuotaUsageViewRows(filter dashboardFilter) []map[string]interface{} {
-	query := config.DB.Table("v_subcategory_user_usage_total usage")
+	query := config.DB.Table("v_subcategory_user_usage_total usage_view")
 
 	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
-		query = query.Where("usage.year_id IN ?", filter.YearIDs)
+		query = query.Where("usage_view.year_id IN ?", filter.YearIDs)
 	}
 
 	var rows []map[string]interface{}
