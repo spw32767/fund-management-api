@@ -392,6 +392,11 @@ func SetupRoutes(router *gin.Engine) {
 				// ===== CP PROFILE IMPORT =====
 				admin.POST("/trigger/cp-profile", controllers.AdminTriggerCpProfile)
 
+				// ===== KKU PEOPLE SCRAPER =====
+				admin.POST("/kku-people/scrape", controllers.AdminRunKkuPeopleScrape)
+				admin.GET("/kku-people/status", controllers.AdminGetKkuPeopleStatus)
+				admin.GET("/kku-people/logs", controllers.AdminListKkuPeopleLogs)
+
 				// ========== YEAR MANAGEMENT ==========
 				years := admin.Group("/years")
 				{
