@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"fund-management-api/services"
 
@@ -40,7 +41,20 @@ func AdminRunKkuPeopleScrape(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "kku people scraper already running"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		payload := gin.H{"success": false, "error": err.Error()}
+		var scriptErr *services.ScriptExecutionError
+		if errors.As(err, &scriptErr) && scriptErr != nil {
+			if len(scriptErr.Stderr) > 0 {
+				payload["stderr"] = truncateForAPI(scriptErr.Stderr)
+			}
+			if len(scriptErr.Stdout) > 0 {
+				payload["stdout"] = truncateForAPI(scriptErr.Stdout)
+			}
+			if scriptErr.ExitCode != nil {
+				payload["exit_code"] = *scriptErr.ExitCode
+			}
+		}
+		c.JSON(http.StatusInternalServerError, payload)
 		return
 	}
 
@@ -49,6 +63,15 @@ func AdminRunKkuPeopleScrape(c *gin.Context) {
 		"summary": summary,
 		"run":     run,
 	})
+}
+
+func truncateForAPI(data []byte) string {
+	const limit = 4096
+	s := strings.TrimSpace(string(data))
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "…"
 }
 
 // GET /api/v1/admin/kku-people/status

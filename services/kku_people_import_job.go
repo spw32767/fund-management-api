@@ -47,6 +47,31 @@ type KkuPeopleImportJobService struct {
 	cpProfile *CpProfileRepository
 }
 
+// ScriptExecutionError represents a failure when running the scraper script.
+type ScriptExecutionError struct {
+	Err      error
+	ExitCode *int
+	Stdout   []byte
+	Stderr   []byte
+}
+
+func (e *ScriptExecutionError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.ExitCode != nil {
+		return fmt.Sprintf("script failed with exit code %d: %v", *e.ExitCode, e.Err)
+	}
+	return fmt.Sprintf("script failed: %v", e.Err)
+}
+
+func (e *ScriptExecutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 type rawKkuPerson struct {
 	NameTh     string `json:"name_th"`
 	NameEn     string `json:"name_en"`
@@ -237,7 +262,7 @@ func (s *KkuPeopleImportJobService) executeScript(ctx context.Context, debug boo
 	trimmed := bytes.TrimSpace(bytes.TrimPrefix(stdoutBytes, []byte{0xEF, 0xBB, 0xBF}))
 	if len(trimmed) == 0 {
 		if waitErr != nil {
-			return nil, stdoutBytes, stderrBytes, exitPtr, fmt.Errorf("script failed: %w", waitErr)
+			return nil, stdoutBytes, stderrBytes, exitPtr, &ScriptExecutionError{Err: waitErr, ExitCode: exitPtr, Stdout: stdoutBytes, Stderr: stderrBytes}
 		}
 		return nil, stdoutBytes, stderrBytes, exitPtr, errors.New("empty output from script")
 	}
@@ -248,7 +273,7 @@ func (s *KkuPeopleImportJobService) executeScript(ctx context.Context, debug boo
 	}
 
 	if waitErr != nil {
-		return people, stdoutBytes, stderrBytes, exitPtr, fmt.Errorf("script failed: %w", waitErr)
+		return people, stdoutBytes, stderrBytes, exitPtr, &ScriptExecutionError{Err: waitErr, ExitCode: exitPtr, Stdout: stdoutBytes, Stderr: stderrBytes}
 	}
 
 	return people, stdoutBytes, stderrBytes, exitPtr, nil
