@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 
+	"fund-management-api/config"
+
 	"github.com/joho/godotenv"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -15,6 +17,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
 	}
+
+	config.ReloadMailerConfig()
 
 	// Get database credentials
 	dbHost := os.Getenv("DB_HOST")

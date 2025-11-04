@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -278,6 +279,12 @@ func buildEmailTemplate(subject string, paragraphs []string, buttonText, buttonU
 </html>`, template.HTMLEscapeString(subject), template.HTMLEscapeString(subject), contentBuilder.String(), buttonSection, footerSection)
 }
 
+func sendMailSafe(to []string, subject, html string) {
+	if err := config.SendMail(to, subject, html); err != nil {
+		log.Printf("notification email send failed (subject=%q to=%v): %v", subject, to, err)
+	}
+}
+
 /* ==========================
    Request payloads
    ========================== */
@@ -506,7 +513,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			message := fmt.Sprintf("ระบบได้รับคำร้องหมายเลข <strong>%s</strong> แล้ว",
 				template.HTMLEscapeString(sub.SubmissionNumber))
 			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
-			_ = config.SendMail([]string{ownerEmail}, subj, body)
+			sendMailSafe([]string{ownerEmail}, subj, body)
 		}
 		var emails []string
 		for _, h := range heads {
@@ -519,7 +526,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> จาก <strong>%s</strong> รอพิจารณา",
 				template.HTMLEscapeString(sub.SubmissionNumber), template.HTMLEscapeString(ownerName))
 			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
-			_ = config.SendMail(emails, subj, body)
+			sendMailSafe(emails, subj, body)
 		}
 	}()
 
@@ -569,7 +576,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ได้รับการ <strong>เห็นควรพิจารณา</strong>",
 				template.HTMLEscapeString(sub.SubmissionNumber))
 			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
-			_ = config.SendMail([]string{ownerEmail}, subj, body)
+			sendMailSafe([]string{ownerEmail}, subj, body)
 		}
 		var adminEmails []string
 		for _, a := range admins {
@@ -582,7 +589,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ผ่านการเห็นควรพิจารณาจากหัวหน้าสาขาแล้ว",
 				template.HTMLEscapeString(sub.SubmissionNumber))
 			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
-			_ = config.SendMail(adminEmails, subj, body)
+			sendMailSafe(adminEmails, subj, body)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -628,7 +635,7 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ของคุณได้รับการ <strong>ไม่เห็นควรพิจารณา</strong>%s",
 				template.HTMLEscapeString(sub.SubmissionNumber), reasonMessage)
 			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
-			_ = config.SendMail([]string{ownerEmail}, subj, body)
+			sendMailSafe([]string{ownerEmail}, subj, body)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -690,7 +697,7 @@ func NotifyAdminApproved(c *gin.Context) {
 			subj := "ผลการตัดสินใจ: อนุมัติ"
 			message := template.HTMLEscapeString(msg)
 			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
-			_ = config.SendMail([]string{ownerEmail}, subj, body)
+			sendMailSafe([]string{ownerEmail}, subj, body)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -754,7 +761,7 @@ func NotifyAdminRejected(c *gin.Context) {
 			subj := "ผลการตัดสินใจ: ไม่อนุมัติ"
 			message := template.HTMLEscapeString(msg)
 			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
-			_ = config.SendMail([]string{ownerEmail}, subj, body)
+			sendMailSafe([]string{ownerEmail}, subj, body)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true})

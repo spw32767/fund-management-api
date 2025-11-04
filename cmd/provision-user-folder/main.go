@@ -22,6 +22,8 @@ func main() {
 		log.Println("No .env file found, falling back to environment variables")
 	}
 
+	config.ReloadMailerConfig()
+
 	config.InitDB()
 
 	targetUserIDs := []int{} // 👈 Populate with the user_id values you want to provision, e.g. []int{1, 2, 3}

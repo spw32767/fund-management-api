@@ -22,6 +22,8 @@ func main() {
 		log.Println("No .env file found, using environment variables")
 	}
 
+	config.ReloadMailerConfig()
+
 	config.InitDB()
 
 	var (
