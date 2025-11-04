@@ -38,6 +38,7 @@ type userLite struct {
 	UserID     uint    `gorm:"column:user_id"`
 	RoleID     uint    `gorm:"column:role_id"`
 	Email      *string `gorm:"column:email"`
+	Prefix     *string `gorm:"column:prefix"`
 	FName      *string `gorm:"column:user_fname"`
 	LName      *string `gorm:"column:user_lname"`
 	PositionID *uint   `gorm:"column:position_id"`
@@ -53,11 +54,10 @@ type positionLite struct {
 func (positionLite) TableName() string { return "positions" }
 
 type submissionLite struct {
-	SubmissionID     uint    `gorm:"column:submission_id"`
-	SubmissionType   string  `gorm:"column:submission_type"`
-	UserID           uint    `gorm:"column:user_id"`
-	SubmissionNumber string  `gorm:"column:submission_number"`
-	ApplicantName    *string `gorm:"column:applicant_name"`
+	SubmissionID     uint   `gorm:"column:submission_id"`
+	SubmissionType   string `gorm:"column:submission_type"`
+	UserID           uint   `gorm:"column:user_id"`
+	SubmissionNumber string `gorm:"column:submission_number"`
 }
 
 func (submissionLite) TableName() string { return "submissions" }
@@ -101,6 +101,12 @@ func getCurrentRoleID(c *gin.Context) (uint, bool) {
 }
 
 func buildThaiDisplayName(owner userLite, posName string) string {
+	prefix := strings.TrimSpace(func() string {
+		if owner.Prefix != nil {
+			return *owner.Prefix
+		}
+		return ""
+	}())
 	f := strings.TrimSpace(func() string {
 		if owner.FName != nil {
 			return *owner.FName
@@ -113,10 +119,22 @@ func buildThaiDisplayName(owner userLite, posName string) string {
 		}
 		return ""
 	}())
+
+	parts := make([]string, 0, 4)
 	if posName != "" {
-		return strings.TrimSpace(posName + f + " " + l)
+		parts = append(parts, posName)
 	}
-	return strings.TrimSpace(f + " " + l)
+	if prefix != "" {
+		parts = append(parts, prefix)
+	}
+	if f != "" {
+		parts = append(parts, f)
+	}
+	if l != "" {
+		parts = append(parts, l)
+	}
+
+	return strings.TrimSpace(strings.Join(parts, " "))
 }
 
 // หา "หัวหน้าสาขาปัจจุบัน": system_config → dept_head_history → fallback role_id=4
@@ -175,7 +193,7 @@ func getCurrentDeptHeadIDs(db *gorm.DB) []uint {
 
 func loadOwnerDisplay(db *gorm.DB, userID uint) (displayName string, email string) {
 	var owner userLite
-	_ = db.Select("user_id, role_id, email, user_fname, user_lname, position_id").
+	_ = db.Select("user_id, role_id, email, prefix, user_fname, user_lname, position_id").
 		First(&owner, "user_id = ?", userID).Error
 
 	posName := ""
@@ -529,7 +547,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 	_ = c.ShouldBindJSON(&payload)
 
 	var sub submissionLite
-	if err := db.Select("submission_id, submission_type, user_id, submission_number, applicant_name").
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
 		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
@@ -543,9 +561,6 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 	ownerName = strings.TrimSpace(ownerName)
 
 	submitterName := strings.TrimSpace(payload.SubmitterName)
-	if submitterName == "" && sub.ApplicantName != nil {
-		submitterName = strings.TrimSpace(*sub.ApplicantName)
-	}
 	if submitterName == "" {
 		submitterName = ownerName
 	}
@@ -621,7 +636,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 	}
 
 	var sub submissionLite
-	if err := db.Select("submission_id, submission_type, user_id, submission_number, applicant_name").
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
 		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
@@ -630,9 +645,6 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 	ownerName = strings.TrimSpace(ownerName)
 
 	submitterName := ownerName
-	if sub.ApplicantName != nil && strings.TrimSpace(*sub.ApplicantName) != "" {
-		submitterName = strings.TrimSpace(*sub.ApplicantName)
-	}
 
 	// ผู้ยื่น
 	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
@@ -704,7 +716,7 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	var sub submissionLite
-	if err := db.Select("submission_id, submission_type, user_id, submission_number, applicant_name").
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
 		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
@@ -713,9 +725,6 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 	ownerName = strings.TrimSpace(ownerName)
 
 	submitterName := ownerName
-	if sub.ApplicantName != nil && strings.TrimSpace(*sub.ApplicantName) != "" {
-		submitterName = strings.TrimSpace(*sub.ApplicantName)
-	}
 
 	reasonMessage := ""
 	if strings.TrimSpace(req.Reason) != "" {
@@ -776,7 +785,7 @@ func NotifyAdminApproved(c *gin.Context) {
 	announce := strings.TrimSpace(body.AnnounceRef)
 
 	var sub submissionLite
-	if err := db.Select("submission_id, submission_type, user_id, submission_number, applicant_name").
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
 		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
@@ -786,9 +795,6 @@ func NotifyAdminApproved(c *gin.Context) {
 	ownerName = strings.TrimSpace(ownerName)
 
 	submitterName := ownerName
-	if sub.ApplicantName != nil && strings.TrimSpace(*sub.ApplicantName) != "" {
-		submitterName = strings.TrimSpace(*sub.ApplicantName)
-	}
 	amount, okAmt := getApprovedAmountDisplay(db, sub)
 	if !okAmt || strings.TrimSpace(amount) == "" {
 		amount = "0.00"
@@ -855,7 +861,7 @@ func NotifyAdminRejected(c *gin.Context) {
 	_ = c.ShouldBindJSON(&body)
 
 	var sub submissionLite
-	if err := db.Select("submission_id, submission_type, user_id, submission_number, applicant_name").
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
 		First(&sub, "submission_id = ?", sid).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
@@ -865,9 +871,6 @@ func NotifyAdminRejected(c *gin.Context) {
 	ownerName = strings.TrimSpace(ownerName)
 
 	submitterName := ownerName
-	if sub.ApplicantName != nil && strings.TrimSpace(*sub.ApplicantName) != "" {
-		submitterName = strings.TrimSpace(*sub.ApplicantName)
-	}
 
 	reason := strings.TrimSpace(body.Reason)
 	if reason == "" {
