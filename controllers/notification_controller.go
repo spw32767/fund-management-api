@@ -232,7 +232,7 @@ func getApprovedAmountDisplay(db *gorm.DB, sub submissionLite) (string, bool) {
 func appBaseURL() string {
 	base := os.Getenv("APP_BASE_URL")
 	if base == "" {
-		base = "http://localhost:3000"
+		base = "http://10.198.110.27:3000/"
 	}
 	return base
 }
@@ -328,7 +328,6 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 <td style="padding:36px 32px 0 32px;text-align:center;background-color:#ffffff;">
 %s
 <h1 style="margin:0;font-size:24px;font-weight:700;color:#0f172a;">%s</h1>
-<p style="margin:12px 0 0 0;color:#475569;font-size:14px;letter-spacing:0.03em;text-transform:uppercase;">Research Funding CP-KKU</p>
 </td>
 </tr>
 <tr>

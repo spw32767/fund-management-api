@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-const emailLogoRelativePath = "templates/email_assets/research-funding-logo.png"
+const emailLogoRelativePath = "templates/email_assets/fund_cpkku_logo.png"
 
 var (
 	emailLogoOnce sync.Once
@@ -27,7 +27,7 @@ func getEmailLogoHTML() string {
 		}
 		encoded := base64.StdEncoding.EncodeToString(data)
 		emailLogoHTML = fmt.Sprintf(
-			`<img src="data:image/png;base64,%s" alt="Research Funding CP-KKU" `+
+			`<img src="data:image/png;base64,%s" alt="ระบบบริหารจัดการทุนวิจัย" `+
 				`style="display:block;width:72px;height:auto;margin:0 auto 18px auto;" />`,
 			encoded,
 		)
