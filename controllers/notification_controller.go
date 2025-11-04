@@ -217,6 +217,67 @@ func appBaseURL() string {
 	return base
 }
 
+func buildEmailTemplate(subject string, paragraphs []string, buttonText, buttonURL, footerHTML string) string {
+	var contentBuilder strings.Builder
+	for _, paragraph := range paragraphs {
+		trimmed := strings.TrimSpace(paragraph)
+		if trimmed == "" {
+			continue
+		}
+		contentBuilder.WriteString("<p style=\"margin:0 0 16px 0;\">")
+		contentBuilder.WriteString(trimmed)
+		contentBuilder.WriteString("</p>")
+	}
+
+	buttonSection := ""
+	if strings.TrimSpace(buttonText) != "" && strings.TrimSpace(buttonURL) != "" {
+		buttonSection = fmt.Sprintf(`<tr>
+<td align="center" style="padding: 10px 32px 32px 32px;">
+<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;">%s</a>
+</td>
+</tr>`, template.HTMLEscapeString(buttonURL), template.HTMLEscapeString(buttonText))
+	}
+
+	footerSection := ""
+	if strings.TrimSpace(footerHTML) != "" {
+		footerSection = fmt.Sprintf(`<tr>
+<td style="padding: 0 32px 32px 32px; color:#6b7280; font-size:13px; line-height:1.6;">%s</td>
+</tr>`, footerHTML)
+	}
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%s</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#f4f6f8;">
+<tr>
+<td align="center" style="padding: 24px 16px;">
+<table cellpadding="0" cellspacing="0" width="100%%" style="max-width:600px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(15,23,42,0.12);">
+<tr>
+<td style="padding:32px 32px 16px 32px;text-align:center;background-color:#ffffff;">
+<div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#111827,#1d4ed8);margin:0 auto 18px auto;"></div>
+<h1 style="margin:0;font-size:24px;font-weight:600;color:#111827;">%s</h1>
+</td>
+</tr>
+<tr>
+<td style="padding:0 32px 8px 32px;color:#374151;font-size:16px;line-height:1.7;">
+%s
+</td>
+</tr>
+%s
+%s
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`, template.HTMLEscapeString(subject), template.HTMLEscapeString(subject), contentBuilder.String(), buttonSection, footerSection)
+}
+
 /* ==========================
    Request payloads
    ========================== */
@@ -442,8 +503,9 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 	go func() {
 		if ownerEmail != "" {
 			subj := "ส่งคำร้องสำเร็จ จากระบบบริหารจัดการทุนวิจัย"
-			body := fmt.Sprintf(`<p>ระบบได้รับคำร้องหมายเลข <strong>%s</strong> แล้ว</p><p><a href="%[2]s">เปิดดู</a></p>`,
-				template.HTMLEscapeString(sub.SubmissionNumber), base)
+			message := fmt.Sprintf("ระบบได้รับคำร้องหมายเลข <strong>%s</strong> แล้ว",
+				template.HTMLEscapeString(sub.SubmissionNumber))
+			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
 			_ = config.SendMail([]string{ownerEmail}, subj, body)
 		}
 		var emails []string
@@ -454,8 +516,9 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 		if len(emails) > 0 {
 			subj := "มีคำร้องใหม่รอพิจารณา (หัวหน้าสาขา)"
-			body := fmt.Sprintf(`<p>คำร้องหมายเลข <strong>%s</strong> จาก <strong>%s</strong> รอพิจารณา</p><p><a href="%[2]s">ดูรายละเอียด</a></p>`,
-				template.HTMLEscapeString(sub.SubmissionNumber), ownerName, base)
+			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> จาก <strong>%s</strong> รอพิจารณา",
+				template.HTMLEscapeString(sub.SubmissionNumber), template.HTMLEscapeString(ownerName))
+			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
 			_ = config.SendMail(emails, subj, body)
 		}
 	}()
@@ -503,8 +566,9 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 	go func() {
 		if ownerEmail != "" {
 			subj := "ผลพิจารณาจากหัวหน้าสาขา: เห็นควรพิจารณา"
-			body := fmt.Sprintf(`<p>คำร้องหมายเลข <strong>%s</strong> ได้รับการ <strong>เห็นควรพิจารณา</strong></p><p><a href="%[2]s">เปิดดู</a></p>`,
-				template.HTMLEscapeString(sub.SubmissionNumber), base)
+			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ได้รับการ <strong>เห็นควรพิจารณา</strong>",
+				template.HTMLEscapeString(sub.SubmissionNumber))
+			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
 			_ = config.SendMail([]string{ownerEmail}, subj, body)
 		}
 		var adminEmails []string
@@ -515,8 +579,9 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 		}
 		if len(adminEmails) > 0 {
 			subj := "คำร้องใหม่รอการตัดสินใจ (ผ่านหัวหน้าสาขาแล้ว)"
-			body := fmt.Sprintf(`<p>คำร้องหมายเลข <strong>%s</strong> ผ่านการเห็นควรพิจารณาจากหัวหน้าสาขาแล้ว</p><p><a href="%[2]s">เปิดดู</a></p>`,
-				template.HTMLEscapeString(sub.SubmissionNumber), base)
+			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ผ่านการเห็นควรพิจารณาจากหัวหน้าสาขาแล้ว",
+				template.HTMLEscapeString(sub.SubmissionNumber))
+			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
 			_ = config.SendMail(adminEmails, subj, body)
 		}
 	}()
@@ -560,8 +625,9 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 	go func() {
 		if ownerEmail != "" {
 			subj := "ผลพิจารณาจากหัวหน้าสาขา: ไม่เห็นควรพิจารณา"
-			body := fmt.Sprintf(`<p>คำร้องหมายเลข <strong>%s</strong> ของคุณได้รับการ <strong>ไม่เห็นควรพิจารณา</strong>%s</p><p><a href="%[3]s">เปิดดู</a></p>`,
-				template.HTMLEscapeString(sub.SubmissionNumber), template.HTMLEscapeString(reasonMessage), base)
+			message := fmt.Sprintf("คำร้องหมายเลข <strong>%s</strong> ของคุณได้รับการ <strong>ไม่เห็นควรพิจารณา</strong>%s",
+				template.HTMLEscapeString(sub.SubmissionNumber), reasonMessage)
+			body := buildEmailTemplate(subj, []string{message}, "เปิดดู", base, "")
 			_ = config.SendMail([]string{ownerEmail}, subj, body)
 		}
 	}()
@@ -622,7 +688,8 @@ func NotifyAdminApproved(c *gin.Context) {
 	go func() {
 		if ownerEmail != "" {
 			subj := "ผลการตัดสินใจ: อนุมัติ"
-			body := fmt.Sprintf(`<p>%s</p><p><a href="%s">ดูรายละเอียด</a></p>`, template.HTMLEscapeString(msg), base)
+			message := template.HTMLEscapeString(msg)
+			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
 			_ = config.SendMail([]string{ownerEmail}, subj, body)
 		}
 	}()
@@ -685,7 +752,8 @@ func NotifyAdminRejected(c *gin.Context) {
 	go func() {
 		if ownerEmail != "" {
 			subj := "ผลการตัดสินใจ: ไม่อนุมัติ"
-			body := fmt.Sprintf(`<p>%s</p><p><a href="%s">ดูรายละเอียด</a></p>`, template.HTMLEscapeString(msg), base)
+			message := template.HTMLEscapeString(msg)
+			body := buildEmailTemplate(subj, []string{message}, "ดูรายละเอียด", base, "")
 			_ = config.SendMail([]string{ownerEmail}, subj, body)
 		}
 	}()
