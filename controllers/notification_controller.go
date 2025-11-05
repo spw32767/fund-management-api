@@ -249,9 +249,9 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 		if trimmed == "" {
 			continue
 		}
-		contentBuilder.WriteString("<p style=\"margin:0 0 16px 0;\">")
+		contentBuilder.WriteString(`<p style="margin:0 0 16px 0;word-break:break-word;white-space:pre-wrap;">`)
 		contentBuilder.WriteString(trimmed)
-		contentBuilder.WriteString("</p>")
+		contentBuilder.WriteString(`</p>`)
 	}
 
 	metaSection := ""
@@ -277,8 +277,8 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 					border = ""
 				}
 				metaBuilder.WriteString(fmt.Sprintf(`<tr>
-<td style="padding:12px 16px;font-size:13px;color:#6b7280;width:42%%;%s">%s</td>
-<td style="padding:12px 16px;font-size:15px;color:#111827;font-weight:600;%s">%s</td>
+<td style="padding:12px 16px;font-size:13px;color:#6b7280;width:42%%;%s;word-break:break-word;">%s</td>
+<td style="padding:12px 16px;font-size:15px;color:#111827;font-weight:600;%s;word-break:break-word;white-space:pre-wrap;">%s</td>
 </tr>
 `, border, template.HTMLEscapeString(row.Label), border, template.HTMLEscapeString(row.Value)))
 			}
@@ -293,7 +293,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 	if strings.TrimSpace(buttonText) != "" && strings.TrimSpace(buttonURL) != "" {
 		buttonSection = fmt.Sprintf(`<tr>
 <td align="center" style="padding: 6px 32px 36px 32px;">
-<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:600;">%s</a>
+<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:600;word-break:break-word;">%s</a>
 </td>
 </tr>`, template.HTMLEscapeString(buttonURL), template.HTMLEscapeString(buttonText))
 	}
@@ -305,11 +305,13 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 </tr>`, footerHTML)
 	}
 
-	logoHTML := getEmailLogoHTML()
-	if strings.TrimSpace(logoHTML) == "" {
-		logoHTML = `<div style="width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#0f172a,#1d4ed8);margin:0 auto 18px auto;display:flex;align-items:center;justify-content:center;">
-<span style="font-size:20px;font-weight:700;color:#ffffff;">CP</span>
-</div>`
+	logoHTML := strings.TrimSpace(getEmailLogoHTML())
+	logoSection := ""
+	headerPadding := "36px 32px 0 32px"
+	if logoHTML != "" {
+		logoSection = logoHTML
+	} else {
+		headerPadding = "32px 32px 0 32px"
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
@@ -323,15 +325,15 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 <table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#eef2f7;">
 <tr>
 <td align="center" style="padding: 28px 16px;">
-<table cellpadding="0" cellspacing="0" width="100%%" style="max-width:640px;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 18px 38px rgba(15,23,42,0.14);">
+<table cellpadding="0" cellspacing="0" width="100%%" style="max-width:640px;background-color:#ffffff;border-radius:18px;box-shadow:0 18px 38px rgba(15,23,42,0.14);">
 <tr>
-<td style="padding:36px 32px 0 32px;text-align:center;background-color:#ffffff;">
+<td style="padding:%s;text-align:center;background-color:#ffffff;">
 %s
-<h1 style="margin:0;font-size:24px;font-weight:700;color:#0f172a;">%s</h1>
+<h1 style="margin:0;font-size:24px;font-weight:700;color:#0f172a;word-break:break-word;">%s</h1>
 </td>
 </tr>
 <tr>
-<td style="padding:24px 32px 8px 32px;color:#1f2937;font-size:16px;line-height:1.75;">
+<td style="padding:24px 32px 8px 32px;color:#1f2937;font-size:16px;line-height:1.75;word-break:break-word;">
 %s
 </td>
 </tr>
@@ -343,7 +345,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 </tr>
 </table>
 </body>
-</html>`, template.HTMLEscapeString(subject), logoHTML, template.HTMLEscapeString(subject), contentBuilder.String(), metaSection, buttonSection, footerSection)
+</html>`, template.HTMLEscapeString(subject), headerPadding, logoSection, template.HTMLEscapeString(subject), contentBuilder.String(), metaSection, buttonSection, footerSection)
 }
 
 func sendMailSafe(to []string, subject, html string) {

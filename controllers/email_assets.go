@@ -12,14 +12,10 @@ import (
 )
 
 const (
-	emailLogoRelativePath = "templates/email_assets/fund_cpkku_logo.png"
-	emailLogoEnvPath      = "EMAIL_LOGO_PATH"
-	emailLogoEnvURL       = "EMAIL_LOGO_URL"
-	emailLogoEnvPaths     = "EMAIL_LOGO_PATHS"
-	emailLogoEnvURLs      = "EMAIL_LOGO_URLS"
-
-	defaultLogoPrimaryURL   = "https://i.ibb.co/PZqkKrQn/fund-cpkku-badge.png"
-	defaultLogoSecondaryURL = "https://i.ibb.co/Lh5Sp83m/kkufund-text.png"
+	emailLogoEnvPath  = "EMAIL_LOGO_PATH"
+	emailLogoEnvURL   = "EMAIL_LOGO_URL"
+	emailLogoEnvPaths = "EMAIL_LOGO_PATHS"
+	emailLogoEnvURLs  = "EMAIL_LOGO_URLS"
 )
 
 var (
@@ -62,11 +58,7 @@ func loadLogoHTMLSnippets() []string {
 	if len(paths) == 0 {
 		if single := strings.TrimSpace(os.Getenv(emailLogoEnvPath)); single != "" {
 			paths = append(paths, single)
-		} else {
-			paths = append(paths, emailLogoRelativePath)
 		}
-	} else {
-		paths = append(paths, emailLogoRelativePath)
 	}
 
 	snippets := make([]string, 0, len(paths))
@@ -83,14 +75,7 @@ func loadLogoHTMLSnippets() []string {
 			snippets = append(snippets, html)
 		}
 	}
-	if len(snippets) > 0 {
-		return snippets
-	}
-
-	return []string{
-		renderLogoURL(defaultLogoPrimaryURL),
-		renderLogoURL(defaultLogoSecondaryURL),
-	}
+	return snippets
 }
 
 func parseLogoList(raw string) []string {
