@@ -114,7 +114,6 @@ def _click_texty_buttons(driver, scope, texts, max_round=60):
             els = scope.find_elements(By.XPATH, xp)
         except Exception:
             els = []
-
         for el in els:
             try:
                 driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
@@ -129,7 +128,6 @@ def _click_texty_buttons(driver, scope, texts, max_round=60):
                     break
             except Exception:
                 pass
-
         if not clicked:
             break
 
@@ -138,7 +136,7 @@ def _load_everything_in_view(driver):
         driver, driver,
         ["โหลดเพิ่ม","โหลดเพิ่มเติม","ดูเพิ่มเติม","เพิ่มเติม",
          "Load more","More","Show more","Next","ถัดไป"],
-        max_round=80
+         max_round=80
     )
     sc = _largest_scrollable_container(driver)
     if sc:
@@ -317,54 +315,44 @@ def _has_edu_keyword(t):
 
 def _clean_text(s): return re.sub(r"\s+"," ", s or "").strip()
 
-def parse_education(soup) -> str:
-    if not soup: return ""
-    tb_list = soup.select("table")
-    for tb in tb_list:
-        rows = []
-        trs = tb.select("tbody tr") or tb.select("tr")
-        for tr in trs:
-            if tr.find("th"): continue
-            for td in tr.find_all("td"):
-                for br in td.find_all("br"): br.replace_with("\n")
-            cols = [_clean_text(td.get_text(" ", strip=True)) for td in tr.find_all("td")]
-            line = " | ".join([c for c in cols if c])
-            if line: rows.append(line)
-        if rows: return "\n".join(rows)
-    items = [_clean_text(li.get_text(" ", strip=True)) for li in soup.select("ul li, ol li")]
-    items = [i for i in items if i]
-    if items: return "\n".join(items)
-    blocks = []
-    for tag in soup.select("p, div, span"):
-        for br in tag.find_all("br"): br.replace_with("\n")
-        t = tag.get_text("\n", strip=True)
-        for ln in (s.strip() for s in t.split("\n") if s.strip()):
-            if _has_edu_keyword(ln) or re.search(r"(Bachelor|Master|Ph\.?D|มหาวิทยาลัย|ปริญญา|วุฒิ)", ln, re.I):
-                blocks.append(_clean_text(ln))
-    if blocks:
-        seen, out = set(), []
-        for b in blocks:
-            if b not in seen: seen.add(b); out.append(b)
-        return "\n".join(out)
-    return _clean_text(soup.get_text(" ", strip=True))
+def parse_education(tab_soup):
+    if not tab_soup:
+        return ""
+    return clean_text(tab_soup.get_text(separator="\n"))
 
-def parse_info_and_position(soup):
-    texts = []
-    for cand in soup.select("ul,ol,p,table,tr,td,div,span"):
-        t = cand.get_text(" ", strip=True)
-        if t and len(t) > 3: texts.append(t)
-    info_text = "\n".join(texts).strip()
+EXCLUDE_LINES = [ "เกี่ยวกับเรา", "ติดต่อเรา", "เข้าสู่ระบบ", "ข่าวสาร",
+"สิ่งอำนวยความสะดวก", "123 ถ.มิตรภาพ", "College of Computing", "ค้นหา", "A-", "A+", "|"]
+def clean_text(text):
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return "\n".join(l for l in lines if not any(ex in l for ex in EXCLUDE_LINES))
+
+def parse_info_and_position(tab_soup):
+    if not tab_soup:
+        return "", ""
+    info_text = clean_text(tab_soup.get_text(separator="\n"))
     position = ""
-    for line in info_text.splitlines():
-        if "ตำแหน่ง" in line:
-            m = re.search(r"ตำแหน่ง[:：]?\s*(.+)", line)
-            if m: position = m.group(1).strip(); break
+    for tag in tab_soup.find_all(["p", "div", "span"]):
+        if "อาจารย์" in tag.get_text():
+            position = tag.get_text(strip=True)
+            break
     return info_text, position
 
 def scrape_profile(driver, url):
     driver.get(url)
-    wait_ready(driver); time.sleep(0.35)
+    wait_ready(driver)
+    # รอให้ข้อมูลที่โหลดด้วย JavaScript เข้ามาครบก่อน
+    try:
+        WebDriverWait(driver, 10).until(
+            lambda d: any(k in d.page_source for k in ["วุฒิ","ปริญญา","Bachelor","Master","Ph.D","PhD","Degree"])
+        )
+    except Exception:
+        pass
     soup = BeautifulSoup(driver.page_source, "html.parser")
+    tabpanels = soup.select('div[role="tabpanel"]')
+    info_tab = tabpanels[0] if len(tabpanels) > 0 else None
+    edu_tab = tabpanels[1] if len(tabpanels) > 1 else None
+    info_text, position = parse_info_and_position(info_tab)
+    education = parse_education(edu_tab)
 
     title = text_or(soup.select_one('meta[property="og:title"]'))
     og_image = text_or(soup.select_one('meta[property="og:image"]'))
@@ -373,27 +361,20 @@ def scrape_profile(driver, url):
         h = soup.find(["h1","h2","h3"])
         if h: name_th, name_en = extract_names_from_title(h.get_text(" ", strip=True))
 
-    info_text, position = parse_info_and_position(soup)
+    # กรองข้อมูล info ไม่ให้มีข้อมูลการศึกษาปน
+    if info_text:
+        info_lines = []
+        for line in info_text.splitlines():
+            low_line = line.lower()
+            if ("วุฒิ" in low_line or "วุฒิการศึกษา" in low_line or "ประวัติการศึกษา" in low_line or
+                "ปริญญา" in low_line or "bachelor" in low_line or "master" in low_line or
+                "ph.d" in low_line or "phd" in low_line or "degree" in low_line or "education" in low_line):
+                continue
+            info_lines.append(line)
+        info_text = "\n".join(info_lines).strip()
 
-    # การศึกษา (ลองคลิกแท็บ ถ้ามี)
-    education = ""
-    for t in EDU_TAB_TEXTS:
-        tabs = driver.find_elements(By.CSS_SELECTOR, "[role='tab'], .v-tab, button, a")
-        trg = None
-        for x in tabs:
-            txt = (x.text or "").strip()
-            if t in txt: trg = x; break
-        if trg:
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", trg)
-                time.sleep(0.1)
-                try: trg.click()
-                except Exception: driver.execute_script("arguments[0].click();", trg)
-                time.sleep(0.4)
-                education = parse_education(BeautifulSoup(driver.page_source, "html.parser")).strip()
-                if education: break
-            except Exception:
-                pass
+    # การศึกษา: ดึงข้อมูลการศึกษาจากหน้าโดยตรง (ไม่ต้องคลิกแท็บ)
+    education = parse_education(soup).strip()
 
     # email
     email = ""
