@@ -33,6 +33,11 @@ type KkuPeopleImportSummary struct {
 	DryRun       bool `json:"dry_run"`
 }
 
+type profileLinkStats struct {
+	ByEmail      int64
+	ByProfileURL int64
+}
+
 type KkuPeopleImportInput struct {
 	DryRun        bool
 	Debug         bool
@@ -175,6 +180,12 @@ func (s *KkuPeopleImportJobService) Run(ctx context.Context, input *KkuPeopleImp
 			procErr := s.processPeople(ctx, people, summary, input.DryRun)
 			if procErr != nil {
 				finalErr = procErr
+			} else if !input.DryRun {
+				if stats, linkErr := s.reconcileProfiles(ctx); linkErr != nil {
+					finalErr = linkErr
+				} else if stats != nil {
+					log.Printf("linked cp_profile rows: %d by email, %d by profile url", stats.ByEmail, stats.ByProfileURL)
+				}
 			}
 		}
 	}
@@ -362,6 +373,46 @@ func (s *KkuPeopleImportJobService) processPeople(ctx context.Context, people []
 	}
 
 	return nil
+}
+
+func (s *KkuPeopleImportJobService) reconcileProfiles(ctx context.Context) (*profileLinkStats, error) {
+	stats := &profileLinkStats{}
+
+	emailUpdate := s.db.WithContext(ctx).Exec(`
+                UPDATE cp_profile p
+                JOIN users u ON u.email IS NOT NULL AND u.email <> ''
+                        AND p.email IS NOT NULL AND p.email <> ''
+                        AND LOWER(TRIM(u.email)) = LOWER(TRIM(p.email))
+                SET p.user_id = u.user_id
+                WHERE p.user_id IS NULL
+        `)
+	if emailUpdate.Error != nil {
+		return nil, emailUpdate.Error
+	}
+	stats.ByEmail = emailUpdate.RowsAffected
+
+	normalize := func(column string) string {
+		return fmt.Sprintf(
+			"TRIM(BOTH '/' FROM REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(%s), 'https://', ''), 'http://', ''), 'www.', ''), 'computing.kku.ac.th/', ''), 'computing.kku.ac.th', '')))",
+			column,
+		)
+	}
+
+	profileUpdate := s.db.WithContext(ctx).Exec(fmt.Sprintf(`
+                UPDATE cp_profile p
+                JOIN users u ON u.CP_WEB_ID IS NOT NULL AND u.CP_WEB_ID <> ''
+                        AND p.profile_url IS NOT NULL AND p.profile_url <> ''
+                        AND %s <> '' AND %s <> ''
+                        AND %s = %s
+                SET p.user_id = u.user_id
+                WHERE p.user_id IS NULL
+        `, normalize("u.CP_WEB_ID"), normalize("p.profile_url"), normalize("u.CP_WEB_ID"), normalize("p.profile_url")))
+	if profileUpdate.Error != nil {
+		return nil, profileUpdate.Error
+	}
+	stats.ByProfileURL = profileUpdate.RowsAffected
+
+	return stats, nil
 }
 
 func profilesEqual(a *models.CpProfile, b *models.CpProfile) bool {
