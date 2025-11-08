@@ -392,10 +392,11 @@ func (s *KkuPeopleImportJobService) reconcileProfiles(ctx context.Context) (*pro
 	stats.ByEmail = emailUpdate.RowsAffected
 
 	normalize := func(column string) string {
-		return fmt.Sprintf(
-			"TRIM(BOTH '/' FROM REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(%s), 'https://', ''), 'http://', ''), 'www.', ''), 'computing.kku.ac.th/', ''), 'computing.kku.ac.th', '')))",
-			column,
-		)
+		expr := fmt.Sprintf("LOWER(COALESCE(%s, ''))", column)
+		for _, pattern := range []string{"https://", "http://", "www.", "computing.kku.ac.th/", "computing.kku.ac.th"} {
+			expr = fmt.Sprintf("REPLACE(%s, '%s', '')", expr, pattern)
+		}
+		return fmt.Sprintf("TRIM(BOTH '/' FROM %s)", expr)
 	}
 
 	profileUpdate := s.db.WithContext(ctx).Exec(fmt.Sprintf(`
