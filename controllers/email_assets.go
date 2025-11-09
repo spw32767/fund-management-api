@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,16 +73,13 @@ func loadLogoHTMLSnippets() []string {
 
 	snippets := make([]string, 0, len(paths))
 	for _, candidate := range paths {
-		if strings.TrimSpace(candidate) == "" {
-			continue
-		}
-		html, err := renderLogoPath(candidate)
+		snippet, err := renderLogoCandidate(candidate)
 		if err != nil {
 			log.Printf("email header logo not loaded from %s: %v", candidate, err)
 			continue
 		}
-		if html != "" {
-			snippets = append(snippets, html)
+		if snippet != "" {
+			snippets = append(snippets, snippet)
 		}
 	}
 	return snippets
@@ -117,6 +115,29 @@ func renderLogoURL(url string) string {
 	return fmt.Sprintf(`<img src="%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:72px;width:auto;" />`, escaped)
 }
 
+func renderLogoCandidate(candidate string) (string, error) {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return "", nil
+	}
+	lower := strings.ToLower(candidate)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return renderLogoURL(candidate), nil
+	}
+
+	html, err := renderLogoPath(candidate)
+	if err == nil && html != "" {
+		return html, nil
+	}
+	if fallbackURL := resolveBackendAssetURL(candidate); fallbackURL != "" {
+		return renderLogoURL(fallbackURL), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
 func renderLogoPath(candidate string) (string, error) {
 	path, err := resolveEmailAssetPath(candidate)
 	if err != nil {
@@ -130,6 +151,27 @@ func renderLogoPath(candidate string) (string, error) {
 
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf(`<img src="data:image/png;base64,%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:72px;width:auto;" />`, encoded), nil
+}
+
+func resolveBackendAssetURL(candidate string) string {
+	base := appBackendBaseURL()
+	if base == "" {
+		return ""
+	}
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return ""
+	}
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	ref, err := url.Parse(candidate)
+	if err != nil {
+		return ""
+	}
+	resolved := baseURL.ResolveReference(ref)
+	return resolved.String()
 }
 
 func resolveEmailAssetPath(candidate string) (string, error) {
