@@ -401,13 +401,14 @@ func GetAllSubcategories(c *gin.Context) {
 
 	// Use raw SQL to avoid table name and column issues
 	baseQuery := `
-		SELECT 
-			fs.subcategory_id,
-			fs.category_id,
-			fs.subcategory_name,
-			fs.fund_condition,
-			fs.target_roles,
-			fs.status,
+                SELECT
+                        fs.subcategory_id,
+                        fs.category_id,
+                        fs.subcategory_name,
+                        fs.subcategory_code,
+                        fs.fund_condition,
+                        fs.target_roles,
+                        fs.status,
 			fs.comment,
 			fs.create_at,
 			fs.update_at,
@@ -443,6 +444,7 @@ func GetAllSubcategories(c *gin.Context) {
 			subcategoryID   int
 			categoryID      int
 			subcategoryName string
+			subcategoryCode *string
 			fundCondition   *string
 			targetRoles     *string
 			status          string
@@ -456,6 +458,7 @@ func GetAllSubcategories(c *gin.Context) {
 			&subcategoryID,
 			&categoryID,
 			&subcategoryName,
+			&subcategoryCode,
 			&fundCondition,
 			&targetRoles,
 			&status,
@@ -478,6 +481,7 @@ func GetAllSubcategories(c *gin.Context) {
 			"subcategory_id":   subcategoryID,
 			"category_id":      categoryID,
 			"subcategory_name": subcategoryName,
+			"subcategory_code": nil,
 			"fund_condition":   fundCondition,
 			"target_roles":     targetRolesList,
 			"status":           status,
@@ -488,6 +492,10 @@ func GetAllSubcategories(c *gin.Context) {
 				"category_id":   categoryID,
 				"category_name": categoryName,
 			},
+		}
+
+		if subcategoryCode != nil {
+			subcategory["subcategory_code"] = *subcategoryCode
 		}
 
 		subcategories = append(subcategories, subcategory)
@@ -512,6 +520,7 @@ func CreateSubcategory(c *gin.Context) {
 	type CreateSubcategoryRequest struct {
 		CategoryID      int      `json:"category_id" binding:"required"`
 		SubcategoryName string   `json:"subcategory_name" binding:"required"`
+		SubcategoryCode *string  `json:"subcategory_code"`
 		FundCondition   string   `json:"fund_condition"`
 		TargetRoles     []string `json:"target_roles"`
 		Comment         string   `json:"comment"`
@@ -564,9 +573,18 @@ func CreateSubcategory(c *gin.Context) {
 		comment = &req.Comment
 	}
 
+	var subcategoryCode *string
+	if req.SubcategoryCode != nil {
+		trimmed := strings.TrimSpace(*req.SubcategoryCode)
+		if trimmed != "" {
+			subcategoryCode = &trimmed
+		}
+	}
+
 	subcategory := models.FundSubcategory{
 		CategoryID:      req.CategoryID,
 		SubcategoryName: req.SubcategoryName,
+		SubcategoryCode: subcategoryCode,
 		FundCondition:   fundCondition,
 		TargetRoles:     targetRolesJSON,
 		Status:          "active",
@@ -601,6 +619,7 @@ func UpdateSubcategory(c *gin.Context) {
 	type UpdateSubcategoryRequest struct {
 		CategoryID      int      `json:"category_id"`
 		SubcategoryName string   `json:"subcategory_name"`
+		SubcategoryCode *string  `json:"subcategory_code"`
 		FundCondition   string   `json:"fund_condition"`
 		TargetRoles     []string `json:"target_roles"`
 		Status          string   `json:"status"`
@@ -659,6 +678,16 @@ func UpdateSubcategory(c *gin.Context) {
 	}
 	if req.SubcategoryName != "" {
 		updates["subcategory_name"] = req.SubcategoryName
+	}
+	if req.SubcategoryCode != nil {
+		trimmed := strings.TrimSpace(*req.SubcategoryCode)
+		if trimmed == "" {
+			updates["subcategory_code"] = nil
+			subcategory.SubcategoryCode = nil
+		} else {
+			updates["subcategory_code"] = trimmed
+			subcategory.SubcategoryCode = &trimmed
+		}
 	}
 	if req.FundCondition != "" {
 		updates["fund_condition"] = req.FundCondition
