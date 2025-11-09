@@ -32,7 +32,7 @@ func getEmailLogoHTML() string {
 		}
 
 		emailLogoHTML = fmt.Sprintf(
-			`<div style="display:flex;justify-content:center;align-items:center;gap:18px;margin:0 auto 18px auto;flex-wrap:wrap;">%s</div>`,
+			`<div style="text-align:center;margin:0 auto 18px auto;">%s</div>`,
 			strings.Join(snippets, ""),
 		)
 	})
@@ -44,7 +44,7 @@ func renderLogoURL(url string) string {
 	if escaped == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<img src="%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:64px;width:auto;max-width:100%%;object-fit:contain;" />`, escaped)
+	return fmt.Sprintf("<span style=\"display:inline-block;margin:0 12px;\"><img src=\"%s\" alt=\"ระบบบริหารจัดการทุนวิจัย\" style=\"display:block;height:64px;width:auto;max-width:100%%;object-fit:contain;\" /></span>", escaped)
 }
 
 func parseLogoList(raw string) []string {

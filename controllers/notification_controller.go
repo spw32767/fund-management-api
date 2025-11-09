@@ -299,6 +299,11 @@ type emailMetaItem struct {
 	Value string
 }
 
+var basicHTMLReplacer = strings.NewReplacer(
+	"&lt;strong&gt;", "<strong>",
+	"&lt;/strong&gt;", "</strong>",
+)
+
 func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaItem, buttonText, buttonURL, footerHTML string) string {
 	var contentBuilder strings.Builder
 	for _, paragraph := range paragraphs {
@@ -309,6 +314,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 		escaped := template.HTMLEscapeString(trimmed)
 		escaped = strings.ReplaceAll(strings.ReplaceAll(escaped, "\r\n", "\n"), "\r", "\n")
 		escaped = strings.ReplaceAll(escaped, "\n", "<br />")
+		escaped = basicHTMLReplacer.Replace(escaped)
 		contentBuilder.WriteString(`<p style="margin:0 0 18px 0;line-height:1.7;word-break:break-word;">`)
 		contentBuilder.WriteString(escaped)
 		contentBuilder.WriteString(`</p>`)
