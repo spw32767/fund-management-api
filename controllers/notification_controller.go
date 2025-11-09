@@ -230,11 +230,32 @@ func getApprovedAmountDisplay(db *gorm.DB, sub submissionLite) (string, bool) {
 }
 
 func appBaseURL() string {
-	base := os.Getenv("APP_BASE_URL")
-	if base == "" {
-		base = "http://10.198.110.27:3000/"
+	raw := os.Getenv("APP_BASE_URL")
+	candidates := parseLogoList(raw)
+	if len(candidates) == 0 {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			candidates = append(candidates, trimmed)
+		}
 	}
-	return base
+
+	for _, candidate := range candidates {
+		if normalized := normalizeBaseURL(candidate); normalized != "" {
+			return normalized
+		}
+	}
+
+	return ""
+}
+
+func normalizeBaseURL(candidate string) string {
+	trimmed := strings.TrimSpace(candidate)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.HasSuffix(trimmed, "/") {
+		trimmed += "/"
+	}
+	return trimmed
 }
 
 type emailMetaItem struct {

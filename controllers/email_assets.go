@@ -23,6 +23,11 @@ var (
 	emailLogoHTML string
 )
 
+var defaultEmailLogoPaths = []string{
+	"uploads/email_assets/iconcpkku.png",
+	"uploads/email_assets/fund_cpkku_logo.png",
+}
+
 func getEmailLogoHTML() string {
 	emailLogoOnce.Do(func() {
 		logos := loadLogoHTMLSnippets()
@@ -59,6 +64,10 @@ func loadLogoHTMLSnippets() []string {
 		if single := strings.TrimSpace(os.Getenv(emailLogoEnvPath)); single != "" {
 			paths = append(paths, single)
 		}
+	}
+
+	if len(paths) == 0 {
+		paths = append(paths, defaultEmailLogoPaths...)
 	}
 
 	snippets := make([]string, 0, len(paths))
