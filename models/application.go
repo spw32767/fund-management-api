@@ -63,9 +63,10 @@ type FundCategory struct {
 }
 
 type FundSubcategory struct {
-	SubcategoryID   int    `gorm:"primaryKey;column:subcategory_id" json:"subcategory_id"`
-	CategoryID      int    `gorm:"column:category_id" json:"category_id"`
-	SubcategoryName string `gorm:"column:subcategory_name" json:"subcategory_name"`
+	SubcategoryID   int     `gorm:"primaryKey;column:subcategory_id" json:"subcategory_id"`
+	CategoryID      int     `gorm:"column:category_id" json:"category_id"`
+	SubcategoryName string  `gorm:"column:subcategory_name" json:"subcategory_name"`
+	SubcategoryCode *string `gorm:"column:subcategory_code" json:"subcategory_code,omitempty"`
 	//YearID          int        `gorm:"column:year_id" json:"year_id"`
 	FundCondition *string    `gorm:"column:fund_condition" json:"fund_condition"`
 	TargetRoles   *string    `gorm:"column:target_roles" json:"target_roles"` // Updated to include target_roles
