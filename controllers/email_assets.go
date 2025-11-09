@@ -25,6 +25,8 @@ var (
 )
 
 var defaultEmailLogoPaths = []string{
+	"https://api.computing.kku.ac.th//storage/images/1663735797-CPlogo-final-01.png",
+	"http://147.50.230.213:8080/uploads/email_assets/fund_cpkku_logo.png",
 	"uploads/email_assets/iconcpkku.png",
 	"uploads/email_assets/fund_cpkku_logo.png",
 }
@@ -112,7 +114,7 @@ func renderLogoURL(url string) string {
 	if escaped == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<img src="%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:72px;width:auto;" />`, escaped)
+	return fmt.Sprintf(`<img src="%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:64px;width:auto;max-width:100%%;object-fit:contain;" />`, escaped)
 }
 
 func renderLogoCandidate(candidate string) (string, error) {
@@ -150,7 +152,7 @@ func renderLogoPath(candidate string) (string, error) {
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(data)
-	return fmt.Sprintf(`<img src="data:image/png;base64,%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:72px;width:auto;" />`, encoded), nil
+	return fmt.Sprintf(`<img src="data:image/png;base64,%s" alt="ระบบบริหารจัดการทุนวิจัย" style="display:block;height:64px;width:auto;max-width:100%%;object-fit:contain;" />`, encoded), nil
 }
 
 func resolveBackendAssetURL(candidate string) string {
