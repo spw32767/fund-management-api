@@ -306,8 +306,11 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 		if trimmed == "" {
 			continue
 		}
-		contentBuilder.WriteString(`<p style="margin:0 0 18px 0;line-height:1.7;word-break:break-word;white-space:pre-wrap;">`)
-		contentBuilder.WriteString(trimmed)
+		escaped := template.HTMLEscapeString(trimmed)
+		escaped = strings.ReplaceAll(strings.ReplaceAll(escaped, "\r\n", "\n"), "\r", "\n")
+		escaped = strings.ReplaceAll(escaped, "\n", "<br />")
+		contentBuilder.WriteString(`<p style="margin:0 0 18px 0;line-height:1.7;word-break:break-word;">`)
+		contentBuilder.WriteString(escaped)
 		contentBuilder.WriteString(`</p>`)
 	}
 
