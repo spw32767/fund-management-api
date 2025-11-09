@@ -306,7 +306,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 		if trimmed == "" {
 			continue
 		}
-		contentBuilder.WriteString(`<p style="margin:0 0 16px 0;word-break:break-word;white-space:pre-wrap;">`)
+		contentBuilder.WriteString(`<p style="margin:0 0 18px 0;line-height:1.7;word-break:break-word;white-space:pre-wrap;">`)
 		contentBuilder.WriteString(trimmed)
 		contentBuilder.WriteString(`</p>`)
 	}
@@ -327,6 +327,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 			var metaBuilder strings.Builder
 			metaBuilder.WriteString(`<tr><td style="padding:0 32px 24px 32px;">
 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #e5e7eb;border-radius:12px;background-color:#f9fafb;">
+<tbody>
 `)
 			for i, row := range rows {
 				border := "border-bottom:1px solid #e5e7eb;"
@@ -334,12 +335,13 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 					border = ""
 				}
 				metaBuilder.WriteString(fmt.Sprintf(`<tr>
-<td style="padding:12px 16px;font-size:13px;color:#6b7280;width:42%%;%s;word-break:break-word;">%s</td>
+<td style="padding:12px 16px;font-size:13px;color:#6b7280;width:38%%;%s;word-break:break-word;">%s</td>
 <td style="padding:12px 16px;font-size:15px;color:#111827;font-weight:600;%s;word-break:break-word;white-space:pre-wrap;">%s</td>
 </tr>
 `, border, template.HTMLEscapeString(row.Label), border, template.HTMLEscapeString(row.Value)))
 			}
-			metaBuilder.WriteString(`</table>
+			metaBuilder.WriteString(`</tbody>
+</table>
 </td></tr>
 `)
 			metaSection = metaBuilder.String()
@@ -349,8 +351,8 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 	buttonSection := ""
 	if strings.TrimSpace(buttonText) != "" && strings.TrimSpace(buttonURL) != "" {
 		buttonSection = fmt.Sprintf(`<tr>
-<td align="center" style="padding: 6px 32px 36px 32px;">
-<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:600;word-break:break-word;">%s</a>
+<td align="center" style="padding: 12px 32px 36px 32px;">
+<a href="%s" style="display:inline-block;padding:12px 28px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:600;word-break:break-word;">%s</a>
 </td>
 </tr>`, template.HTMLEscapeString(buttonURL), template.HTMLEscapeString(buttonText))
 	}
@@ -358,7 +360,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 	footerSection := ""
 	if strings.TrimSpace(footerHTML) != "" {
 		footerSection = fmt.Sprintf(`<tr>
-<td style="padding: 0 32px 32px 32px; color:#6b7280; font-size:13px; line-height:1.6;">%s</td>
+<td style="padding: 0 32px 32px 32px; color:#6b7280; font-size:13px; line-height:1.7;">%s</td>
 </tr>`, footerHTML)
 	}
 
@@ -378,15 +380,16 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%s</title>
 </head>
-<body style="margin:0;padding:0;background-color:#eef2f7;">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#eef2f7;">
+<body style="margin:0;padding:0;background-color:#f4f6fb;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="background-color:#f4f6fb;">
 <tr>
-<td align="center" style="padding: 28px 16px;">
-<table cellpadding="0" cellspacing="0" width="100%%" style="max-width:640px;background-color:#ffffff;border-radius:18px;box-shadow:0 18px 38px rgba(15,23,42,0.14);">
+<td align="center" style="padding:32px 16px;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%%" style="max-width:600px;background-color:#ffffff;border-radius:16px;border:1px solid #e5e7eb;">
+<tbody>
 <tr>
-<td style="padding:%s;text-align:center;background-color:#ffffff;">
+<td style="padding:%s;text-align:center;border-bottom:1px solid #f3f4f6;">
 %s
-<h1 style="margin:0;font-size:24px;font-weight:700;color:#0f172a;word-break:break-word;">%s</h1>
+<h1 style="margin:18px 0 0 0;font-size:22px;font-weight:700;color:#111827;line-height:1.35;word-break:break-word;">%s</h1>
 </td>
 </tr>
 <tr>
@@ -397,6 +400,7 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 %s
 %s
 %s
+</tbody>
 </table>
 </td>
 </tr>
