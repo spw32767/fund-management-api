@@ -18,14 +18,6 @@ func ValidatePassword(password string) (bool, string) {
 		return false, "Password must be at least 8 characters"
 	}
 
-	hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
-	hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
-	hasNumber := regexp.MustCompile(`[0-9]`).MatchString(password)
-
-	if !hasUpper || !hasLower || !hasNumber {
-		return false, "Password must contain uppercase, lowercase, and numbers"
-	}
-
 	return true, ""
 }
 
