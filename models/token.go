@@ -14,6 +14,7 @@ type UserToken struct {
 	IsRevoked  bool      `gorm:"column:is_revoked" json:"is_revoked"`
 	DeviceInfo string    `gorm:"column:device_info" json:"device_info,omitempty"`
 	IPAddress  string    `gorm:"column:ip_address" json:"ip_address,omitempty"`
+	UserAgent  string    `gorm:"column:user_agent" json:"user_agent,omitempty"`
 	CreatedAt  time.Time `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt  time.Time `gorm:"column:updated_at" json:"updated_at"`
 
