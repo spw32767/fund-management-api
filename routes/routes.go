@@ -442,17 +442,19 @@ func SetupRoutes(router *gin.Engine) {
 
 				projectTypes := admin.Group("/project-types")
 				{
-					projectTypes.GET("", controllers.GetProjectTypes)          // GET /api/v1/admin/project-types
-					projectTypes.POST("", controllers.CreateProjectType)       // POST /api/v1/admin/project-types
-					projectTypes.PUT("/:id", controllers.UpdateProjectType)    // PUT /api/v1/admin/project-types/:id
+					projectTypes.GET("", controllers.GetProjectTypes)       // GET /api/v1/admin/project-types
+					projectTypes.POST("", controllers.CreateProjectType)    // POST /api/v1/admin/project-types
+					projectTypes.PUT("/:id", controllers.UpdateProjectType) // PUT /api/v1/admin/project-types/:id
+					projectTypes.PUT("/reorder", controllers.ReorderProjectTypes)
 					projectTypes.DELETE("/:id", controllers.DeleteProjectType) // DELETE /api/v1/admin/project-types/:id
 				}
 
 				projectPlans := admin.Group("/project-budget-plans")
 				{
-					projectPlans.GET("", controllers.GetProjectBudgetPlans)          // GET /api/v1/admin/project-budget-plans
-					projectPlans.POST("", controllers.CreateProjectBudgetPlan)       // POST /api/v1/admin/project-budget-plans
-					projectPlans.PUT("/:id", controllers.UpdateProjectBudgetPlan)    // PUT /api/v1/admin/project-budget-plans/:id
+					projectPlans.GET("", controllers.GetProjectBudgetPlans)       // GET /api/v1/admin/project-budget-plans
+					projectPlans.POST("", controllers.CreateProjectBudgetPlan)    // POST /api/v1/admin/project-budget-plans
+					projectPlans.PUT("/:id", controllers.UpdateProjectBudgetPlan) // PUT /api/v1/admin/project-budget-plans/:id
+					projectPlans.PUT("/reorder", controllers.ReorderProjectBudgetPlans)
 					projectPlans.DELETE("/:id", controllers.DeleteProjectBudgetPlan) // DELETE /api/v1/admin/project-budget-plans/:id
 				}
 

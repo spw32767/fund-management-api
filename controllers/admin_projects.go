@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"fund-management-api/config"
@@ -370,6 +371,22 @@ func CreateProjectType(c *gin.Context) {
 		return
 	}
 
+	trimmedNameTH := strings.TrimSpace(req.NameTH)
+	if trimmedNameTH == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ต้องระบุชื่อภาษาไทย"})
+		return
+	}
+
+	duplicate, err := projectTypeNameExists(trimmedNameTH, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลได้"})
+		return
+	}
+	if duplicate {
+		c.JSON(http.StatusConflict, gin.H{"error": "ชื่อซ้ำกัน"})
+		return
+	}
+
 	order := 1
 	if req.DisplayOrder != nil {
 		order = *req.DisplayOrder
@@ -385,8 +402,8 @@ func CreateProjectType(c *gin.Context) {
 	}
 
 	projectType := models.ProjectType{
-		NameTH:       req.NameTH,
-		NameEN:       req.NameEN,
+		NameTH:       trimmedNameTH,
+		NameEN:       strings.TrimSpace(req.NameEN),
 		DisplayOrder: order,
 		IsActive:     isActive,
 	}
@@ -441,10 +458,24 @@ func UpdateProjectType(c *gin.Context) {
 	updates := map[string]interface{}{}
 
 	if req.NameTH != nil {
-		updates["name_th"] = *req.NameTH
+		trimmed := strings.TrimSpace(*req.NameTH)
+		if trimmed == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ต้องระบุชื่อภาษาไทย"})
+			return
+		}
+		duplicate, err := projectTypeNameExists(trimmed, uint(typeID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลได้"})
+			return
+		}
+		if duplicate {
+			c.JSON(http.StatusConflict, gin.H{"error": "ชื่อซ้ำกัน"})
+			return
+		}
+		updates["name_th"] = trimmed
 	}
 	if req.NameEN != nil {
-		updates["name_en"] = *req.NameEN
+		updates["name_en"] = strings.TrimSpace(*req.NameEN)
 	}
 	if req.DisplayOrder != nil {
 		updates["display_order"] = *req.DisplayOrder
@@ -518,6 +549,22 @@ func CreateProjectBudgetPlan(c *gin.Context) {
 		return
 	}
 
+	trimmedNameTH := strings.TrimSpace(req.NameTH)
+	if trimmedNameTH == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ต้องระบุชื่อภาษาไทย"})
+		return
+	}
+
+	duplicate, err := budgetPlanNameExists(trimmedNameTH, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลได้"})
+		return
+	}
+	if duplicate {
+		c.JSON(http.StatusConflict, gin.H{"error": "ชื่อซ้ำกัน"})
+		return
+	}
+
 	order := 1
 	if req.DisplayOrder != nil {
 		order = *req.DisplayOrder
@@ -533,8 +580,8 @@ func CreateProjectBudgetPlan(c *gin.Context) {
 	}
 
 	plan := models.ProjectBudgetPlan{
-		NameTH:       req.NameTH,
-		NameEN:       req.NameEN,
+		NameTH:       trimmedNameTH,
+		NameEN:       strings.TrimSpace(req.NameEN),
 		DisplayOrder: order,
 		IsActive:     isActive,
 	}
@@ -589,10 +636,24 @@ func UpdateProjectBudgetPlan(c *gin.Context) {
 	updates := map[string]interface{}{}
 
 	if req.NameTH != nil {
-		updates["name_th"] = *req.NameTH
+		trimmed := strings.TrimSpace(*req.NameTH)
+		if trimmed == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ต้องระบุชื่อภาษาไทย"})
+			return
+		}
+		duplicate, err := budgetPlanNameExists(trimmed, uint(planID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลได้"})
+			return
+		}
+		if duplicate {
+			c.JSON(http.StatusConflict, gin.H{"error": "ชื่อซ้ำกัน"})
+			return
+		}
+		updates["name_th"] = trimmed
 	}
 	if req.NameEN != nil {
-		updates["name_en"] = *req.NameEN
+		updates["name_en"] = strings.TrimSpace(*req.NameEN)
 	}
 	if req.DisplayOrder != nil {
 		updates["display_order"] = *req.DisplayOrder
@@ -624,6 +685,120 @@ func DeleteProjectBudgetPlan(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusBadRequest, gin.H{"error": "Deleting project budget plans is not allowed"})
+}
+
+// ReorderProjectTypes updates the display order based on the provided sequence
+func ReorderProjectTypes(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	type request struct {
+		Order []uint `json:"order"`
+	}
+
+	var req request
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.Order) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่พบข้อมูลลำดับ"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	for index, id := range req.Order {
+		order := index + 1
+		if err := tx.Model(&models.ProjectType{}).Where("type_id = ?", id).Update("display_order", order).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกลำดับได้"})
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกลำดับได้"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "บันทึกลำดับประเภทโครงการเรียบร้อย"})
+}
+
+// ReorderProjectBudgetPlans updates the display order for budget plans based on the provided sequence
+func ReorderProjectBudgetPlans(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	type request struct {
+		Order []uint `json:"order"`
+	}
+
+	var req request
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.Order) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่พบข้อมูลลำดับ"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	for index, id := range req.Order {
+		order := index + 1
+		if err := tx.Model(&models.ProjectBudgetPlan{}).Where("plan_id = ?", id).Update("display_order", order).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกลำดับได้"})
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกลำดับได้"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "บันทึกลำดับแผนงบประมาณเรียบร้อย"})
+}
+
+func projectTypeNameExists(nameTH string, excludeID uint) (bool, error) {
+	trimmed := strings.TrimSpace(nameTH)
+	if trimmed == "" {
+		return false, nil
+	}
+
+	query := config.DB.Model(&models.ProjectType{}).Where("TRIM(name_th) = ?", trimmed)
+	if excludeID > 0 {
+		query = query.Where("type_id <> ?", excludeID)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func budgetPlanNameExists(nameTH string, excludeID uint) (bool, error) {
+	trimmed := strings.TrimSpace(nameTH)
+	if trimmed == "" {
+		return false, nil
+	}
+
+	query := config.DB.Model(&models.ProjectBudgetPlan{}).Where("TRIM(name_th) = ?", trimmed)
+	if excludeID > 0 {
+		query = query.Where("plan_id <> ?", excludeID)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // ensureProjectTypeExists checks if a project type exists
