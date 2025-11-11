@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1216,7 +1217,7 @@ func saveProjectAttachment(c *gin.Context, tx *gorm.DB, projectID uint, file *mu
 		StoredPath:   relativePath,
 		FileSize:     uint64(file.Size),
 		MimeType:     mimeType,
-		IsPublic:     false,
+		IsPublic:     true,
 		UploadedAt:   now,
 		CreateAt:     now,
 		UpdateAt:     now,
@@ -1303,6 +1304,86 @@ func getUploadRoot() string {
 		uploadRoot = "./uploads"
 	}
 	return uploadRoot
+}
+
+// DownloadProjectAttachment streams a public project attachment for viewing
+func DownloadProjectAttachment(c *gin.Context) {
+	projectIDParam := c.Param("projectId")
+	attachmentIDParam := c.Param("fileId")
+
+	projectID, err := strconv.ParseUint(projectIDParam, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project id"})
+		return
+	}
+
+	attachmentID, err := strconv.ParseUint(attachmentIDParam, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid attachment id"})
+		return
+	}
+
+	var attachment models.ProjectAttachment
+	query := config.DB.Where(
+		"project_id = ? AND file_id = ? AND delete_at IS NULL",
+		projectID,
+		attachmentID,
+	)
+
+	if roleIDValue, exists := c.Get("roleID"); !exists || roleIDValue.(int) != 3 {
+		query = query.Where("is_public = ?", true)
+	}
+
+	if err := query.First(&attachment).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load attachment"})
+		return
+	}
+
+	storedPath := strings.TrimSpace(attachment.StoredPath)
+	if storedPath == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Attachment path missing"})
+		return
+	}
+
+	uploadRoot := filepath.Clean(getUploadRoot())
+	fullPath := filepath.Join(uploadRoot, filepath.FromSlash(storedPath))
+
+	// Prevent path traversal outside the upload root
+	if !strings.HasPrefix(fullPath, uploadRoot+string(os.PathSeparator)) && fullPath != uploadRoot {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid attachment path"})
+		return
+	}
+
+	if _, err := os.Stat(fullPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read attachment"})
+		return
+	}
+
+	mimeType := strings.TrimSpace(attachment.MimeType)
+	if mimeType == "" {
+		mimeType = utils.GetMimeTypeFromExtension(filepath.Ext(attachment.OriginalName))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+	}
+
+	displayName := strings.TrimSpace(attachment.OriginalName)
+	if displayName == "" {
+		displayName = filepath.Base(fullPath)
+	}
+
+	encodedName := url.PathEscape(displayName)
+	c.Header("Content-Type", mimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", displayName, encodedName))
+	c.File(fullPath)
 }
 
 // ensureProjectTypeExists checks if a project type exists
