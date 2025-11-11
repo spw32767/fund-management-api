@@ -29,14 +29,7 @@ func ensureAdmin(c *gin.Context) bool {
 	return true
 }
 
-// ===================== PROJECTS =====================
-
-// GetProjects lists all projects for admin management
-func GetProjects(c *gin.Context) {
-	if !ensureAdmin(c) {
-		return
-	}
-
+func fetchProjectsWithFilters(c *gin.Context) ([]models.Project, error) {
 	var projects []models.Project
 	query := config.DB.Model(&models.Project{}).
 		Preload("Type").
@@ -45,36 +38,96 @@ func GetProjects(c *gin.Context) {
 			return db.Order("display_order ASC, file_id ASC")
 		})
 
-	if typeID := c.Query("type_id"); typeID != "" {
+	if typeID := strings.TrimSpace(c.Query("type_id")); typeID != "" {
 		query = query.Where("type_id = ?", typeID)
 	}
-	if planID := c.Query("plan_id"); planID != "" {
+	if planID := strings.TrimSpace(c.Query("plan_id")); planID != "" {
 		query = query.Where("plan_id = ?", planID)
 	}
 
 	if err := query.Order("event_date DESC, project_id DESC").Find(&projects).Error; err != nil {
+		return nil, err
+	}
+
+	return projects, nil
+}
+
+func filterProjectAttachments(attachments []models.ProjectAttachment, includeAll bool) []models.ProjectAttachment {
+	if includeAll {
+		return attachments
+	}
+
+	filtered := make([]models.ProjectAttachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		if attachment.IsPublic {
+			filtered = append(filtered, attachment)
+		}
+	}
+
+	return filtered
+}
+
+func formatProjectResponse(project models.Project, includeAdminFields bool, includeAllAttachments bool) gin.H {
+	response := gin.H{
+		"project_id":    project.ProjectID,
+		"project_name":  project.ProjectName,
+		"type_id":       project.TypeID,
+		"type":          project.Type,
+		"plan_id":       project.PlanID,
+		"budget_plan":   project.BudgetPlan,
+		"event_date":    project.EventDate.Format("2006-01-02"),
+		"budget_amount": project.BudgetAmount,
+		"participants":  project.Participants,
+		"notes":         project.Notes,
+		"attachments":   filterProjectAttachments(project.Attachments, includeAllAttachments),
+	}
+
+	if includeAdminFields {
+		response["created_by"] = project.CreatedBy
+		response["created_at"] = project.CreatedAt
+		response["updated_at"] = project.UpdatedAt
+	}
+
+	return response
+}
+
+// ===================== PROJECTS =====================
+
+// GetProjects lists all projects for admin management
+func GetProjects(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	projects, err := fetchProjectsWithFilters(c)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch projects"})
 		return
 	}
 
 	responses := make([]gin.H, 0, len(projects))
 	for _, project := range projects {
-		responses = append(responses, gin.H{
-			"project_id":    project.ProjectID,
-			"project_name":  project.ProjectName,
-			"type_id":       project.TypeID,
-			"type":          project.Type,
-			"plan_id":       project.PlanID,
-			"budget_plan":   project.BudgetPlan,
-			"event_date":    project.EventDate.Format("2006-01-02"),
-			"budget_amount": project.BudgetAmount,
-			"participants":  project.Participants,
-			"notes":         project.Notes,
-			"created_by":    project.CreatedBy,
-			"created_at":    project.CreatedAt,
-			"updated_at":    project.UpdatedAt,
-			"attachments":   project.Attachments,
-		})
+		responses = append(responses, formatProjectResponse(project, true, true))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"projects": responses,
+		"total":    len(responses),
+	})
+}
+
+// GetProjectsForMembers lists public projects for authenticated members
+func GetProjectsForMembers(c *gin.Context) {
+	projects, err := fetchProjectsWithFilters(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch projects"})
+		return
+	}
+
+	responses := make([]gin.H, 0, len(projects))
+	for _, project := range projects {
+		responses = append(responses, formatProjectResponse(project, false, false))
 	}
 
 	c.JSON(http.StatusOK, gin.H{

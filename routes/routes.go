@@ -138,6 +138,8 @@ func SetupRoutes(router *gin.Engine) {
 
 			protected.GET("/system-config/dept-head/current", controllers.GetCurrentDeptHead)
 
+			protected.GET("/projects", controllers.GetProjectsForMembers)
+
 			// Publication reward agreements / conditions
 			protected.GET("/end-of-contract", controllers.GetEndOfContractTerms)
 
