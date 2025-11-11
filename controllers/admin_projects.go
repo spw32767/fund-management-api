@@ -36,7 +36,7 @@ func fetchProjectsWithFilters(c *gin.Context) ([]models.Project, error) {
 		Preload("Type").
 		Preload("BudgetPlan").
 		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
-			return db.Order("display_order ASC, file_id ASC")
+			return db.Where("delete_at IS NULL").Order("display_order ASC, file_id ASC")
 		})
 
 	if typeID := strings.TrimSpace(c.Query("type_id")); typeID != "" {
@@ -68,6 +68,48 @@ func filterProjectAttachments(attachments []models.ProjectAttachment, includeAll
 	return filtered
 }
 
+func formatProjectAttachmentResponse(attachment models.ProjectAttachment, includeAdminFields bool) gin.H {
+	response := gin.H{
+		"file_id":       attachment.FileID,
+		"project_id":    attachment.ProjectID,
+		"original_name": attachment.OriginalName,
+		"stored_path":   attachment.StoredPath,
+		"file_size":     attachment.FileSize,
+		"mime_type":     attachment.MimeType,
+		"is_public":     attachment.IsPublic,
+		"uploaded_at":   attachment.UploadedAt,
+		"display_order": attachment.DisplayOrder,
+	}
+
+	if attachment.FileID != 0 {
+		response["download_url"] = fmt.Sprintf("/projects/%d/attachments/%d", attachment.ProjectID, attachment.FileID)
+	}
+
+	if includeAdminFields {
+		if attachment.FileHash != nil {
+			response["file_hash"] = attachment.FileHash
+		}
+		if attachment.UploadedBy != nil {
+			response["uploaded_by"] = attachment.UploadedBy
+		}
+		response["create_at"] = attachment.CreateAt
+		response["update_at"] = attachment.UpdateAt
+		if attachment.DeleteAt != nil {
+			response["delete_at"] = attachment.DeleteAt
+		}
+	}
+
+	return response
+}
+
+func formatProjectAttachments(attachments []models.ProjectAttachment, includeAdminFields bool) []gin.H {
+	formatted := make([]gin.H, 0, len(attachments))
+	for _, attachment := range attachments {
+		formatted = append(formatted, formatProjectAttachmentResponse(attachment, includeAdminFields))
+	}
+	return formatted
+}
+
 func formatProjectResponse(project models.Project, includeAdminFields bool, includeAllAttachments bool) gin.H {
 	response := gin.H{
 		"project_id":    project.ProjectID,
@@ -80,7 +122,7 @@ func formatProjectResponse(project models.Project, includeAdminFields bool, incl
 		"budget_amount": project.BudgetAmount,
 		"participants":  project.Participants,
 		"notes":         project.Notes,
-		"attachments":   filterProjectAttachments(project.Attachments, includeAllAttachments),
+		"attachments":   formatProjectAttachments(filterProjectAttachments(project.Attachments, includeAllAttachments), includeAdminFields),
 	}
 
 	if includeAdminFields {
@@ -1217,7 +1259,7 @@ func saveProjectAttachment(c *gin.Context, tx *gorm.DB, projectID uint, file *mu
 		StoredPath:   relativePath,
 		FileSize:     uint64(file.Size),
 		MimeType:     mimeType,
-		IsPublic:     true,
+		IsPublic:     false,
 		UploadedAt:   now,
 		CreateAt:     now,
 		UpdateAt:     now,
