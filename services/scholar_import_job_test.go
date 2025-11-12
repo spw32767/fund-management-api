@@ -16,13 +16,22 @@ import (
 	"gorm.io/gorm"
 )
 
+type stepKind int
+
+const (
+	kindQuery stepKind = iota
+	kindExec
+)
+
 type queryStep struct {
+	kind    stepKind
 	pattern *regexp.Regexp
 	args    []driver.Value
 	delay   time.Duration
 	columns []string
 	rows    [][]driver.Value
 	err     error
+	result  driver.Result
 }
 
 type scriptedDB struct {
@@ -30,13 +39,16 @@ type scriptedDB struct {
 	steps []*queryStep
 }
 
-func (db *scriptedDB) next(query string, args []driver.NamedValue) (*queryStep, error) {
+func (db *scriptedDB) next(kind stepKind, query string, args []driver.NamedValue) (*queryStep, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if len(db.steps) == 0 {
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}
 	step := db.steps[0]
+	if step.kind != kind {
+		return nil, fmt.Errorf("unexpected kind for query %s: got %v want %v", query, kind, step.kind)
+	}
 	if !step.pattern.MatchString(query) {
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}
@@ -84,7 +96,7 @@ func (c *scriptedConn) Begin() (driver.Tx, error) {
 }
 
 func (c *scriptedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	step, err := c.db.next(query, args)
+	step, err := c.db.next(kindQuery, query, args)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +126,37 @@ func (c *scriptedConn) Query(query string, args []driver.Value) (driver.Rows, er
 	}
 	return c.QueryContext(context.Background(), query, named)
 }
+
+func (c *scriptedConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	step, err := c.db.next(kindExec, query, args)
+	if err != nil {
+		return nil, err
+	}
+	if step.err != nil {
+		return nil, step.err
+	}
+	if step.result != nil {
+		return step.result, nil
+	}
+	return scriptedResult{}, nil
+}
+
+func (c *scriptedConn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	named := make([]driver.NamedValue, len(args))
+	for i, v := range args {
+		named[i] = driver.NamedValue{Ordinal: i + 1, Value: v}
+	}
+	return c.ExecContext(context.Background(), query, named)
+}
+
+type scriptedResult struct {
+	lastInsertID int64
+	rowsAffected int64
+}
+
+func (r scriptedResult) LastInsertId() (int64, error) { return r.lastInsertID, nil }
+
+func (r scriptedResult) RowsAffected() (int64, error) { return r.rowsAffected, nil }
 
 type scriptedRows struct {
 	columns []string

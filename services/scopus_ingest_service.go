@@ -283,6 +283,9 @@ func (s *ScopusIngestService) upsertAuthorsAndLinks(tx *gorm.DB, entry *scopusEn
 			result.AuthorsCreated++
 		} else {
 			model.ID = existing.ID
+			if model.ORCID == nil && existing.ORCID != nil {
+				model.ORCID = existing.ORCID
+			}
 			if err := tx.Save(model).Error; err != nil {
 				return err
 			}
