@@ -105,6 +105,7 @@ type AdminUserLite struct {
 	Name            string  `json:"name"`
 	Email           string  `json:"email"`
 	ScholarAuthorID *string `json:"scholar_author_id,omitempty"`
+	ScopusAuthorID  *string `json:"scopus_id,omitempty"`
 }
 
 type setScholarAuthorIDRequest struct {
@@ -129,13 +130,14 @@ func AdminSearchUsers(c *gin.Context) {
 		UserLname       *string
 		Email           *string
 		ScholarAuthorID *string
+		ScopusID        *string
 	}
 
 	var rows []row
 	like := "%" + q + "%"
 	if err := config.DB.
 		Table("users").
-		Select("user_id, user_fname, user_lname, email, scholar_author_id").
+		Select("user_id, user_fname, user_lname, email, scholar_author_id, Scopus_id AS scopus_id").
 		Where("CONCAT(COALESCE(user_fname,''),' ',COALESCE(user_lname,'')) LIKE ? OR email LIKE ?", like, like).
 		Limit(limit).
 		Find(&rows).Error; err != nil {
@@ -157,7 +159,13 @@ func AdminSearchUsers(c *gin.Context) {
 		if r.Email != nil {
 			email = *r.Email
 		}
-		out = append(out, AdminUserLite{UserID: r.UserID, Name: name, Email: email, ScholarAuthorID: r.ScholarAuthorID})
+		out = append(out, AdminUserLite{
+			UserID:          r.UserID,
+			Name:            name,
+			Email:           email,
+			ScholarAuthorID: r.ScholarAuthorID,
+			ScopusAuthorID:  r.ScopusID,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})

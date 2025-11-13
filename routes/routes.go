@@ -387,9 +387,12 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/user-publications/import/scholar", controllers.AdminImportScholarPublications)
 				admin.POST("/user-publications/import/scholar/all", controllers.AdminImportScholarForAll)
 				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
+				admin.POST("/user-publications/import/scopus", controllers.AdminImportScopusPublications)
+				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
 				admin.POST("/users/:id/scholar-author", controllers.AdminSetUserScholarAuthorID)
+				admin.POST("/users/:id/scopus-author", controllers.AdminSetUserScopusAuthorID)
 
 				admin.GET("/approval-records/totals", controllers.GetApprovalTotals)
 				admin.GET("/approval-records", controllers.GetApprovalRecords)
