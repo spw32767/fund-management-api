@@ -22,8 +22,10 @@ import (
 const (
 	scopusBaseURL     = "https://api.elsevier.com/content/search/scopus"
 	scopusPageSize    = 25
-	scopusAPIKeyField = "api_key"
+	scopusAPIKeyField = "X-ELS-APIKey"
 )
+
+var scopusAPIKeyLegacyFields = []string{"api_key"}
 
 // ScopusIngestResult captures summary data for a single author ingest run.
 type ScopusIngestResult struct {
@@ -161,19 +163,22 @@ func (s *ScopusIngestService) fetchPage(ctx context.Context, apiKey, scopusAutho
 }
 
 func (s *ScopusIngestService) getAPIKey(ctx context.Context) (string, error) {
-	var row models.ScopusConfig
-	if err := s.db.WithContext(ctx).
-		Where("`key` = ?", scopusAPIKeyField).
-		First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", errors.New("scopus api key not configured")
+	keys := append([]string{scopusAPIKeyField}, scopusAPIKeyLegacyFields...)
+	for _, key := range keys {
+		var row models.ScopusConfig
+		if err := s.db.WithContext(ctx).
+			Where("`key` = ?", key).
+			First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return "", err
 		}
-		return "", err
+		if row.Value != nil && strings.TrimSpace(*row.Value) != "" {
+			return strings.TrimSpace(*row.Value), nil
+		}
 	}
-	if row.Value == nil || strings.TrimSpace(*row.Value) == "" {
-		return "", errors.New("scopus api key value is empty")
-	}
-	return strings.TrimSpace(*row.Value), nil
+	return "", errors.New("scopus api key not configured")
 }
 
 func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMessage, result *ScopusIngestResult) error {

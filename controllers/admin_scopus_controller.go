@@ -13,9 +13,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var scopusAuthorIDPattern = regexp.MustCompile(`^[0-9]{5,}$`)
+
+const (
+	scopusAPIKeyConfigKey   = "X-ELS-APIKey"
+	scopusLegacyAPIKeyField = "api_key"
+)
 
 // POST /api/v1/admin/user-publications/import/scopus?user_id=123&scopus_id=54683571200
 func AdminImportScopusPublications(c *gin.Context) {
@@ -81,6 +87,10 @@ type setScopusAuthorIDRequest struct {
 	ScopusID string `json:"scopus_id"`
 }
 
+type scopusAPIKeyRequest struct {
+	Value string `json:"value"`
+}
+
 // POST /api/v1/admin/users/:id/scopus-author
 func AdminSetUserScopusAuthorID(c *gin.Context) {
 	uid := strings.TrimSpace(c.Param("id"))
@@ -134,4 +144,57 @@ func AdminSetUserScopusAuthorID(c *gin.Context) {
 			"scopus_id": scopusID,
 		},
 	})
+}
+
+// GET /api/v1/admin/scopus/config
+func AdminGetScopusAPIKey(c *gin.Context) {
+	var row models.ScopusConfig
+	if err := config.DB.Where("`key` = ?", scopusAPIKeyConfigKey).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			var legacy models.ScopusConfig
+			if err := config.DB.Where("`key` = ?", scopusLegacyAPIKeyField).First(&legacy).Error; err == nil {
+				legacy.Key = scopusAPIKeyConfigKey
+				c.JSON(http.StatusOK, gin.H{"success": true, "data": legacy})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data": gin.H{
+					"key":   scopusAPIKeyConfigKey,
+					"value": nil,
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	row.Key = scopusAPIKeyConfigKey
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": row})
+}
+
+// PUT /api/v1/admin/scopus/config
+func AdminUpdateScopusAPIKey(c *gin.Context) {
+	var payload scopusAPIKeyRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid request body"})
+		return
+	}
+
+	value := strings.TrimSpace(payload.Value)
+	if value == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing api key value"})
+		return
+	}
+
+	row := models.ScopusConfig{Key: scopusAPIKeyConfigKey, Value: &value}
+	if err := config.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value"}),
+	}).Create(&row).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": row})
 }

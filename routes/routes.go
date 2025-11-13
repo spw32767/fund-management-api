@@ -389,6 +389,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
 				admin.POST("/user-publications/import/scopus", controllers.AdminImportScopusPublications)
 				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
+				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
+				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
 				admin.POST("/users/:id/scholar-author", controllers.AdminSetUserScholarAuthorID)
