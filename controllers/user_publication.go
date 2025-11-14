@@ -102,6 +102,40 @@ func GetUserScopusPublications(c *gin.Context) {
 	})
 }
 
+// GET /api/v1/teacher/user-publications/scopus/stats
+func GetUserScopusPublicationStats(c *gin.Context) {
+	userID, ok := getUserIDFromContext(c)
+	if !ok {
+		q := c.Query("user_id")
+		if q == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "user_id not found"})
+			return
+		}
+		id64, err := strconv.ParseUint(q, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user_id"})
+			return
+		}
+		userID = uint(id64)
+	}
+
+	svc := services.NewScopusPublicationService(nil)
+	stats, meta, err := svc.StatsByUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    stats,
+		"meta": gin.H{
+			"has_scopus_id":     meta.HasScopusID,
+			"has_author_record": meta.HasAuthor,
+		},
+	})
+}
+
 // POST /api/v1/teacher/user-publications/upsert
 // Body: { title, authors, journal, publication_type, publication_date, publication_year, doi, url, source, external_ids, is_verified, fingerprint }
 func UpsertUserPublication(c *gin.Context) {
