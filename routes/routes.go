@@ -161,7 +161,6 @@ func SetupRoutes(router *gin.Engine) {
 				teacher.GET("/user-publications", controllers.GetUserPublications)
 				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
 				teacher.GET("/user-publications/scopus/stats", controllers.GetUserScopusPublicationStats)
-				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
 				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
 				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)
