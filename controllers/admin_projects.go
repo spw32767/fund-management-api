@@ -2013,7 +2013,7 @@ func getUploadRoot() string {
 
 // DownloadProjectAttachment streams a public project attachment for viewing
 func DownloadProjectAttachment(c *gin.Context) {
-	projectIDParam := c.Param("id")
+	projectIDParam := c.Param("projectId")
 	attachmentIDParam := c.Param("fileId")
 
 	projectID, err := strconv.ParseUint(projectIDParam, 10, 64)
