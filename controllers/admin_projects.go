@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1695,6 +1696,38 @@ func budgetPlanNameExists(nameTH string, excludeID uint) (bool, error) {
 	return count > 0, nil
 }
 
+var (
+	budgetAmountPattern = regexp.MustCompile(`^\d{1,10}(?:\.\d{1,2})?$`)
+)
+
+const maxBudgetAmount = 9999999999.99
+
+func parseBudgetAmount(value string) (float64, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, errors.New("budget_amount is required")
+	}
+
+	if !budgetAmountPattern.MatchString(trimmed) {
+		return 0, errors.New("budget_amount must have at most 10 digits and 2 decimal places")
+	}
+
+	amount, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, errors.New("invalid budget_amount")
+	}
+
+	if amount < 0 {
+		return 0, errors.New("budget_amount must be zero or positive")
+	}
+
+	if amount > maxBudgetAmount {
+		return 0, errors.New("budget_amount exceeds the maximum allowed value")
+	}
+
+	return amount, nil
+}
+
 func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart.FileHeader, error) {
 	name := strings.TrimSpace(c.PostForm("project_name"))
 	if name == "" {
@@ -1724,13 +1757,9 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 		return nil, nil, errors.New("invalid plan_id")
 	}
 
-	budgetValue := strings.TrimSpace(c.PostForm("budget_amount"))
-	if budgetValue == "" {
-		return nil, nil, errors.New("budget_amount is required")
-	}
-	budgetAmount, err := strconv.ParseFloat(budgetValue, 64)
+	budgetAmount, err := parseBudgetAmount(c.PostForm("budget_amount"))
 	if err != nil {
-		return nil, nil, errors.New("invalid budget_amount")
+		return nil, nil, err
 	}
 
 	var participantsPtr *int
@@ -1826,9 +1855,9 @@ func bindUpdateProjectPayload(c *gin.Context) (*projectUpdatePayload, *multipart
 	if budgetValue, exists := c.GetPostForm("budget_amount"); exists {
 		trimmed := strings.TrimSpace(budgetValue)
 		if trimmed != "" {
-			parsed, err := strconv.ParseFloat(trimmed, 64)
+			parsed, err := parseBudgetAmount(trimmed)
 			if err != nil {
-				return nil, nil, errors.New("invalid budget_amount")
+				return nil, nil, err
 			}
 			payload.BudgetAmount = &parsed
 		}
