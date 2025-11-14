@@ -19,6 +19,7 @@ type Project struct {
 	Type        ProjectType         `gorm:"foreignKey:TypeID;references:TypeID" json:"type"`
 	BudgetPlan  ProjectBudgetPlan   `gorm:"foreignKey:PlanID;references:PlanID" json:"budget_plan"`
 	Attachments []ProjectAttachment `gorm:"foreignKey:ProjectID;references:ProjectID" json:"attachments"`
+	Members     []ProjectMember     `gorm:"foreignKey:ProjectID;references:ProjectID" json:"members"`
 }
 
 // TableName overrides the table name for Project
@@ -75,4 +76,24 @@ type ProjectAttachment struct {
 // TableName overrides the table name for ProjectAttachment
 func (ProjectAttachment) TableName() string {
 	return "project_attachments"
+}
+
+// ProjectMember represents the project_members table
+type ProjectMember struct {
+	MemberID      uint       `gorm:"primaryKey;column:member_id" json:"member_id"`
+	ProjectID     uint       `gorm:"column:project_id" json:"project_id"`
+	UserID        uint       `gorm:"column:user_id" json:"user_id"`
+	Duty          string     `gorm:"column:duty" json:"duty"`
+	WorkloadHours float64    `gorm:"column:workload_hours" json:"workload_hours"`
+	DisplayOrder  int        `gorm:"column:display_order" json:"display_order"`
+	Notes         *string    `gorm:"column:notes" json:"notes"`
+	CreatedAt     time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt     *time.Time `gorm:"column:updated_at" json:"updated_at"`
+
+	User User `gorm:"foreignKey:UserID;references:UserID" json:"user"`
+}
+
+// TableName overrides the table name for ProjectMember
+func (ProjectMember) TableName() string {
+	return "project_members"
 }

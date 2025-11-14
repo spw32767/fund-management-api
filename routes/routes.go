@@ -160,7 +160,6 @@ func SetupRoutes(router *gin.Engine) {
 				// User Publications
 				teacher.GET("/user-publications", controllers.GetUserPublications)
 				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
-				teacher.GET("/user-publications/scopus/stats", controllers.GetUserScopusPublicationStats)
 				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
 				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)
@@ -448,6 +447,11 @@ func SetupRoutes(router *gin.Engine) {
 					projects.POST("", controllers.CreateProject)       // POST /api/v1/admin/projects
 					projects.PUT("/:id", controllers.UpdateProject)    // PUT /api/v1/admin/projects/:id
 					projects.DELETE("/:id", controllers.DeleteProject) // DELETE /api/v1/admin/projects/:id
+					projects.GET("/members/candidates", controllers.GetProjectMemberCandidates)
+					projects.GET("/:projectId/members", controllers.GetProjectMembers)
+					projects.POST("/:projectId/members", controllers.CreateProjectMember)
+					projects.PUT("/:projectId/members/:memberId", controllers.UpdateProjectMember)
+					projects.DELETE("/:projectId/members/:memberId", controllers.DeleteProjectMember)
 				}
 
 				projectTypes := admin.Group("/project-types")

@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"fmt"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -37,7 +39,11 @@ func fetchProjectsWithFilters(c *gin.Context) ([]models.Project, error) {
 		Preload("BudgetPlan").
 		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
 			return db.Where("delete_at IS NULL").Order("display_order ASC, file_id ASC")
-		})
+		}).
+		Preload("Members", func(db *gorm.DB) *gorm.DB {
+			return db.Order("display_order ASC, member_id ASC")
+		}).
+		Preload("Members.User")
 
 	if typeID := strings.TrimSpace(c.Query("type_id")); typeID != "" {
 		query = query.Where("type_id = ?", typeID)
@@ -110,6 +116,90 @@ func formatProjectAttachments(attachments []models.ProjectAttachment, includeAdm
 	return formatted
 }
 
+func formatProjectMemberUser(user models.User) gin.H {
+	if user.UserID == 0 {
+		return nil
+	}
+
+	response := gin.H{
+		"user_id":     user.UserID,
+		"user_fname":  user.UserFname,
+		"user_lname":  user.UserLname,
+		"email":       user.Email,
+		"role_id":     user.RoleID,
+		"position_id": user.PositionID,
+	}
+
+	if user.Prefix != nil {
+		response["prefix"] = user.Prefix
+	}
+	if user.ManagePosition != nil {
+		response["manage_position"] = user.ManagePosition
+	}
+	if user.PositionTitle != nil {
+		response["position_title"] = user.PositionTitle
+	}
+	if user.PositionEn != nil {
+		response["position_en"] = user.PositionEn
+	}
+	if user.PrefixPositionEn != nil {
+		response["prefix_position_en"] = user.PrefixPositionEn
+	}
+	if user.NameEn != nil {
+		response["name_en"] = user.NameEn
+	}
+	if user.SuffixEn != nil {
+		response["suffix_en"] = user.SuffixEn
+	}
+	if user.Tel != nil {
+		response["tel"] = user.Tel
+	}
+	if user.Position.PositionID != 0 {
+		response["position"] = gin.H{
+			"position_id":   user.Position.PositionID,
+			"position_name": user.Position.PositionName,
+		}
+	}
+	if user.Role.RoleID != 0 {
+		response["role"] = gin.H{
+			"role_id": user.Role.RoleID,
+			"role":    user.Role.Role,
+		}
+	}
+
+	return response
+}
+
+func formatProjectMemberResponse(member models.ProjectMember, includeAdminFields bool) gin.H {
+	response := gin.H{
+		"member_id":      member.MemberID,
+		"project_id":     member.ProjectID,
+		"user_id":        member.UserID,
+		"duty":           member.Duty,
+		"workload_hours": member.WorkloadHours,
+		"display_order":  member.DisplayOrder,
+		"notes":          member.Notes,
+		"user":           formatProjectMemberUser(member.User),
+	}
+
+	if includeAdminFields {
+		response["created_at"] = member.CreatedAt
+		if member.UpdatedAt != nil {
+			response["updated_at"] = member.UpdatedAt
+		}
+	}
+
+	return response
+}
+
+func formatProjectMembers(members []models.ProjectMember, includeAdminFields bool) []gin.H {
+	formatted := make([]gin.H, 0, len(members))
+	for _, member := range members {
+		formatted = append(formatted, formatProjectMemberResponse(member, includeAdminFields))
+	}
+	return formatted
+}
+
 func formatProjectResponse(project models.Project, includeAdminFields bool, includeAllAttachments bool) gin.H {
 	response := gin.H{
 		"project_id":    project.ProjectID,
@@ -123,6 +213,7 @@ func formatProjectResponse(project models.Project, includeAdminFields bool, incl
 		"participants":  project.Participants,
 		"notes":         project.Notes,
 		"attachments":   formatProjectAttachments(filterProjectAttachments(project.Attachments, includeAllAttachments), includeAdminFields),
+		"members":       formatProjectMembers(project.Members, includeAdminFields),
 	}
 
 	if includeAdminFields {
@@ -281,8 +372,12 @@ func CreateProject(c *gin.Context) {
 		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
 			return db.Order("display_order ASC, file_id ASC")
 		}).
+		Preload("Members", func(db *gorm.DB) *gorm.DB {
+			return db.Order("display_order ASC, member_id ASC")
+		}).
+		Preload("Members.User").
 		First(&project, project.ProjectID).Error; err != nil {
-		c.JSON(http.StatusCreated, gin.H{"success": true, "project_id": project.ProjectID})
+		c.JSON(http.StatusCreated, gin.H{"success": true, "project_id": project.ProjectID, "members": []gin.H{}})
 		return
 	}
 
@@ -304,6 +399,7 @@ func CreateProject(c *gin.Context) {
 			"created_at":    project.CreatedAt,
 			"updated_at":    project.UpdatedAt,
 			"attachments":   project.Attachments,
+			"members":       formatProjectMembers(project.Members, true),
 		},
 	})
 }
@@ -472,8 +568,12 @@ func UpdateProject(c *gin.Context) {
 		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
 			return db.Order("display_order ASC, file_id ASC")
 		}).
+		Preload("Members", func(db *gorm.DB) *gorm.DB {
+			return db.Order("display_order ASC, member_id ASC")
+		}).
+		Preload("Members.User").
 		First(&project, projectID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		c.JSON(http.StatusOK, gin.H{"success": true, "members": []gin.H{}})
 		return
 	}
 
@@ -495,6 +595,7 @@ func UpdateProject(c *gin.Context) {
 			"created_at":    project.CreatedAt,
 			"updated_at":    project.UpdatedAt,
 			"attachments":   project.Attachments,
+			"members":       formatProjectMembers(project.Members, true),
 		},
 	})
 }
@@ -985,6 +1086,457 @@ func ReorderProjectBudgetPlans(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "บันทึกลำดับแผนงบประมาณเรียบร้อย"})
+}
+
+// ===================== PROJECT MEMBERS =====================
+
+type projectMemberCreateRequest struct {
+	UserID        uint     `json:"user_id" binding:"required"`
+	Duty          string   `json:"duty" binding:"required"`
+	WorkloadHours *float64 `json:"workload_hours"`
+	Notes         *string  `json:"notes"`
+}
+
+type projectMemberUpdateRequest struct {
+	UserID        *uint    `json:"user_id"`
+	Duty          *string  `json:"duty"`
+	WorkloadHours *float64 `json:"workload_hours"`
+	Notes         *string  `json:"notes"`
+}
+
+// GetProjectMemberCandidates lists eligible users (non-admin) for project participation
+func GetProjectMemberCandidates(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	var users []models.User
+	if err := config.DB.Preload("Role").Preload("Position").
+		Where("delete_at IS NULL").
+		Where("role_id <> ?", 3).
+		Order("user_fname ASC, user_lname ASC").
+		Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงรายชื่อผู้ใช้ได้"})
+		return
+	}
+
+	responses := make([]gin.H, 0, len(users))
+	for _, user := range users {
+		formatted := formatProjectMemberUser(user)
+		if formatted != nil {
+			responses = append(responses, formatted)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"users":   responses,
+		"total":   len(responses),
+	})
+}
+
+// GetProjectMembers lists members assigned to a project ordered by display_order
+func GetProjectMembers(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	projectID := uint(projectIDValue)
+
+	if err := ensureProjectExists(projectID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบโครงการ"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบโครงการได้"})
+		return
+	}
+
+	var members []models.ProjectMember
+	if err := config.DB.Where("project_id = ?", projectID).
+		Preload("User.Role").
+		Preload("User.Position").
+		Order("display_order ASC, member_id ASC").
+		Find(&members).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลผู้ร่วมโครงการได้"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"members": formatProjectMembers(members, true),
+		"total":   len(members),
+	})
+}
+
+// CreateProjectMember adds a new member to a project
+func CreateProjectMember(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	projectID := uint(projectIDValue)
+
+	if err := ensureProjectExists(projectID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบโครงการ"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบโครงการได้"})
+		return
+	}
+
+	var req projectMemberCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	duty := strings.TrimSpace(req.Duty)
+	if duty == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุหน้าที่"})
+		return
+	}
+	if utf8.RuneCountInString(duty) > 255 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "หน้าที่ต้องไม่เกิน 255 ตัวอักษร"})
+		return
+	}
+
+	user, err := loadEligibleProjectUser(req.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่พบผู้ใช้หรือไม่สามารถเลือกผู้ใช้นี้ได้"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบผู้ใช้ได้"})
+		return
+	}
+
+	var duplicateCount int64
+	if err := config.DB.Model(&models.ProjectMember{}).
+		Where("project_id = ? AND user_id = ?", projectID, req.UserID).
+		Count(&duplicateCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลซ้ำได้"})
+		return
+	}
+	if duplicateCount > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "ผู้ใช้นี้ถูกเพิ่มในโครงการแล้ว"})
+		return
+	}
+
+	workload := 0.0
+	if req.WorkloadHours != nil {
+		workload, err = roundWorkloadHours(*req.WorkloadHours)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	notes, err := normalizeOptionalNotes(req.Notes)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var maxOrder int64
+	if err := config.DB.Model(&models.ProjectMember{}).
+		Where("project_id = ?", projectID).
+		Select("COALESCE(MAX(display_order), 0)").
+		Scan(&maxOrder).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถกำหนดลำดับได้"})
+		return
+	}
+
+	member := models.ProjectMember{
+		ProjectID:     projectID,
+		UserID:        req.UserID,
+		Duty:          duty,
+		WorkloadHours: workload,
+		DisplayOrder:  int(maxOrder) + 1,
+		Notes:         notes,
+	}
+
+	if err := config.DB.Create(&member).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกผู้ร่วมโครงการได้"})
+		return
+	}
+
+	if err := config.DB.Preload("User.Role").Preload("User.Position").First(&member, member.MemberID).Error; err != nil {
+		c.JSON(http.StatusCreated, gin.H{"success": true, "member_id": member.MemberID})
+		return
+	}
+
+	member.User = *user
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"member":  formatProjectMemberResponse(member, true),
+	})
+}
+
+// UpdateProjectMember updates duty, workload, notes or assigned user of a project member
+func UpdateProjectMember(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	memberIDValue, err := strconv.ParseUint(c.Param("memberId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member ID"})
+		return
+	}
+	projectID := uint(projectIDValue)
+	memberID := uint(memberIDValue)
+
+	if err := ensureProjectExists(projectID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบโครงการ"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบโครงการได้"})
+		return
+	}
+
+	var member models.ProjectMember
+	if err := config.DB.Where("project_id = ?", projectID).
+		Preload("User.Role").
+		Preload("User.Position").
+		First(&member, memberID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบผู้ร่วมโครงการ"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถโหลดข้อมูลผู้ร่วมโครงการได้"})
+		return
+	}
+
+	var req projectMemberUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{}
+
+	if req.UserID != nil && member.UserID != *req.UserID {
+		user, err := loadEligibleProjectUser(*req.UserID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่พบผู้ใช้หรือไม่สามารถเลือกผู้ใช้นี้ได้"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบผู้ใช้ได้"})
+			return
+		}
+
+		var duplicateCount int64
+		if err := config.DB.Model(&models.ProjectMember{}).
+			Where("project_id = ? AND user_id = ? AND member_id <> ?", projectID, *req.UserID, memberID).
+			Count(&duplicateCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบข้อมูลซ้ำได้"})
+			return
+		}
+		if duplicateCount > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "ผู้ใช้นี้ถูกเพิ่มในโครงการแล้ว"})
+			return
+		}
+
+		updates["user_id"] = *req.UserID
+		member.User = *user
+	}
+
+	if req.Duty != nil {
+		duty := strings.TrimSpace(*req.Duty)
+		if duty == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุหน้าที่"})
+			return
+		}
+		if utf8.RuneCountInString(duty) > 255 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "หน้าที่ต้องไม่เกิน 255 ตัวอักษร"})
+			return
+		}
+		updates["duty"] = duty
+	}
+
+	if req.WorkloadHours != nil {
+		workload, err := roundWorkloadHours(*req.WorkloadHours)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		updates["workload_hours"] = workload
+	}
+
+	if req.Notes != nil {
+		notes, err := normalizeOptionalNotes(req.Notes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		updates["notes"] = notes
+	}
+
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่มีข้อมูลที่ต้องการอัปเดต"})
+		return
+	}
+
+	if err := config.DB.Model(&member).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถอัปเดตข้อมูลผู้ร่วมโครงการได้"})
+		return
+	}
+
+	if err := config.DB.Preload("User.Role").Preload("User.Position").First(&member, memberID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"member":  formatProjectMemberResponse(member, true),
+	})
+}
+
+// DeleteProjectMember removes a member from a project and reorders remaining members
+func DeleteProjectMember(c *gin.Context) {
+	if !ensureAdmin(c) {
+		return
+	}
+
+	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+	memberIDValue, err := strconv.ParseUint(c.Param("memberId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member ID"})
+		return
+	}
+	projectID := uint(projectIDValue)
+	memberID := uint(memberIDValue)
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบผู้ร่วมโครงการได้"})
+		return
+	}
+
+	var member models.ProjectMember
+	if err := tx.Where("project_id = ?", projectID).First(&member, memberID).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบผู้ร่วมโครงการ"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบผู้ร่วมโครงการได้"})
+		return
+	}
+
+	if err := tx.Delete(&member).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบผู้ร่วมโครงการได้"})
+		return
+	}
+
+	if err := recalculateProjectMemberDisplayOrder(tx, projectID); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถจัดลำดับผู้ร่วมโครงการใหม่ได้"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบผู้ร่วมโครงการได้"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "ลบผู้ร่วมโครงการเรียบร้อยแล้ว",
+	})
+}
+
+func loadEligibleProjectUser(userID uint) (*models.User, error) {
+	var user models.User
+	if err := config.DB.Preload("Role").Preload("Position").
+		Where("user_id = ? AND delete_at IS NULL AND role_id <> ?", userID, 3).
+		First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func ensureProjectExists(projectID uint) error {
+	if projectID == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return config.DB.Select("project_id").First(&models.Project{}, projectID).Error
+}
+
+func roundWorkloadHours(value float64) (float64, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("จำนวนชั่วโมงต้องไม่เป็นค่าติดลบ")
+	}
+	if value > 9999.99 {
+		return 0, fmt.Errorf("จำนวนชั่วโมงต้องไม่เกิน 9999.99")
+	}
+	rounded := math.Round(value*100) / 100
+	return rounded, nil
+}
+
+func normalizeOptionalNotes(value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	if utf8.RuneCountInString(trimmed) > 255 {
+		return nil, fmt.Errorf("หมายเหตุต้องไม่เกิน 255 ตัวอักษร")
+	}
+
+	return &trimmed, nil
+}
+
+func recalculateProjectMemberDisplayOrder(tx *gorm.DB, projectID uint) error {
+	var members []models.ProjectMember
+	if err := tx.Where("project_id = ?", projectID).
+		Order("display_order ASC, member_id ASC").
+		Find(&members).Error; err != nil {
+		return err
+	}
+
+	for index, member := range members {
+		desired := index + 1
+		if member.DisplayOrder != desired {
+			if err := tx.Model(&models.ProjectMember{}).
+				Where("member_id = ?", member.MemberID).
+				Update("display_order", desired).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func projectTypeNameExists(nameTH string, excludeID uint) (bool, error) {
