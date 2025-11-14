@@ -1141,7 +1141,7 @@ func GetProjectMembers(c *gin.Context) {
 		return
 	}
 
-	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	projectIDValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
@@ -1180,7 +1180,7 @@ func CreateProjectMember(c *gin.Context) {
 		return
 	}
 
-	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	projectIDValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
@@ -1291,7 +1291,7 @@ func UpdateProjectMember(c *gin.Context) {
 		return
 	}
 
-	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	projectIDValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
@@ -1419,7 +1419,7 @@ func DeleteProjectMember(c *gin.Context) {
 		return
 	}
 
-	projectIDValue, err := strconv.ParseUint(c.Param("projectId"), 10, 64)
+	projectIDValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
@@ -1902,7 +1902,7 @@ func getUploadRoot() string {
 
 // DownloadProjectAttachment streams a public project attachment for viewing
 func DownloadProjectAttachment(c *gin.Context) {
-	projectIDParam := c.Param("projectId")
+	projectIDParam := c.Param("id")
 	attachmentIDParam := c.Param("fileId")
 
 	projectID, err := strconv.ParseUint(projectIDParam, 10, 64)

@@ -448,10 +448,10 @@ func SetupRoutes(router *gin.Engine) {
 					projects.PUT("/:id", controllers.UpdateProject)    // PUT /api/v1/admin/projects/:id
 					projects.DELETE("/:id", controllers.DeleteProject) // DELETE /api/v1/admin/projects/:id
 					projects.GET("/members/candidates", controllers.GetProjectMemberCandidates)
-					projects.GET("/:projectId/members", controllers.GetProjectMembers)
-					projects.POST("/:projectId/members", controllers.CreateProjectMember)
-					projects.PUT("/:projectId/members/:memberId", controllers.UpdateProjectMember)
-					projects.DELETE("/:projectId/members/:memberId", controllers.DeleteProjectMember)
+					projects.GET("/:id/members", controllers.GetProjectMembers)
+					projects.POST("/:id/members", controllers.CreateProjectMember)
+					projects.PUT("/:id/members/:memberId", controllers.UpdateProjectMember)
+					projects.DELETE("/:id/members/:memberId", controllers.DeleteProjectMember)
 				}
 
 				projectTypes := admin.Group("/project-types")
