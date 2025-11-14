@@ -159,6 +159,7 @@ func SetupRoutes(router *gin.Engine) {
 				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
 				// User Publications
 				teacher.GET("/user-publications", controllers.GetUserPublications)
+				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
 				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
 				teacher.PATCH("/user-publications/:id/restore", controllers.RestoreUserPublication)

@@ -57,6 +57,51 @@ func GetUserPublications(c *gin.Context) {
 	})
 }
 
+// GET /api/v1/teacher/user-publications/scopus?limit=25&offset=0&sort=year&direction=desc&q=keyword
+func GetUserScopusPublications(c *gin.Context) {
+	userID, ok := getUserIDFromContext(c)
+	if !ok {
+		q := c.Query("user_id")
+		if q == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "user_id not found"})
+			return
+		}
+		id64, err := strconv.ParseUint(q, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user_id"})
+			return
+		}
+		userID = uint(id64)
+	}
+
+	limit := parseIntOrDefault(c.Query("limit"), 10)
+	offset := parseIntOrDefault(c.Query("offset"), 0)
+	sortField := c.DefaultQuery("sort", "year")
+	sortDirection := strings.ToLower(c.DefaultQuery("direction", "desc"))
+	search := c.Query("q")
+
+	svc := services.NewScopusPublicationService(nil)
+	items, total, meta, err := svc.ListByUser(userID, limit, offset, sortField, sortDirection, search)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    items,
+		"paging": gin.H{
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		},
+		"meta": gin.H{
+			"has_scopus_id":     meta.HasScopusID,
+			"has_author_record": meta.HasAuthor,
+		},
+	})
+}
+
 // POST /api/v1/teacher/user-publications/upsert
 // Body: { title, authors, journal, publication_type, publication_date, publication_year, doi, url, source, external_ids, is_verified, fingerprint }
 func UpsertUserPublication(c *gin.Context) {
