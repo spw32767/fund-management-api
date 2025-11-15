@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -360,6 +362,23 @@ func CreateProject(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save project attachment"})
 		return
+	}
+
+	if len(payload.Members) > 0 {
+		preparedMembers, statusCode, err := prepareProjectMembersForCreation(tx, project.ProjectID, payload.Members)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(statusCode, gin.H{"error": err.Error()})
+			return
+		}
+
+		if len(preparedMembers) > 0 {
+			if err := tx.Create(&preparedMembers).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกผู้ร่วมโครงการได้"})
+				return
+			}
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -1517,6 +1536,87 @@ func normalizeOptionalNotes(value *string) (*string, error) {
 	return &trimmed, nil
 }
 
+func ensureEligibleProjectUserExistsTx(tx *gorm.DB, userID uint) error {
+	if userID == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	var count int64
+	if err := tx.Model(&models.User{}).
+		Where("user_id = ? AND delete_at IS NULL AND role_id <> ?", userID, 3).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+func prepareProjectMembersForCreation(tx *gorm.DB, projectID uint, members []projectMemberCreateRequest) ([]models.ProjectMember, int, error) {
+	if len(members) == 0 {
+		return nil, http.StatusOK, nil
+	}
+
+	prepared := make([]models.ProjectMember, 0, len(members))
+	seenUsers := make(map[uint]struct{}, len(members))
+
+	for index, req := range members {
+		order := index + 1
+
+		if req.UserID == 0 {
+			return nil, http.StatusBadRequest, fmt.Errorf("กรุณาเลือกบุคลากรสำหรับลำดับที่ %d", order)
+		}
+		if _, exists := seenUsers[req.UserID]; exists {
+			return nil, http.StatusBadRequest, fmt.Errorf("พบผู้ใช้ซ้ำในรายชื่อผู้ร่วมโครงการ (ลำดับที่ %d)", order)
+		}
+
+		duty := strings.TrimSpace(req.Duty)
+		if duty == "" {
+			return nil, http.StatusBadRequest, fmt.Errorf("กรุณาระบุหน้าที่สำหรับผู้ร่วมโครงการลำดับที่ %d", order)
+		}
+		if utf8.RuneCountInString(duty) > 255 {
+			return nil, http.StatusBadRequest, fmt.Errorf("หน้าที่ของผู้ร่วมโครงการลำดับที่ %d ต้องไม่เกิน 255 ตัวอักษร", order)
+		}
+
+		if err := ensureEligibleProjectUserExistsTx(tx, req.UserID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, http.StatusBadRequest, fmt.Errorf("ไม่พบผู้ใช้หรือไม่สามารถเลือกผู้ใช้นี้ได้ (ลำดับที่ %d)", order)
+			}
+			return nil, http.StatusInternalServerError, fmt.Errorf("ไม่สามารถตรวจสอบผู้ใช้ได้")
+		}
+
+		workload := 0.0
+		if req.WorkloadHours != nil {
+			rounded, err := roundWorkloadHours(*req.WorkloadHours)
+			if err != nil {
+				return nil, http.StatusBadRequest, err
+			}
+			workload = rounded
+		}
+
+		notes, err := normalizeOptionalNotes(req.Notes)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
+		}
+
+		prepared = append(prepared, models.ProjectMember{
+			ProjectID:     projectID,
+			UserID:        req.UserID,
+			Duty:          duty,
+			WorkloadHours: workload,
+			DisplayOrder:  order,
+			Notes:         notes,
+		})
+
+		seenUsers[req.UserID] = struct{}{}
+	}
+
+	return prepared, http.StatusOK, nil
+}
+
 func recalculateProjectMemberDisplayOrder(tx *gorm.DB, projectID uint) error {
 	var members []models.ProjectMember
 	if err := tx.Where("project_id = ?", projectID).
@@ -1565,6 +1665,7 @@ type projectCreatePayload struct {
 	BudgetAmount float64
 	Participants *int
 	Notes        *string
+	Members      []projectMemberCreateRequest
 }
 
 type projectUpdatePayload struct {
@@ -1593,6 +1694,38 @@ func budgetPlanNameExists(nameTH string, excludeID uint) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+var (
+	budgetAmountPattern = regexp.MustCompile(`^\d{1,10}(?:\.\d{1,2})?$`)
+)
+
+const maxBudgetAmount = 9999999999.99
+
+func parseBudgetAmount(value string) (float64, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, errors.New("budget_amount is required")
+	}
+
+	if !budgetAmountPattern.MatchString(trimmed) {
+		return 0, errors.New("budget_amount must have at most 10 digits and 2 decimal places")
+	}
+
+	amount, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, errors.New("invalid budget_amount")
+	}
+
+	if amount < 0 {
+		return 0, errors.New("budget_amount must be zero or positive")
+	}
+
+	if amount > maxBudgetAmount {
+		return 0, errors.New("budget_amount exceeds the maximum allowed value")
+	}
+
+	return amount, nil
 }
 
 func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart.FileHeader, error) {
@@ -1624,13 +1757,9 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 		return nil, nil, errors.New("invalid plan_id")
 	}
 
-	budgetValue := strings.TrimSpace(c.PostForm("budget_amount"))
-	if budgetValue == "" {
-		return nil, nil, errors.New("budget_amount is required")
-	}
-	budgetAmount, err := strconv.ParseFloat(budgetValue, 64)
+	budgetAmount, err := parseBudgetAmount(c.PostForm("budget_amount"))
 	if err != nil {
-		return nil, nil, errors.New("invalid budget_amount")
+		return nil, nil, err
 	}
 
 	var participantsPtr *int
@@ -1654,6 +1783,16 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 		notesPtr = &trimmed
 	}
 
+	var members []projectMemberCreateRequest
+	if membersValue, exists := c.GetPostForm("members"); exists {
+		trimmed := strings.TrimSpace(membersValue)
+		if trimmed != "" {
+			if err := json.Unmarshal([]byte(trimmed), &members); err != nil {
+				return nil, nil, errors.New("invalid members payload")
+			}
+		}
+	}
+
 	file, err := c.FormFile("attachment")
 	if err != nil {
 		if !errors.Is(err, http.ErrMissingFile) {
@@ -1670,6 +1809,7 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 		BudgetAmount: budgetAmount,
 		Participants: participantsPtr,
 		Notes:        notesPtr,
+		Members:      members,
 	}
 
 	return payload, file, nil
@@ -1715,9 +1855,9 @@ func bindUpdateProjectPayload(c *gin.Context) (*projectUpdatePayload, *multipart
 	if budgetValue, exists := c.GetPostForm("budget_amount"); exists {
 		trimmed := strings.TrimSpace(budgetValue)
 		if trimmed != "" {
-			parsed, err := strconv.ParseFloat(trimmed, 64)
+			parsed, err := parseBudgetAmount(trimmed)
 			if err != nil {
-				return nil, nil, errors.New("invalid budget_amount")
+				return nil, nil, err
 			}
 			payload.BudgetAmount = &parsed
 		}
@@ -1811,7 +1951,7 @@ func saveProjectAttachment(c *gin.Context, tx *gorm.DB, projectID uint, file *mu
 		StoredPath:   relativePath,
 		FileSize:     uint64(file.Size),
 		MimeType:     mimeType,
-		IsPublic:     false,
+		IsPublic:     true,
 		UploadedAt:   now,
 		CreateAt:     now,
 		UpdateAt:     now,
@@ -1902,7 +2042,7 @@ func getUploadRoot() string {
 
 // DownloadProjectAttachment streams a public project attachment for viewing
 func DownloadProjectAttachment(c *gin.Context) {
-	projectIDParam := c.Param("id")
+	projectIDParam := c.Param("projectId")
 	attachmentIDParam := c.Param("fileId")
 
 	projectID, err := strconv.ParseUint(projectIDParam, 10, 64)
