@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -99,18 +100,18 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	}
 	meta.HasAuthor = true
 
-	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id").
+	docIDs := s.db.Table("scopus_documents AS sd").
+		Select("MIN(sd.id) AS doc_id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID)
+		Where("sda.author_id = ?", author.ID).
+		Group("sd.eid")
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
-		base = base.Where("sd.title LIKE ?", like)
+		docIDs = docIDs.Where("sd.title LIKE ?", like)
 	}
 
-	orderClause := orderForScopus(sortField, sortDirection)
-	countQuery := base.Session(&gorm.Session{})
+	countQuery := s.db.Table("(?) AS doc_ids", docIDs.Session(&gorm.Session{NewDB: true}))
 	var total int64
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, meta, err
@@ -118,6 +119,11 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	if total == 0 {
 		return []ScopusPublication{}, 0, meta, nil
 	}
+
+	orderClause := orderForScopus(sortField, sortDirection)
+	base := s.db.Table("scopus_documents AS sd").
+		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id").
+		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true}))
 
 	type scopusPublicationRow struct {
 		ID              uint
@@ -176,6 +182,27 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	return publications, total, meta, nil
 }
 
+func yearExpression(db *gorm.DB) string {
+	switch db.Dialector.Name() {
+	case "sqlite":
+		return "COALESCE(CAST(strftime('%Y', sd.cover_date) AS INTEGER), CAST(substr(sd.cover_display_date, -4) AS INTEGER))"
+	default:
+		return "COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED))"
+	}
+}
+
+func scopusDocumentGroupExpression(db *gorm.DB) string {
+	// We only want to collapse rows that truly share the same Scopus EID. When
+	// an EID is missing we treat each row as unique by falling back to the
+	// document's numeric ID so distinct publications don't get merged.
+	switch db.Dialector.Name() {
+	case "sqlite":
+		return "COALESCE(NULLIF(sd.eid, ''), CAST(sd.id AS TEXT))"
+	default:
+		return "COALESCE(NULLIF(sd.eid, ''), CAST(sd.id AS CHAR))"
+	}
+}
+
 // StatsByUser returns aggregate Scopus publication stats for the given user.
 func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationStats, ScopusPublicationMeta, error) {
 	stats := ScopusPublicationStats{Trend: []ScopusPublicationTrendPoint{}}
@@ -204,34 +231,26 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 	meta.HasAuthor = true
 
-	documentsBase := s.db.Table("scopus_documents AS sd").
+	yearExpr := yearExpression(s.db)
+	yearCondition := fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr)
+
+	docIDs := s.db.Table("scopus_documents AS sd").
+		Select("MIN(sd.id) AS doc_id, MAX(COALESCE(sd.citedby_count, 0)) AS citations").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID)
-
-	yearExprSD := scopusYearExpression("sd", s.db)
-	yearConditionSD := buildYearCondition(yearExprSD)
-
-	var rawCount int64
-	if err := documentsBase.Session(&gorm.Session{}).Where(yearConditionSD).Count(&rawCount).Error; err != nil {
-		return stats, meta, err
-	}
-	if rawCount == 0 {
-		return stats, meta, nil
-	}
-
-	eidGroupingExpr := scopusEIDGroupingExpression("sd", s.db)
-	documentsSubquery := documentsBase.Session(&gorm.Session{}).
-		Select(fmt.Sprintf("%s AS dedup_eid, MIN(sd.id) AS document_id, MAX(sd.cover_date) AS cover_date, MAX(sd.cover_display_date) AS cover_display_date, MAX(COALESCE(sd.citedby_count, 0)) AS citations", eidGroupingExpr)).
-		Group("dedup_eid")
-
-	docRows := s.db.Table("(?) AS doc_rows", documentsSubquery)
-	yearExprRows := scopusYearExpression("doc_rows", s.db)
-	yearConditionRows := buildYearCondition(yearExprRows)
-	docRows = docRows.Where(yearConditionRows)
+		Where("sda.author_id = ?", author.ID).
+		Where(yearCondition).
+		Group(scopusDocumentGroupExpression(s.db))
 
 	var dedupCount int64
-	if err := docRows.Session(&gorm.Session{}).Count(&dedupCount).Error; err != nil {
+	dedupCountQuery := s.db.Raw(
+		"SELECT COUNT(*) FROM (?) AS doc_ids",
+		docIDs.Session(&gorm.Session{NewDB: true}),
+	)
+	if err := dedupCountQuery.Scan(&dedupCount).Error; err != nil {
 		return stats, meta, err
+	}
+	if dedupCount == 0 {
+		return stats, meta, nil
 	}
 
 	type trendRow struct {
@@ -240,9 +259,24 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 		Citations int64
 	}
 
+	var rawCount int64
+	baseCount := s.db.Table("scopus_documents AS sd").
+		Select("sd.id").
+		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
+		Where("sda.author_id = ?", author.ID).
+		Where(yearCondition)
+	if err := baseCount.Count(&rawCount).Error; err != nil {
+		return stats, meta, err
+	}
+
+	documentsSubquery := s.db.Table("scopus_documents AS sd").
+		Select(fmt.Sprintf("%s AS year, doc_ids.citations AS citations", yearExpr)).
+		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
+		Where(yearCondition)
+
 	var rows []trendRow
-	err := docRows.Session(&gorm.Session{}).
-		Select(fmt.Sprintf("%s AS year, COUNT(*) AS documents, COALESCE(SUM(citations), 0) AS citations", yearExprRows)).
+	err := s.db.Table("(?) AS doc_rows", documentsSubquery).
+		Select("year, COUNT(*) AS documents, COALESCE(SUM(citations), 0) AS citations").
 		Group("year").
 		Order("year ASC").
 		Scan(&rows).Error
@@ -250,12 +284,12 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 		return stats, meta, err
 	}
 
-	if rawCount != dedupCount {
-		fmt.Printf("[scopus] StatsByUser detected %d duplicate document rows for author_id=%d (user_id=%d)\n", rawCount-dedupCount, author.ID, userID)
-	}
-
 	if len(rows) == 0 {
 		return stats, meta, nil
+	}
+
+	if rawCount > dedupCount {
+		log.Printf("scopus stats: deduplicated %d duplicate document rows for user %d", rawCount-dedupCount, userID)
 	}
 
 	stats.Trend = make([]ScopusPublicationTrendPoint, 0, len(rows))
@@ -271,34 +305,6 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 
 	return stats, meta, nil
-}
-
-func buildYearCondition(yearExpr string) string {
-	return fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr)
-}
-
-func scopusYearExpression(alias string, db *gorm.DB) string {
-	if db == nil || db.Dialector == nil {
-		return fmt.Sprintf("COALESCE(YEAR(%s.cover_date), CAST(RIGHT(%s.cover_display_date, 4) AS UNSIGNED))", alias, alias)
-	}
-	switch db.Dialector.Name() {
-	case "sqlite":
-		return fmt.Sprintf("COALESCE(CAST(strftime('%%Y', %s.cover_date) AS INTEGER), CAST(substr(%s.cover_display_date, -4) AS INTEGER))", alias, alias)
-	default:
-		return fmt.Sprintf("COALESCE(YEAR(%s.cover_date), CAST(RIGHT(%s.cover_display_date, 4) AS UNSIGNED))", alias, alias)
-	}
-}
-
-func scopusEIDGroupingExpression(alias string, db *gorm.DB) string {
-	if db == nil || db.Dialector == nil {
-		return fmt.Sprintf("COALESCE(NULLIF(%s.eid, ''), CONCAT('internal-', %s.id))", alias, alias)
-	}
-	switch db.Dialector.Name() {
-	case "sqlite":
-		return fmt.Sprintf("COALESCE(NULLIF(%s.eid, ''), printf('internal-%%d', %s.id))", alias, alias)
-	default:
-		return fmt.Sprintf("COALESCE(NULLIF(%s.eid, ''), CONCAT('internal-', %s.id))", alias, alias)
-	}
 }
 
 func orderForScopus(field, direction string) string {
