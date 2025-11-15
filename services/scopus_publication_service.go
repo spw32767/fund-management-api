@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -99,18 +100,18 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	}
 	meta.HasAuthor = true
 
-	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id").
+	docIDs := s.db.Table("scopus_documents AS sd").
+		Select("MIN(sd.id) AS doc_id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID)
+		Where("sda.author_id = ?", author.ID).
+		Group("sd.eid")
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
-		base = base.Where("sd.title LIKE ?", like)
+		docIDs = docIDs.Where("sd.title LIKE ?", like)
 	}
 
-	orderClause := orderForScopus(sortField, sortDirection)
-	countQuery := base.Session(&gorm.Session{})
+	countQuery := s.db.Table("(?) AS doc_ids", docIDs.Session(&gorm.Session{NewDB: true}))
 	var total int64
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, meta, err
@@ -118,6 +119,11 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	if total == 0 {
 		return []ScopusPublication{}, 0, meta, nil
 	}
+
+	orderClause := orderForScopus(sortField, sortDirection)
+	base := s.db.Table("scopus_documents AS sd").
+		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id").
+		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true}))
 
 	type scopusPublicationRow struct {
 		ID              uint
@@ -176,6 +182,15 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	return publications, total, meta, nil
 }
 
+func yearExpression(db *gorm.DB) string {
+	switch db.Dialector.Name() {
+	case "sqlite":
+		return "COALESCE(CAST(strftime('%Y', sd.cover_date) AS INTEGER), CAST(substr(sd.cover_display_date, -4) AS INTEGER))"
+	default:
+		return "COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED))"
+	}
+}
+
 // StatsByUser returns aggregate Scopus publication stats for the given user.
 func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationStats, ScopusPublicationMeta, error) {
 	stats := ScopusPublicationStats{Trend: []ScopusPublicationTrendPoint{}}
@@ -204,7 +219,7 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 	meta.HasAuthor = true
 
-	yearExpr := "COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED))"
+	yearExpr := yearExpression(s.db)
 
 	type trendRow struct {
 		Year      int
@@ -213,10 +228,21 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 
 	documentsSubquery := s.db.Table("scopus_documents AS sd").
-		Select(fmt.Sprintf("DISTINCT sd.id, %s AS year, COALESCE(sd.citedby_count, 0) AS citations", yearExpr)).
+		Select(fmt.Sprintf("sd.eid, %s AS year, MAX(COALESCE(sd.citedby_count, 0)) AS citations", yearExpr)).
+		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
+		Where("sda.author_id = ?", author.ID).
+		Where(fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr)).
+		Group("sd.eid, year")
+
+	var rawCount int64
+	baseCount := s.db.Table("scopus_documents AS sd").
+		Select("sd.id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
 		Where("sda.author_id = ?", author.ID).
 		Where(fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr))
+	if err := baseCount.Count(&rawCount).Error; err != nil {
+		return stats, meta, err
+	}
 
 	var rows []trendRow
 	err := s.db.Table("(?) AS doc_rows", documentsSubquery).
@@ -230,6 +256,10 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 
 	if len(rows) == 0 {
 		return stats, meta, nil
+	}
+
+	if rawCount > int64(len(rows)) {
+		log.Printf("scopus stats: deduplicated %d duplicate document rows for user %d", rawCount-int64(len(rows)), userID)
 	}
 
 	stats.Trend = make([]ScopusPublicationTrendPoint, 0, len(rows))
