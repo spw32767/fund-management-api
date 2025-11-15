@@ -205,7 +205,6 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	meta.HasAuthor = true
 
 	yearExpr := "COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED))"
-	selectClause := fmt.Sprintf("%s AS year, COUNT(DISTINCT sd.id) AS documents, COALESCE(SUM(sd.citedby_count), 0) AS citations", yearExpr)
 
 	type trendRow struct {
 		Year      int
@@ -213,15 +212,18 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 		Citations int64
 	}
 
-	var rows []trendRow
-	err := s.db.Table("scopus_documents AS sd").
-		Select(selectClause).
+	documentsSubquery := s.db.Table("scopus_documents AS sd").
+		Select(fmt.Sprintf("DISTINCT sd.id, %s AS year, COALESCE(sd.citedby_count, 0) AS citations", yearExpr)).
 		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
 		Where("sda.author_id = ?", author.ID).
-		Where(fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr)).
+		Where(fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr))
+
+	var rows []trendRow
+	err := s.db.Table("(?) AS doc_rows", documentsSubquery).
+		Select("year, COUNT(*) AS documents, COALESCE(SUM(citations), 0) AS citations").
 		Group("year").
 		Order("year ASC").
-		Find(&rows).Error
+		Scan(&rows).Error
 	if err != nil {
 		return stats, meta, err
 	}
