@@ -580,6 +580,26 @@ func ApproveSubmission(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update detail"})
 			return
 		}
+	} else if submission.SubmissionType == "fund_application" {
+		approvedAmount := 0.0
+		if req.TotalApproveAmount != nil {
+			approvedAmount = *req.TotalApproveAmount
+		} else if req.ApprovedAmount != nil {
+			approvedAmount = *req.ApprovedAmount
+		}
+
+		announceRef := strings.TrimSpace(req.AnnounceReferenceNumber)
+
+		if err := tx.Model(&models.FundApplicationDetail{}).
+			Where("submission_id = ?", submissionID).
+			Updates(map[string]interface{}{
+				"approved_amount":           approvedAmount,
+				"announce_reference_number": announceRef
+			}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund application detail"})
+			return
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
