@@ -594,7 +594,7 @@ func ApproveSubmission(c *gin.Context) {
 			Where("submission_id = ?", submissionID).
 			Updates(map[string]interface{}{
 				"approved_amount":           approvedAmount,
-				"announce_reference_number": announceRef
+				"announce_reference_number": announceRef,
 			}).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund application detail"})
