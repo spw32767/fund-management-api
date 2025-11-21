@@ -171,6 +171,85 @@ func AdminSearchUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
 }
 
+// GET /api/v1/admin/users/scopus?limit=20&offset=0
+func AdminListUsersWithScopusID(c *gin.Context) {
+	limit := 20
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	offset := 0
+	if v := strings.TrimSpace(c.Query("offset")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	type row struct {
+		UserID    uint
+		UserFname *string
+		UserLname *string
+		Email     *string
+		ScopusID  *string
+	}
+
+	base := config.DB.
+		Table("users").
+		Select("user_id, user_fname, user_lname, email, Scopus_id AS scopus_id").
+		Where("Scopus_id IS NOT NULL AND TRIM(Scopus_id) <> ''")
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var rows []row
+	if err := base.Order("user_id ASC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	users := make([]AdminUserLite, 0, len(rows))
+	for _, r := range rows {
+		fn, ln := "", ""
+		if r.UserFname != nil {
+			fn = *r.UserFname
+		}
+		if r.UserLname != nil {
+			ln = *r.UserLname
+		}
+		name := strings.TrimSpace(fn + " " + ln)
+
+		email := ""
+		if r.Email != nil {
+			email = *r.Email
+		}
+
+		users = append(users, AdminUserLite{
+			UserID:         r.UserID,
+			Name:           name,
+			Email:          email,
+			ScopusAuthorID: r.ScopusID,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    users,
+		"paging": gin.H{
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		},
+	})
+}
+
 // POST /api/v1/admin/users/:id/scholar-author
 func AdminSetUserScholarAuthorID(c *gin.Context) {
 	uid := strings.TrimSpace(c.Param("id"))
