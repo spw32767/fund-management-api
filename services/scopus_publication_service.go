@@ -127,11 +127,6 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	if total == 0 {
 		return []ScopusPublication{}, 0, meta, nil
 	}
-	if !meta.HasAuthor {
-		// If we reached results via fallback, mark author presence so UI shows data instead of
-		// a missing-author warning.
-		meta.HasAuthor = true
-	}
 
 	orderClause := orderForScopus(sortField, sortDirection)
 	base := s.db.Table("scopus_documents AS sd").
@@ -271,9 +266,6 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 	if dedupCount == 0 {
 		return stats, meta, nil
-	}
-	if !meta.HasAuthor {
-		meta.HasAuthor = true
 	}
 
 	type trendRow struct {
