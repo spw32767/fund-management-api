@@ -91,20 +91,28 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	}
 	meta.HasScopusID = true
 
+	var docIDs *gorm.DB
 	var author models.ScopusAuthor
 	if err := s.db.Select("id").Where("scopus_author_id = ?", scopusID).First(&author).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return []ScopusPublication{}, 0, meta, nil
+			// Fallback: allow documents that carry the same scopus_id even if we don't
+			// have an author linkage yet. This ensures the admin view can still surface
+			// imported documents.
+			docIDs = s.db.Table("scopus_documents AS sd").
+				Select("MIN(sd.id) AS doc_id").
+				Where("sd.scopus_id = ?", scopusID).
+				Group("sd.eid")
+		} else {
+			return nil, 0, meta, err
 		}
-		return nil, 0, meta, err
+	} else {
+		meta.HasAuthor = true
+		docIDs = s.db.Table("scopus_documents AS sd").
+			Select("MIN(sd.id) AS doc_id").
+			Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
+			Where("sda.author_id = ?", author.ID).
+			Group("sd.eid")
 	}
-	meta.HasAuthor = true
-
-	docIDs := s.db.Table("scopus_documents AS sd").
-		Select("MIN(sd.id) AS doc_id").
-		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID).
-		Group("sd.eid")
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
@@ -118,6 +126,11 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	}
 	if total == 0 {
 		return []ScopusPublication{}, 0, meta, nil
+	}
+	if !meta.HasAuthor {
+		// If we reached results via fallback, mark author presence so UI shows data instead of
+		// a missing-author warning.
+		meta.HasAuthor = true
 	}
 
 	orderClause := orderForScopus(sortField, sortDirection)
@@ -222,24 +235,31 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 	meta.HasScopusID = true
 
-	var author models.ScopusAuthor
-	if err := s.db.Select("id").Where("scopus_author_id = ?", scopusID).First(&author).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return stats, meta, nil
-		}
-		return stats, meta, err
-	}
-	meta.HasAuthor = true
-
 	yearExpr := yearExpression(s.db)
 	yearCondition := fmt.Sprintf("%s IS NOT NULL AND %s > 0", yearExpr, yearExpr)
 
-	docIDs := s.db.Table("scopus_documents AS sd").
-		Select("MIN(sd.id) AS doc_id, MAX(COALESCE(sd.citedby_count, 0)) AS citations").
-		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID).
-		Where(yearCondition).
-		Group(scopusDocumentGroupExpression(s.db))
+	var docIDs *gorm.DB
+	var author models.ScopusAuthor
+	if err := s.db.Select("id").Where("scopus_author_id = ?", scopusID).First(&author).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Fallback: group documents directly by scopus_id when author linkage is missing
+			docIDs = s.db.Table("scopus_documents AS sd").
+				Select("MIN(sd.id) AS doc_id, MAX(COALESCE(sd.citedby_count, 0)) AS citations").
+				Where("sd.scopus_id = ?", scopusID).
+				Where(yearCondition).
+				Group(scopusDocumentGroupExpression(s.db))
+		} else {
+			return stats, meta, err
+		}
+	} else {
+		meta.HasAuthor = true
+		docIDs = s.db.Table("scopus_documents AS sd").
+			Select("MIN(sd.id) AS doc_id, MAX(COALESCE(sd.citedby_count, 0)) AS citations").
+			Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
+			Where("sda.author_id = ?", author.ID).
+			Where(yearCondition).
+			Group(scopusDocumentGroupExpression(s.db))
+	}
 
 	var dedupCount int64
 	dedupCountQuery := s.db.Raw(
@@ -252,6 +272,9 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	if dedupCount == 0 {
 		return stats, meta, nil
 	}
+	if !meta.HasAuthor {
+		meta.HasAuthor = true
+	}
 
 	type trendRow struct {
 		Year      int
@@ -260,13 +283,23 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	}
 
 	var rawCount int64
-	baseCount := s.db.Table("scopus_documents AS sd").
-		Select("sd.id").
-		Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
-		Where("sda.author_id = ?", author.ID).
-		Where(yearCondition)
-	if err := baseCount.Count(&rawCount).Error; err != nil {
-		return stats, meta, err
+	if meta.HasAuthor {
+		baseCount := s.db.Table("scopus_documents AS sd").
+			Select("sd.id").
+			Joins("INNER JOIN scopus_document_authors sda ON sda.document_id = sd.id").
+			Where("sda.author_id = ?", author.ID).
+			Where(yearCondition)
+		if err := baseCount.Count(&rawCount).Error; err != nil {
+			return stats, meta, err
+		}
+	} else {
+		baseCount := s.db.Table("scopus_documents AS sd").
+			Select("sd.id").
+			Where("sd.scopus_id = ?", scopusID).
+			Where(yearCondition)
+		if err := baseCount.Count(&rawCount).Error; err != nil {
+			return stats, meta, err
+		}
 	}
 
 	documentsSubquery := s.db.Table("scopus_documents AS sd").
