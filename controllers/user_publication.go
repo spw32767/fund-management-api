@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -59,19 +60,10 @@ func GetUserPublications(c *gin.Context) {
 
 // GET /api/v1/teacher/user-publications/scopus?limit=25&offset=0&sort=year&direction=desc&q=keyword
 func GetUserScopusPublications(c *gin.Context) {
-	userID, ok := getUserIDFromContext(c)
-	if !ok {
-		q := c.Query("user_id")
-		if q == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "user_id not found"})
-			return
-		}
-		id64, err := strconv.ParseUint(q, 10, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user_id"})
-			return
-		}
-		userID = uint(id64)
+	userID, err := resolveTargetUserID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
 	}
 
 	limit := parseIntOrDefault(c.Query("limit"), 10)
@@ -104,19 +96,10 @@ func GetUserScopusPublications(c *gin.Context) {
 
 // GET /api/v1/teacher/user-publications/scopus/stats
 func GetUserScopusPublicationStats(c *gin.Context) {
-	userID, ok := getUserIDFromContext(c)
-	if !ok {
-		q := c.Query("user_id")
-		if q == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "user_id not found"})
-			return
-		}
-		id64, err := strconv.ParseUint(q, 10, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user_id"})
-			return
-		}
-		userID = uint(id64)
+	userID, err := resolveTargetUserID(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
 	}
 
 	svc := services.NewScopusPublicationService(nil)
@@ -272,6 +255,49 @@ func getUserIDFromContext(c *gin.Context) (uint, bool) {
 		}
 	}
 	return 0, false
+}
+
+// resolveTargetUserID returns the user id to query publications for. Admins can
+// explicitly request another user via the user_id query parameter; otherwise we
+// fall back to the authenticated user.
+func resolveTargetUserID(c *gin.Context) (uint, error) {
+	queryUser := strings.TrimSpace(c.Query("user_id"))
+	if queryUser != "" {
+		if roleRaw, ok := c.Get("roleID"); ok {
+			switch role := roleRaw.(type) {
+			case int:
+				if role == 3 {
+					id64, err := strconv.ParseUint(queryUser, 10, 64)
+					if err != nil || id64 == 0 {
+						return 0, fmt.Errorf("invalid user_id")
+					}
+					return uint(id64), nil
+				}
+			case string:
+				if parsed, err := strconv.Atoi(role); err == nil && parsed == 3 {
+					id64, err := strconv.ParseUint(queryUser, 10, 64)
+					if err != nil || id64 == 0 {
+						return 0, fmt.Errorf("invalid user_id")
+					}
+					return uint(id64), nil
+				}
+			}
+		}
+	}
+
+	if userID, ok := getUserIDFromContext(c); ok {
+		return userID, nil
+	}
+
+	if queryUser != "" {
+		id64, err := strconv.ParseUint(queryUser, 10, 64)
+		if err != nil || id64 == 0 {
+			return 0, fmt.Errorf("invalid user_id")
+		}
+		return uint(id64), nil
+	}
+
+	return 0, fmt.Errorf("user_id not found")
 }
 
 func parseIntOrDefault(s string, def int) int {
