@@ -92,3 +92,58 @@ func TestStatsByUserDeduplicatesDocumentsAndUsesMaxCitations(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+func TestStatsByUserWithoutAuthorDoesNotSetAuthorMeta(t *testing.T) {
+	userQueryPattern := regexp.MustCompile(`SELECT .*Scopus_id.*FROM .*users.*user_id = \\?`)
+	authorQueryPattern := regexp.MustCompile(`SELECT .*id.*FROM .*scopus_authors.*scopus_author_id = \\?`)
+	dedupCountPattern := regexp.MustCompile(`.*`)
+
+	steps := []*queryStep{
+		{
+			kind:    kindQuery,
+			pattern: userQueryPattern,
+			args:    []driver.Value{int64(1)},
+			columns: []string{"Scopus_id"},
+			rows:    [][]driver.Value{{"12345"}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: authorQueryPattern,
+			args:    []driver.Value{"12345"},
+			columns: []string{"id"},
+			rows:    [][]driver.Value{},
+		},
+		{
+			kind:    kindQuery,
+			pattern: dedupCountPattern,
+			args:    []driver.Value{"12345"},
+			columns: []string{"count"},
+			rows:    [][]driver.Value{{int64(0)}},
+		},
+	}
+
+	db, state, cleanup := newScriptedGormDB(t, steps)
+	defer cleanup()
+
+	svc := NewScopusPublicationService(db)
+
+	stats, meta, err := svc.StatsByUser(1)
+	if err != nil {
+		t.Fatalf("StatsByUser returned error: %v", err)
+	}
+
+	if !meta.HasScopusID {
+		t.Fatalf("expected has_scopus_id to be true, got %#v", meta)
+	}
+	if meta.HasAuthor {
+		t.Fatalf("expected has_author_record to remain false when author is missing, got %#v", meta)
+	}
+
+	if stats.TotalDocuments != 0 || stats.TotalCitations != 0 || len(stats.Trend) != 0 {
+		t.Fatalf("expected empty stats for missing author, got %+v", stats)
+	}
+
+	if err := state.verifyComplete(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
