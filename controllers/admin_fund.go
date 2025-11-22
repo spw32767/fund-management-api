@@ -399,23 +399,39 @@ func GetAllSubcategories(c *gin.Context) {
 
 	categoryID := c.Query("category_id")
 
-	// Use raw SQL to avoid table name and column issues
-	baseQuery := `
+	// Build the select list dynamically to support databases that may not have the
+	// optional subcategory_code column yet. If the column is missing we return NULL
+	// for the field instead of failing with an unknown column error.
+	hasSubcategoryCode := config.DB.Migrator().HasColumn(&models.FundSubcategory{}, "subcategory_code")
+
+	selectFields := []string{
+		"fs.subcategory_id",
+		"fs.category_id",
+		"fs.subcategory_name",
+	}
+
+	if hasSubcategoryCode {
+		selectFields = append(selectFields, "fs.subcategory_code")
+	} else {
+		selectFields = append(selectFields, "NULL AS subcategory_code")
+	}
+
+	selectFields = append(selectFields,
+		"fs.fund_condition",
+		"fs.target_roles",
+		"fs.status",
+		"fs.comment",
+		"fs.create_at",
+		"fs.update_at",
+		"fc.category_name",
+	)
+
+	baseQuery := fmt.Sprintf(`
                 SELECT
-                        fs.subcategory_id,
-                        fs.category_id,
-                        fs.subcategory_name,
-                        fs.subcategory_code,
-                        fs.fund_condition,
-                        fs.target_roles,
-                        fs.status,
-			fs.comment,
-			fs.create_at,
-			fs.update_at,
-			fc.category_name
-		FROM fund_subcategories fs
-		LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
-		WHERE fs.delete_at IS NULL`
+                        %s
+                FROM fund_subcategories fs
+                LEFT JOIN fund_categories fc ON fs.category_id = fc.category_id
+                WHERE fs.delete_at IS NULL`, strings.Join(selectFields, ",\n                        "))
 
 	var args []interface{}
 
