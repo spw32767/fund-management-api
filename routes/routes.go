@@ -378,11 +378,18 @@ func SetupRoutes(router *gin.Engine) {
 			}
 
 			// เพิ่มส่วนนี้ใน admin group หลังจาก middleware.RequireRole(3)
-			admin := protected.Group("/admin")
-			admin.Use(middleware.RequireRole(3)) // Require admin role
-			{
-				// Dashboard
-				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
+admin := protected.Group("/admin")
+admin.Use(middleware.RequireRole(3)) // Require admin role
+{
+notificationMessages := admin.Group("/notification-messages")
+{
+notificationMessages.GET("", controllers.ListNotificationMessages)
+notificationMessages.POST("", controllers.CreateNotificationMessage)
+notificationMessages.PUT("/:id", controllers.UpdateNotificationMessage)
+}
+
+// Dashboard
+admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
 
 				// User Publications Import from Scholar
