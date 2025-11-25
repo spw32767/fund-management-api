@@ -11,8 +11,11 @@ type NotificationMessage struct {
 	SendTo        string          `gorm:"column:send_to" json:"send_to"`
 	TitleTemplate string          `gorm:"column:title_template" json:"title_template"`
 	BodyTemplate  string          `gorm:"column:body_template" json:"body_template"`
+	DefaultTitle  string          `gorm:"column:default_title_template" json:"default_title_template"`
+	DefaultBody   string          `gorm:"column:default_body_template" json:"default_body_template"`
 	Description   *string         `gorm:"column:description" json:"description,omitempty"`
 	Variables     json.RawMessage `gorm:"column:variables" json:"variables"`
+	DefaultVars   json.RawMessage `gorm:"column:default_variables" json:"default_variables"`
 	IsActive      bool            `gorm:"column:is_active" json:"is_active"`
 	UpdatedBy     *uint           `gorm:"column:updated_by" json:"updated_by,omitempty"`
 	CreatedAt     time.Time       `gorm:"column:created_at" json:"created_at"`

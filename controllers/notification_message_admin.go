@@ -107,8 +107,11 @@ func CreateNotificationMessage(c *gin.Context) {
 		SendTo:        audience,
 		TitleTemplate: strings.TrimSpace(req.TitleTemplate),
 		BodyTemplate:  strings.TrimSpace(req.BodyTemplate),
+		DefaultTitle:  strings.TrimSpace(req.TitleTemplate),
+		DefaultBody:   strings.TrimSpace(req.BodyTemplate),
 		Description:   req.Description,
 		Variables:     buildVariablesJSON(req.Variables),
+		DefaultVars:   buildVariablesJSON(req.Variables),
 		IsActive:      true,
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -193,6 +196,69 @@ func UpdateNotificationMessage(c *gin.Context) {
 
 	if err := config.DB.Model(&msg).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update notification message"})
+		return
+	}
+
+	if err := config.DB.First(&msg, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to reload notification message"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "notification_message": msg})
+}
+
+// ResetNotificationMessage - POST /api/v1/admin/notification-messages/:id/reset
+func ResetNotificationMessage(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid id"})
+		return
+	}
+
+	var msg models.NotificationMessage
+	if err := config.DB.First(&msg, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "notification message not found"})
+		return
+	}
+
+	defaultTitle := strings.TrimSpace(msg.DefaultTitle)
+	if defaultTitle == "" {
+		defaultTitle = msg.TitleTemplate
+	}
+
+	defaultBody := strings.TrimSpace(msg.DefaultBody)
+	if defaultBody == "" {
+		defaultBody = msg.BodyTemplate
+	}
+
+	defaultVars := msg.DefaultVars
+	if len(strings.TrimSpace(string(defaultVars))) == 0 {
+		defaultVars = msg.Variables
+	}
+
+	updates := map[string]interface{}{
+		"title_template": defaultTitle,
+		"body_template":  defaultBody,
+		"variables":      defaultVars,
+		"updated_at":     time.Now(),
+		"is_active":      true,
+	}
+
+	if userID, ok := c.Get("userID"); ok {
+		switch v := userID.(type) {
+		case int:
+			uid := uint(v)
+			updates["updated_by"] = uid
+		case int64:
+			uid := uint(v)
+			updates["updated_by"] = uid
+		case uint:
+			updates["updated_by"] = v
+		}
+	}
+
+	if err := config.DB.Model(&msg).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to reset notification message"})
 		return
 	}
 
