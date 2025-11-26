@@ -316,6 +316,14 @@ func appContactInfo() string {
 	return raw
 }
 
+func normalizeComment(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "ไม่ระบุ"
+	}
+	return trimmed
+}
+
 func normalizeBaseURL(candidate string) string {
 	trimmed := strings.TrimSpace(candidate)
 	if trimmed == "" {
@@ -405,6 +413,58 @@ func sendMailSafe(to []string, subject, html string) {
 	if err := config.SendMail(to, subject, html); err != nil {
 		log.Printf("notification email send failed (subject=%q to=%v): %v", subject, to, err)
 	}
+}
+
+func notifyNeedsMoreInfo(submissionID int, actor string, comment string) error {
+	db := getDB()
+
+	var sub submissionLite
+	if err := db.Select("submission_id, submission_type, user_id, submission_number").
+		First(&sub, "submission_id = ?", submissionID).Error; err != nil {
+		return err
+	}
+
+	submitterName, submitterEmail := loadOwnerDisplay(db, sub.UserID)
+	submitterName = strings.TrimSpace(submitterName)
+
+	submissionTitle := getSubmissionTitle(db, sub)
+
+	webURL := strings.TrimSpace(appBaseURL())
+	if webURL == "" {
+		webURL = "-"
+	}
+
+	commentKey := "head_comment"
+	eventKey := "dept_head_needs_more_info"
+	if strings.EqualFold(actor, "admin") {
+		commentKey = "admin_comment"
+		eventKey = "admin_needs_more_info"
+	}
+
+	commentText := normalizeComment(comment)
+
+	data := map[string]string{
+		"submission_number": sub.SubmissionNumber,
+		"submitter_name":    submitterName,
+		"submission_title":  submissionTitle,
+		"web_url":           webURL,
+		commentKey:          commentText,
+	}
+
+	msg, err := buildTemplatedMessage(db, eventKey, "user", data)
+	if err != nil {
+		return err
+	}
+
+	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, msg.Title, msg.Body, "info", sub.SubmissionID).Error
+
+	if submitterEmail != "" {
+		subj := msg.Title
+		emailBody := buildFormalEmailHTML(subj, submitterName, msg.Body)
+		sendMailSafe([]string{submitterEmail}, subj, emailBody)
+	}
+
+	return nil
 }
 
 /* ==========================

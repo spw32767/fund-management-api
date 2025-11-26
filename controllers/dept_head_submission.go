@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -499,6 +500,10 @@ func DeptHeadRequestRevision(c *gin.Context) {
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to request revision"})
 		return
+	}
+
+	if err := notifyNeedsMoreInfo(submission.SubmissionID, "dept_head", message); err != nil {
+		log.Printf("notify dept head revision request failed: %v", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

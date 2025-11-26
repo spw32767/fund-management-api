@@ -832,6 +832,10 @@ func RequestSubmissionRevision(c *gin.Context) {
 		return
 	}
 
+	if err := notifyNeedsMoreInfo(submission.SubmissionID, "admin", message); err != nil {
+		log.Printf("notify admin revision request failed: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Revision requested successfully",
