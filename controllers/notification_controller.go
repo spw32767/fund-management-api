@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -126,6 +127,20 @@ func applyTemplatePlaceholders(text string, data map[string]string) string {
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
 	return result
+}
+
+var urlRegex = regexp.MustCompile(`https?://[\w\-._~:/?#\[\]@!$&'()*+,;=%]+`)
+
+func linkifyURLs(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return text
+	}
+
+	return urlRegex.ReplaceAllStringFunc(text, func(match string) string {
+		cleaned := strings.TrimRight(match, ".,)")
+		suffix := match[len(cleaned):]
+		return fmt.Sprintf(`<a href="%s" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;text-decoration:underline;">%s</a>%s`, template.HTMLEscapeString(cleaned), template.HTMLEscapeString(cleaned), template.HTMLEscapeString(suffix))
+	})
 }
 
 func buildTemplatedMessage(db *gorm.DB, eventKey, sendTo string, data map[string]string) (templatedMessage, error) {
@@ -425,6 +440,7 @@ func buildFormalEmailHTML(subject, recipientName, message string) string {
 
 	escapedGreeting := template.HTMLEscapeString(greetingText)
 	escapedMessage := template.HTMLEscapeString(bodyText)
+	escapedMessage = linkifyURLs(escapedMessage)
 	escapedMessage = strings.ReplaceAll(escapedMessage, "\n", "<br />")
 
 	logo := getEmailLogoHTML()
@@ -477,6 +493,8 @@ func notifyNeedsMoreInfo(submissionID int, actor string, comment string) error {
 		webURL = "-"
 	}
 
+	contactInfo := appContactInfo()
+
 	commentKey := "head_comment"
 	eventKey := "dept_head_needs_more_info"
 	if strings.EqualFold(actor, "admin") {
@@ -491,6 +509,7 @@ func notifyNeedsMoreInfo(submissionID int, actor string, comment string) error {
 		"submitter_name":    submitterName,
 		"submission_title":  submissionTitle,
 		"web_url":           webURL,
+		"contact_info":      contactInfo,
 		commentKey:          commentText,
 	}
 
@@ -729,12 +748,15 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		webURL = "-"
 	}
 
+	contactInfo := appContactInfo()
+
 	data := map[string]string{
 		"submission_number": sub.SubmissionNumber,
 		"submitter_name":    submitterName,
 		"submission_title":  submissionTitle,
 		"submitted_at":      submittedAt,
 		"web_url":           webURL,
+		"contact_info":      contactInfo,
 	}
 
 	userMsg, err := buildTemplatedMessage(db, "submission_submitted", "user", data)
@@ -831,11 +853,14 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 		webURL = "-"
 	}
 
+	contactInfo := appContactInfo()
+
 	data := map[string]string{
 		"submission_number": sub.SubmissionNumber,
 		"submitter_name":    submitterName,
 		"submission_title":  submissionTitle,
 		"web_url":           webURL,
+		"contact_info":      contactInfo,
 	}
 
 	userMsg, err := buildTemplatedMessage(db, "dept_head_recommended", "user", data)
@@ -932,6 +957,8 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 		reasonText = "ไม่ระบุ"
 	}
 
+	contactInfo := appContactInfo()
+
 	webURL := strings.TrimSpace(appBaseURL())
 	if webURL == "" {
 		webURL = "-"
@@ -942,6 +969,7 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 		"submitter_name":        submitterName,
 		"head_rejection_reason": reasonText,
 		"web_url":               webURL,
+		"contact_info":          contactInfo,
 	}
 
 	msg, err := buildTemplatedMessage(db, "dept_head_not_recommended", "user", data)
