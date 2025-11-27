@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"fmt"
 	"html/template"
 	"log"
@@ -309,6 +310,21 @@ func appBaseURL() string {
 }
 
 func appContactInfo() string {
+	db := getDB()
+
+	var contact sql.NullString
+	if err := db.Raw(`
+                SELECT contact_info
+                FROM system_config
+                ORDER BY config_id DESC
+                LIMIT 1
+        `).Row().Scan(&contact); err == nil && contact.Valid {
+		normalized := strings.TrimSpace(contact.String)
+		if normalized != "" {
+			return normalized
+		}
+	}
+
 	raw := strings.TrimSpace(os.Getenv("APP_CONTACT_INFO"))
 	if raw == "" {
 		return "-"
@@ -386,10 +402,36 @@ func buildFormalEmailHTML(subject, recipientName, message string) string {
 	}
 
 	escapedSubject := template.HTMLEscapeString(subject)
-	escapedGreeting := template.HTMLEscapeString(fmt.Sprintf("เรียน %s", name))
-	escapedMessage := template.HTMLEscapeString(strings.TrimSpace(message))
-	escapedMessage = strings.ReplaceAll(strings.ReplaceAll(escapedMessage, "\r\n", "\n"), "\r", "\n")
+	normalizedMsg := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\r", "\n")
+
+	greetingText := fmt.Sprintf("เรียน %s", name)
+	bodyText := strings.TrimSpace(normalizedMsg)
+	if trimmed := strings.TrimSpace(normalizedMsg); trimmed != "" {
+		lines := strings.Split(normalizedMsg, "\n")
+		for idx, line := range lines {
+			l := strings.TrimSpace(line)
+			if l == "" {
+				continue
+			}
+			if strings.HasPrefix(l, "เรียน") {
+				greetingText = l
+				bodyText = strings.TrimSpace(strings.Join(lines[idx+1:], "\n"))
+			} else {
+				bodyText = strings.TrimSpace(strings.Join(lines[idx:], "\n"))
+			}
+			break
+		}
+	}
+
+	escapedGreeting := template.HTMLEscapeString(greetingText)
+	escapedMessage := template.HTMLEscapeString(bodyText)
 	escapedMessage = strings.ReplaceAll(escapedMessage, "\n", "<br />")
+
+	logo := getEmailLogoHTML()
+	logoBlock := ""
+	if logo != "" {
+		logoBlock = logo
+	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="th">
@@ -401,12 +443,13 @@ func buildFormalEmailHTML(subject, recipientName, message string) string {
 <body style="margin:0;padding:0;background-color:#f9fafb;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
 <div style="max-width:640px;margin:0 auto;padding:24px 20px;">
   <div style="background-color:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 24px 28px 24px;">
+    %s
     <p style="margin:0 0 16px 0;font-size:16px;line-height:1.7;color:#111827;">%s</p>
     <p style="margin:0 0 0 0;font-size:16px;line-height:1.7;color:#111827;word-break:break-word;">%s</p>
   </div>
 </div>
 </body>
-</html>`, escapedSubject, escapedGreeting, escapedMessage)
+</html>`, escapedSubject, logoBlock, escapedGreeting, escapedMessage)
 }
 
 func sendMailSafe(to []string, subject, html string) {

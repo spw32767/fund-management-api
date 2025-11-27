@@ -310,6 +310,7 @@ func GetSystemConfigWindow(c *gin.Context) {
 		EndDate       sql.NullTime
 		LastUpdated   sql.NullTime
 		UpdatedBy     sql.NullInt64
+		ContactInfo   sql.NullString
 
 		MainAnnoucement             sql.NullInt64
 		RewardAnnouncement          sql.NullInt64
@@ -322,9 +323,9 @@ func GetSystemConfigWindow(c *gin.Context) {
 
 	if err := config.DB.Raw(`
 		SELECT
-		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
-		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-		  kku_report_year, installment
+                  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by, contact_info,
+                  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
+                  kku_report_year, installment
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
@@ -395,6 +396,12 @@ func GetSystemConfigWindow(c *gin.Context) {
 		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+		"contact_info": func() interface{} {
+			if row.ContactInfo.Valid {
+				return strings.TrimSpace(row.ContactInfo.String)
+			}
+			return nil
+		}(),
 
 		// window ปัจจุบันรายช่อง (จาก announcement_assignments)
 		"main_start_date":                            formatPtrTime(mainS),
@@ -444,6 +451,7 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		EndDate       sql.NullTime   `json:"end_date"`
 		LastUpdated   sql.NullTime   `json:"last_updated"`
 		UpdatedBy     sql.NullInt64  `json:"updated_by"`
+		ContactInfo   sql.NullString `json:"contact_info"`
 
 		MainAnnoucement             sql.NullInt64  `json:"main_annoucement"`
 		RewardAnnouncement          sql.NullInt64  `json:"reward_announcement"`
@@ -456,9 +464,9 @@ func GetSystemConfigAdmin(c *gin.Context) {
 
 	if err := config.DB.Raw(`
 		SELECT
-		  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by,
-		  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-		  kku_report_year, installment
+                  config_id, system_version, current_year, start_date, end_date, last_updated, updated_by, contact_info,
+                  main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
+                  kku_report_year, installment
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
@@ -528,6 +536,12 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		"activity_support_announcement": toIntPtr(row.ActivitySupportAnnouncement),
 		"conference_announcement":       toIntPtr(row.ConferenceAnnouncement),
 		"service_announcement":          toIntPtr(row.ServiceAnnouncement),
+		"contact_info": func() interface{} {
+			if row.ContactInfo.Valid {
+				return strings.TrimSpace(row.ContactInfo.String)
+			}
+			return nil
+		}(),
 
 		"main_start_date":                            formatPtrTime(mainS),
 		"main_end_date":                              formatPtrTime(mainE),
@@ -574,6 +588,7 @@ type updateWindowPayload struct {
 	CurrentYear *string `json:"current_year"`
 	StartDate   *string `json:"start_date"`
 	EndDate     *string `json:"end_date"`
+	ContactInfo *string `json:"contact_info"`
 }
 
 func UpdateSystemConfigWindow(c *gin.Context) {
@@ -607,9 +622,9 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	if !cfgID.Valid {
 		// insert
 		if err := config.DB.Exec(`
-			INSERT INTO system_config (current_year, start_date, end_date, last_updated, updated_by)
-			VALUES (?, ?, ?, NOW(), ?)
-		`, p.CurrentYear, stPtr, enPtr, updatedBy).Error; err != nil {
+                        INSERT INTO system_config (current_year, start_date, end_date, contact_info, last_updated, updated_by)
+                        VALUES (?, ?, ?, ?, NOW(), ?)
+                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, updatedBy).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
 			return
 		}
@@ -619,10 +634,10 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 
 	// update
 	if err := config.DB.Exec(`
-		UPDATE system_config
-		SET current_year = ?, start_date = ?, end_date = ?, last_updated = NOW(), updated_by = ?
-		WHERE config_id = ?
-	`, p.CurrentYear, stPtr, enPtr, updatedBy, int(cfgID.Int64)).Error; err != nil {
+                UPDATE system_config
+                SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, last_updated = NOW(), updated_by = ?
+                WHERE config_id = ?
+        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, updatedBy, int(cfgID.Int64)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
 		return
 	}
