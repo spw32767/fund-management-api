@@ -7,6 +7,7 @@ type ScopusDocument struct {
 	ID                 uint       `gorm:"primaryKey;column:id" json:"id"`
 	EID                string     `gorm:"column:eid;uniqueIndex" json:"eid"`
 	ScopusID           *string    `gorm:"column:scopus_id" json:"scopus_id,omitempty"`
+	ScopusLink         *string    `gorm:"column:scopus_link" json:"scopus_link,omitempty"`
 	Title              *string    `gorm:"column:title" json:"title,omitempty"`
 	Abstract           *string    `gorm:"column:abstract" json:"abstract,omitempty"`
 	AggregationType    *string    `gorm:"column:aggregation_type" json:"aggregation_type,omitempty"`
