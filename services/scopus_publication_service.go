@@ -130,7 +130,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 
 	orderClause := orderForScopus(sortField, sortDirection)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id").
+		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true}))
 
 	type scopusPublicationRow struct {
@@ -142,6 +142,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		DOI             *string
 		EID             string
 		ScopusID        *string `gorm:"column:scopus_id"`
+		ScopusLink      *string `gorm:"column:scopus_link"`
 	}
 
 	var rows []scopusPublicationRow
@@ -162,6 +163,13 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 			ScopusID: row.ScopusID,
 		}
 		publication.PublicationName = row.PublicationName
+
+		if link := normalizeNullable(row.ScopusLink); link != nil {
+			publication.ScopusURL = link
+			if publication.URL == nil {
+				publication.URL = link
+			}
+		}
 
 		if row.CoverDate != nil {
 			year := row.CoverDate.Year()

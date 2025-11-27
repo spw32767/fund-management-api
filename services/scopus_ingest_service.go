@@ -335,6 +335,7 @@ type scopusEntry struct {
 	Raw              json.RawMessage    `json:"-"`
 	EID              string             `json:"eid"`
 	Identifier       string             `json:"dc:identifier"`
+	PrismURL         string             `json:"prism:url"`
 	Title            string             `json:"dc:title"`
 	Description      string             `json:"dc:description"`
 	AggregationType  string             `json:"prism:aggregationType"`
@@ -359,6 +360,7 @@ type scopusEntry struct {
 	AuthKeywords     string             `json:"authkeywords"`
 	FundAcr          string             `json:"fund-acr"`
 	FundSponsor      string             `json:"fund-sponsor"`
+	Links            scopusLinks        `json:"link"`
 	Affiliation      scopusAffiliations `json:"affiliation"`
 	Author           scopusAuthors      `json:"author"`
 }
@@ -370,6 +372,25 @@ func parseScopusEntry(raw json.RawMessage) (*scopusEntry, error) {
 	}
 	entry.Raw = raw
 	return &entry, nil
+}
+
+type scopusLinks []scopusLink
+
+func (l scopusLinks) FirstByRef(ref string) *string {
+	for _, link := range l {
+		if strings.EqualFold(strings.TrimSpace(link.Ref), strings.TrimSpace(ref)) {
+			href := strings.TrimSpace(link.Href)
+			if href != "" {
+				return &href
+			}
+		}
+	}
+	return nil
+}
+
+type scopusLink struct {
+	Ref  string `json:"@ref"`
+	Href string `json:"@href"`
 }
 
 type scopusAffiliations []scopusAffiliation
@@ -496,6 +517,7 @@ func buildScopusDocument(entry *scopusEntry) *models.ScopusDocument {
 	doc := &models.ScopusDocument{
 		EID:                strings.TrimSpace(entry.EID),
 		ScopusID:           optionalString(entry.Identifier),
+		ScopusLink:         extractScopusLink(entry),
 		Title:              optionalString(entry.Title),
 		Abstract:           optionalString(entry.Description),
 		AggregationType:    optionalString(entry.AggregationType),
@@ -540,6 +562,25 @@ func buildScopusDocument(entry *scopusEntry) *models.ScopusDocument {
 	doc.AuthKeywords = buildKeywordsJSON(entry.AuthKeywords)
 
 	return doc
+}
+
+func extractScopusLink(entry *scopusEntry) *string {
+	if entry == nil {
+		return nil
+	}
+	if link := entry.Links.FirstByRef("scopus"); link != nil {
+		return link
+	}
+	if link := entry.Links.FirstByRef("scopus-citedby"); link != nil {
+		return link
+	}
+	if link := entry.Links.FirstByRef("self"); link != nil {
+		return link
+	}
+	if trimmed := strings.TrimSpace(entry.PrismURL); trimmed != "" {
+		return &trimmed
+	}
+	return nil
 }
 
 func optionalString(value string) *string {
