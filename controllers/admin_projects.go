@@ -204,18 +204,19 @@ func formatProjectMembers(members []models.ProjectMember, includeAdminFields boo
 
 func formatProjectResponse(project models.Project, includeAdminFields bool, includeAllAttachments bool) gin.H {
 	response := gin.H{
-		"project_id":    project.ProjectID,
-		"project_name":  project.ProjectName,
-		"type_id":       project.TypeID,
-		"type":          project.Type,
-		"plan_id":       project.PlanID,
-		"budget_plan":   project.BudgetPlan,
-		"event_date":    project.EventDate.Format("2006-01-02"),
-		"budget_amount": project.BudgetAmount,
-		"participants":  project.Participants,
-		"notes":         project.Notes,
-		"attachments":   formatProjectAttachments(filterProjectAttachments(project.Attachments, includeAllAttachments), includeAdminFields),
-		"members":       formatProjectMembers(project.Members, includeAdminFields),
+		"project_id":          project.ProjectID,
+		"project_name":        project.ProjectName,
+		"type_id":             project.TypeID,
+		"type":                project.Type,
+		"plan_id":             project.PlanID,
+		"budget_plan":         project.BudgetPlan,
+		"event_date":          project.EventDate.Format("2006-01-02"),
+		"budget_amount":       project.BudgetAmount,
+		"participants":        project.Participants,
+		"beneficiaries_count": project.BeneficiariesCount,
+		"notes":               project.Notes,
+		"attachments":         formatProjectAttachments(filterProjectAttachments(project.Attachments, includeAllAttachments), includeAdminFields),
+		"members":             formatProjectMembers(project.Members, includeAdminFields),
 	}
 
 	if includeAdminFields {
@@ -317,9 +318,19 @@ func CreateProject(c *gin.Context) {
 		return
 	}
 
+	if payload.BeneficiariesCount != nil && *payload.BeneficiariesCount < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "beneficiaries_count cannot be negative"})
+		return
+	}
+
 	participants := 0
 	if payload.Participants != nil {
 		participants = *payload.Participants
+	}
+
+	beneficiaries := 0
+	if payload.BeneficiariesCount != nil {
+		beneficiaries = *payload.BeneficiariesCount
 	}
 
 	var createdByPtr *int
@@ -342,14 +353,15 @@ func CreateProject(c *gin.Context) {
 	}
 
 	project := models.Project{
-		ProjectName:  payload.ProjectName,
-		TypeID:       payload.TypeID,
-		EventDate:    eventDate,
-		PlanID:       payload.PlanID,
-		BudgetAmount: payload.BudgetAmount,
-		Participants: participants,
-		Notes:        notesPtr,
-		CreatedBy:    createdByPtr,
+		ProjectName:        payload.ProjectName,
+		TypeID:             payload.TypeID,
+		EventDate:          eventDate,
+		PlanID:             payload.PlanID,
+		BudgetAmount:       payload.BudgetAmount,
+		Participants:       participants,
+		BeneficiariesCount: beneficiaries,
+		Notes:              notesPtr,
+		CreatedBy:          createdByPtr,
 	}
 
 	if err := tx.Create(&project).Error; err != nil {
@@ -404,21 +416,22 @@ func CreateProject(c *gin.Context) {
 		"success": true,
 		"message": "Project created successfully",
 		"project": gin.H{
-			"project_id":    project.ProjectID,
-			"project_name":  project.ProjectName,
-			"type_id":       project.TypeID,
-			"type":          project.Type,
-			"plan_id":       project.PlanID,
-			"budget_plan":   project.BudgetPlan,
-			"event_date":    project.EventDate.Format("2006-01-02"),
-			"budget_amount": project.BudgetAmount,
-			"participants":  project.Participants,
-			"notes":         project.Notes,
-			"created_by":    project.CreatedBy,
-			"created_at":    project.CreatedAt,
-			"updated_at":    project.UpdatedAt,
-			"attachments":   project.Attachments,
-			"members":       formatProjectMembers(project.Members, true),
+			"project_id":          project.ProjectID,
+			"project_name":        project.ProjectName,
+			"type_id":             project.TypeID,
+			"type":                project.Type,
+			"plan_id":             project.PlanID,
+			"budget_plan":         project.BudgetPlan,
+			"event_date":          project.EventDate.Format("2006-01-02"),
+			"budget_amount":       project.BudgetAmount,
+			"participants":        project.Participants,
+			"beneficiaries_count": project.BeneficiariesCount,
+			"notes":               project.Notes,
+			"created_by":          project.CreatedBy,
+			"created_at":          project.CreatedAt,
+			"updated_at":          project.UpdatedAt,
+			"attachments":         project.Attachments,
+			"members":             formatProjectMembers(project.Members, true),
 		},
 	})
 }
@@ -460,13 +473,14 @@ func UpdateProject(c *gin.Context) {
 		}
 	} else {
 		type request struct {
-			ProjectName  *string  `json:"project_name"`
-			TypeID       *uint    `json:"type_id"`
-			EventDate    *string  `json:"event_date"`
-			PlanID       *uint    `json:"plan_id"`
-			BudgetAmount *float64 `json:"budget_amount"`
-			Participants *int     `json:"participants"`
-			Notes        *string  `json:"notes"`
+			ProjectName        *string  `json:"project_name"`
+			TypeID             *uint    `json:"type_id"`
+			EventDate          *string  `json:"event_date"`
+			PlanID             *uint    `json:"plan_id"`
+			BudgetAmount       *float64 `json:"budget_amount"`
+			Participants       *int     `json:"participants"`
+			BeneficiariesCount *int     `json:"beneficiaries_count"`
+			Notes              *string  `json:"notes"`
 		}
 
 		var req request
@@ -476,13 +490,14 @@ func UpdateProject(c *gin.Context) {
 		}
 
 		payload = &projectUpdatePayload{
-			ProjectName:  trimStringPointer(req.ProjectName),
-			TypeID:       req.TypeID,
-			EventDate:    trimStringPointer(req.EventDate),
-			PlanID:       req.PlanID,
-			BudgetAmount: req.BudgetAmount,
-			Participants: req.Participants,
-			Notes:        trimStringPointer(req.Notes),
+			ProjectName:        trimStringPointer(req.ProjectName),
+			TypeID:             req.TypeID,
+			EventDate:          trimStringPointer(req.EventDate),
+			PlanID:             req.PlanID,
+			BudgetAmount:       req.BudgetAmount,
+			Participants:       req.Participants,
+			BeneficiariesCount: req.BeneficiariesCount,
+			Notes:              trimStringPointer(req.Notes),
 		}
 	}
 
@@ -536,6 +551,13 @@ func UpdateProject(c *gin.Context) {
 			return
 		}
 		updates["participants"] = *payload.Participants
+	}
+	if payload.BeneficiariesCount != nil {
+		if *payload.BeneficiariesCount < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "beneficiaries_count cannot be negative"})
+			return
+		}
+		updates["beneficiaries_count"] = *payload.BeneficiariesCount
 	}
 	if payload.Notes != nil {
 		noteValue := strings.TrimSpace(*payload.Notes)
@@ -600,21 +622,22 @@ func UpdateProject(c *gin.Context) {
 		"success": true,
 		"message": "Project updated successfully",
 		"project": gin.H{
-			"project_id":    project.ProjectID,
-			"project_name":  project.ProjectName,
-			"type_id":       project.TypeID,
-			"type":          project.Type,
-			"plan_id":       project.PlanID,
-			"budget_plan":   project.BudgetPlan,
-			"event_date":    project.EventDate.Format("2006-01-02"),
-			"budget_amount": project.BudgetAmount,
-			"participants":  project.Participants,
-			"notes":         project.Notes,
-			"created_by":    project.CreatedBy,
-			"created_at":    project.CreatedAt,
-			"updated_at":    project.UpdatedAt,
-			"attachments":   project.Attachments,
-			"members":       formatProjectMembers(project.Members, true),
+			"project_id":          project.ProjectID,
+			"project_name":        project.ProjectName,
+			"type_id":             project.TypeID,
+			"type":                project.Type,
+			"plan_id":             project.PlanID,
+			"budget_plan":         project.BudgetPlan,
+			"event_date":          project.EventDate.Format("2006-01-02"),
+			"budget_amount":       project.BudgetAmount,
+			"participants":        project.Participants,
+			"beneficiaries_count": project.BeneficiariesCount,
+			"notes":               project.Notes,
+			"created_by":          project.CreatedBy,
+			"created_at":          project.CreatedAt,
+			"updated_at":          project.UpdatedAt,
+			"attachments":         project.Attachments,
+			"members":             formatProjectMembers(project.Members, true),
 		},
 	})
 }
@@ -1658,24 +1681,26 @@ func projectTypeNameExists(nameTH string, excludeID uint) (bool, error) {
 }
 
 type projectCreatePayload struct {
-	ProjectName  string
-	TypeID       uint
-	EventDate    string
-	PlanID       uint
-	BudgetAmount float64
-	Participants *int
-	Notes        *string
-	Members      []projectMemberCreateRequest
+	ProjectName        string
+	TypeID             uint
+	EventDate          string
+	PlanID             uint
+	BudgetAmount       float64
+	Participants       *int
+	BeneficiariesCount *int
+	Notes              *string
+	Members            []projectMemberCreateRequest
 }
 
 type projectUpdatePayload struct {
-	ProjectName  *string
-	TypeID       *uint
-	EventDate    *string
-	PlanID       *uint
-	BudgetAmount *float64
-	Participants *int
-	Notes        *string
+	ProjectName        *string
+	TypeID             *uint
+	EventDate          *string
+	PlanID             *uint
+	BudgetAmount       *float64
+	Participants       *int
+	BeneficiariesCount *int
+	Notes              *string
 }
 
 func budgetPlanNameExists(nameTH string, excludeID uint) (bool, error) {
@@ -1777,6 +1802,21 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 		}
 	}
 
+	var beneficiariesPtr *int
+	if beneficiariesValue, exists := c.GetPostForm("beneficiaries_count"); exists {
+		trimmed := strings.TrimSpace(beneficiariesValue)
+		if trimmed != "" {
+			parsed, parseErr := strconv.Atoi(trimmed)
+			if parseErr != nil {
+				return nil, nil, errors.New("beneficiaries_count must be a number")
+			}
+			if parsed < 0 {
+				return nil, nil, errors.New("beneficiaries_count cannot be negative")
+			}
+			beneficiariesPtr = &parsed
+		}
+	}
+
 	var notesPtr *string
 	if notesValue, exists := c.GetPostForm("notes"); exists {
 		trimmed := strings.TrimSpace(notesValue)
@@ -1802,14 +1842,15 @@ func bindCreateProjectPayload(c *gin.Context) (*projectCreatePayload, *multipart
 	}
 
 	payload := &projectCreatePayload{
-		ProjectName:  name,
-		TypeID:       uint(typeID),
-		EventDate:    eventDate,
-		PlanID:       uint(planID),
-		BudgetAmount: budgetAmount,
-		Participants: participantsPtr,
-		Notes:        notesPtr,
-		Members:      members,
+		ProjectName:        name,
+		TypeID:             uint(typeID),
+		EventDate:          eventDate,
+		PlanID:             uint(planID),
+		BudgetAmount:       budgetAmount,
+		Participants:       participantsPtr,
+		BeneficiariesCount: beneficiariesPtr,
+		Notes:              notesPtr,
+		Members:            members,
 	}
 
 	return payload, file, nil
@@ -1871,6 +1912,17 @@ func bindUpdateProjectPayload(c *gin.Context) (*projectUpdatePayload, *multipart
 				return nil, nil, errors.New("participants must be a number")
 			}
 			payload.Participants = &parsed
+		}
+	}
+
+	if beneficiariesValue, exists := c.GetPostForm("beneficiaries_count"); exists {
+		trimmed := strings.TrimSpace(beneficiariesValue)
+		if trimmed != "" {
+			parsed, err := strconv.Atoi(trimmed)
+			if err != nil {
+				return nil, nil, errors.New("beneficiaries_count must be a number")
+			}
+			payload.BeneficiariesCount = &parsed
 		}
 	}
 

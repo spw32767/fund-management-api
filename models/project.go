@@ -4,17 +4,18 @@ import "time"
 
 // Project represents the projects table
 type Project struct {
-	ProjectID    uint       `gorm:"primaryKey;column:project_id" json:"project_id"`
-	ProjectName  string     `gorm:"column:project_name" json:"project_name"`
-	TypeID       uint       `gorm:"column:type_id" json:"type_id"`
-	EventDate    time.Time  `gorm:"column:event_date" json:"event_date"`
-	PlanID       uint       `gorm:"column:plan_id" json:"plan_id"`
-	BudgetAmount float64    `gorm:"column:budget_amount" json:"budget_amount"`
-	Participants int        `gorm:"column:participants" json:"participants"`
-	Notes        *string    `gorm:"column:notes" json:"notes"`
-	CreatedBy    *int       `gorm:"column:created_by" json:"created_by"`
-	CreatedAt    time.Time  `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt    *time.Time `gorm:"column:updated_at" json:"updated_at"`
+	ProjectID          uint       `gorm:"primaryKey;column:project_id" json:"project_id"`
+	ProjectName        string     `gorm:"column:project_name" json:"project_name"`
+	TypeID             uint       `gorm:"column:type_id" json:"type_id"`
+	EventDate          time.Time  `gorm:"column:event_date" json:"event_date"`
+	PlanID             uint       `gorm:"column:plan_id" json:"plan_id"`
+	BudgetAmount       float64    `gorm:"column:budget_amount" json:"budget_amount"`
+	Participants       int        `gorm:"column:participants" json:"participants"`
+	BeneficiariesCount int        `gorm:"column:beneficiaries_count" json:"beneficiaries_count"`
+	Notes              *string    `gorm:"column:notes" json:"notes"`
+	CreatedBy          *int       `gorm:"column:created_by" json:"created_by"`
+	CreatedAt          time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt          *time.Time `gorm:"column:updated_at" json:"updated_at"`
 
 	Type        ProjectType         `gorm:"foreignKey:TypeID;references:TypeID" json:"type"`
 	BudgetPlan  ProjectBudgetPlan   `gorm:"foreignKey:PlanID;references:PlanID" json:"budget_plan"`
