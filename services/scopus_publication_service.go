@@ -176,7 +176,8 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		)
 	}
 
-	countQuery := base.Session(&gorm.Session{NewDB: true})
+	// Preserve the table metadata so GORM can count correctly.
+	countQuery := base.Session(&gorm.Session{})
 	var total int64
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, err
