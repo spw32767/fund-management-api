@@ -55,6 +55,18 @@ type ScopusPublicationService struct {
 	db *gorm.DB
 }
 
+type scopusPublicationRow struct {
+	ID              uint
+	Title           *string
+	PublicationName *string
+	CoverDate       *time.Time
+	CitedByCount    *int `gorm:"column:citedby_count"`
+	DOI             *string
+	EID             string
+	ScopusID        *string `gorm:"column:scopus_id"`
+	ScopusLink      *string `gorm:"column:scopus_link"`
+}
+
 // NewScopusPublicationService instantiates the service.
 func NewScopusPublicationService(db *gorm.DB) *ScopusPublicationService {
 	if db == nil {
@@ -133,23 +145,57 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true}))
 
-	type scopusPublicationRow struct {
-		ID              uint
-		Title           *string
-		PublicationName *string
-		CoverDate       *time.Time
-		CitedByCount    *int `gorm:"column:citedby_count"`
-		DOI             *string
-		EID             string
-		ScopusID        *string `gorm:"column:scopus_id"`
-		ScopusLink      *string `gorm:"column:scopus_link"`
-	}
-
 	var rows []scopusPublicationRow
 	if err := base.Session(&gorm.Session{}).Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, 0, meta, err
 	}
 
+	return mapScopusRows(rows), total, meta, nil
+}
+
+// ListAll returns paginated Scopus publications across all users.
+func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDirection, search string) ([]ScopusPublication, int64, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	base := s.db.Table("scopus_documents AS sd").
+		Select("sd.id, sd.title, sd.publication_name, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link")
+
+	if search = strings.TrimSpace(search); search != "" {
+		like := fmt.Sprintf("%%%s%%", search)
+		base = base.Where(
+			"sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.scopus_id LIKE ? OR sd.publication_name LIKE ?",
+			like, like, like, like, like,
+		)
+	}
+
+	countQuery := base.Session(&gorm.Session{NewDB: true})
+	var total int64
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []ScopusPublication{}, 0, nil
+	}
+
+	orderClause := orderForScopus(sortField, sortDirection)
+
+	var rows []scopusPublicationRow
+	if err := base.Session(&gorm.Session{}).Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRows(rows), total, nil
+}
+
+func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 	publications := make([]ScopusPublication, 0, len(rows))
 	for _, row := range rows {
 		publication := ScopusPublication{
@@ -195,7 +241,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		publications = append(publications, publication)
 	}
 
-	return publications, total, meta, nil
+	return publications
 }
 
 func yearExpression(db *gorm.DB) string {
