@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -366,35 +367,71 @@ type citeScoreInformationHolder struct {
 }
 
 func (h *citeScoreInformationHolder) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
 		return nil
 	}
 
-	// The API can return either a single object or an array of objects,
-	// each containing a citeScoreInfo collection. Normalize to a flat list
-	// of citeScoreInfo entries.
+	// The API can return citeScoreInformationList in several shapes:
+	// 1) An object: { "citeScoreInfo": {...} }
+	// 2) An array of the above objects: [ { "citeScoreInfo": [...] }, ... ]
+	// 3) An array of citeScoreInfo objects directly. Normalize all to a flat list.
 	type wrapper struct {
 		Items citeScoreInfos `json:"citeScoreInfo"`
 	}
 
-	if data[0] == '[' {
-		var arr []wrapper
-		if err := json.Unmarshal(data, &arr); err != nil {
+	// Attempt array handling first to catch both wrapper arrays and direct citeScoreInfo arrays.
+	if len(data) > 0 && data[0] == '[' {
+		var rawItems []json.RawMessage
+		if err := json.Unmarshal(data, &rawItems); err != nil {
 			return err
 		}
+
 		var merged citeScoreInfos
-		for _, w := range arr {
-			merged = append(merged, w.Items...)
+		for _, raw := range rawItems {
+			// Try wrapper form.
+			var w wrapper
+			if err := json.Unmarshal(raw, &w); err == nil && len(w.Items) > 0 {
+				merged = append(merged, w.Items...)
+				continue
+			}
+
+			// Try direct citeScoreInfos array.
+			var direct citeScoreInfos
+			if err := json.Unmarshal(raw, &direct); err == nil && len(direct) > 0 {
+				merged = append(merged, direct...)
+				continue
+			}
+
+			// Try single citeScoreInfo object.
+			var singleInfo citeScoreInfo
+			if err := json.Unmarshal(raw, &singleInfo); err == nil {
+				merged = append(merged, singleInfo)
+			}
 		}
+
 		h.Items = merged
 		return nil
 	}
 
-	var single wrapper
-	if err := json.Unmarshal(data, &single); err != nil {
+	// Handle single object wrapper or direct citeScoreInfo object.
+	var w wrapper
+	if err := json.Unmarshal(data, &w); err == nil && len(w.Items) > 0 {
+		h.Items = w.Items
+		return nil
+	}
+
+	var direct citeScoreInfos
+	if err := json.Unmarshal(data, &direct); err == nil && len(direct) > 0 {
+		h.Items = direct
+		return nil
+	}
+
+	var singleInfo citeScoreInfo
+	if err := json.Unmarshal(data, &singleInfo); err != nil {
 		return err
 	}
-	h.Items = single.Items
+	h.Items = []citeScoreInfo{singleInfo}
 	return nil
 }
 
