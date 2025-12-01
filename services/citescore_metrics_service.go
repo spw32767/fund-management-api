@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const citeScoreBaseURL = "https://api.elsevier.com/content/serial/title/issn"
+const citeScoreBaseURL = "https://api.elsevier.com/content/serial/title"
 
 // CiteScoreMetricsService fetches and stores CiteScore metrics for journals.
 type CiteScoreMetricsService struct {
@@ -52,6 +52,7 @@ func (s *CiteScoreMetricsService) EnsureJournalMetrics(ctx context.Context, issn
 	issn = strings.TrimSpace(issn)
 	sourceID = strings.TrimSpace(sourceID)
 	if issn == "" && sourceID == "" {
+		log.Printf("citescore metrics: skipping fetch because both source-id and issn are missing")
 		return nil
 	}
 
@@ -191,15 +192,20 @@ func (s *CiteScoreMetricsService) metricExistsAny(ctx context.Context, issn, sou
 }
 
 func (s *CiteScoreMetricsService) fetchMetrics(ctx context.Context, apiKey, issn, sourceID string) (*citeScoreEntry, error) {
-	target := strings.TrimSpace(issn)
-	if target == "" {
-		target = strings.TrimSpace(sourceID)
-	}
-	if target == "" {
+	sourceID = strings.TrimSpace(sourceID)
+	issn = strings.TrimSpace(issn)
+
+	var reqURL *url.URL
+	var err error
+
+	switch {
+	case sourceID != "":
+		reqURL, err = url.Parse(fmt.Sprintf("%s/sourceId/%s", citeScoreBaseURL, url.PathEscape(sourceID)))
+	case issn != "":
+		reqURL, err = url.Parse(fmt.Sprintf("%s/issn/%s", citeScoreBaseURL, url.PathEscape(issn)))
+	default:
 		return nil, nil
 	}
-
-	reqURL, err := url.Parse(fmt.Sprintf("%s/%s", citeScoreBaseURL, url.PathEscape(target)))
 	if err != nil {
 		return nil, err
 	}
