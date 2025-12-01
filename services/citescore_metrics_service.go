@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,6 +25,14 @@ const citeScoreBaseURL = "https://api.elsevier.com/content/serial/title/issn"
 type CiteScoreMetricsService struct {
 	db     *gorm.DB
 	client *http.Client
+}
+
+// CiteScoreBackfillSummary reports the result of a backfill run over existing Scopus documents.
+type CiteScoreBackfillSummary struct {
+	JournalsScanned int `json:"journals_scanned"`
+	MetricsFetched  int `json:"metrics_fetched"`
+	SkippedExisting int `json:"skipped_existing"`
+	Errors          int `json:"errors"`
 }
 
 // NewCiteScoreMetricsService constructs a CiteScoreMetricsService.
@@ -70,6 +80,81 @@ func (s *CiteScoreMetricsService) EnsureJournalMetrics(ctx context.Context, issn
 	return s.persistMetrics(ctx, entry)
 }
 
+// BackfillMissingMetrics scans existing Scopus documents and fetches CiteScore metrics for journals
+// that do not yet have stored metrics. It returns a summary of the backfill run.
+func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*CiteScoreBackfillSummary, error) {
+	if s == nil {
+		return nil, errors.New("citescore metrics service is nil")
+	}
+
+	var targets []struct {
+		SourceID  *string
+		ISSN      *string
+		CoverDate *time.Time
+	}
+
+	query := s.db.WithContext(ctx).Model(&models.ScopusDocument{}).
+		Select("source_id", "issn", "MAX(cover_date) AS cover_date").
+		Where("(source_id IS NOT NULL AND source_id <> '') OR (issn IS NOT NULL AND issn <> '')").
+		Group("source_id, issn")
+
+	if err := query.Find(&targets).Error; err != nil {
+		return nil, err
+	}
+
+	summary := &CiteScoreBackfillSummary{}
+	seen := make(map[string]struct{})
+
+	for _, target := range targets {
+		issn := ""
+		if target.ISSN != nil {
+			issn = *target.ISSN
+		}
+		sourceID := ""
+		if target.SourceID != nil {
+			sourceID = *target.SourceID
+		}
+
+		issn = strings.TrimSpace(issn)
+		sourceID = strings.TrimSpace(sourceID)
+		if issn == "" && sourceID == "" {
+			continue
+		}
+
+		key := issn + "|" + sourceID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		summary.JournalsScanned++
+
+		metricYear := 0
+		if target.CoverDate != nil {
+			metricYear = target.CoverDate.Year()
+		}
+
+		exists, err := s.metricExistsAny(ctx, issn, sourceID)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			summary.SkippedExisting++
+			continue
+		}
+
+		if err := s.EnsureJournalMetrics(ctx, issn, sourceID, metricYear); err != nil {
+			summary.Errors++
+			log.Printf("citescore backfill: failed for issn %s source %s: %v", issn, sourceID, err)
+			continue
+		}
+
+		summary.MetricsFetched++
+	}
+
+	return summary, nil
+}
+
 func (s *CiteScoreMetricsService) metricExists(ctx context.Context, issn, sourceID string, metricYear int) (bool, error) {
 	query := s.db.WithContext(ctx).Model(&models.ScopusSourceMetric{}).Select("1")
 	if sourceID != "" {
@@ -85,6 +170,22 @@ func (s *CiteScoreMetricsService) metricExists(ctx context.Context, issn, source
 	if err := query.Limit(1).Count(&count).Error; err != nil {
 		return false, err
 	}
+	return count > 0, nil
+}
+
+func (s *CiteScoreMetricsService) metricExistsAny(ctx context.Context, issn, sourceID string) (bool, error) {
+	query := s.db.WithContext(ctx).Model(&models.ScopusSourceMetric{}).Select("1")
+	if sourceID != "" {
+		query = query.Where("source_id = ?", sourceID)
+	} else {
+		query = query.Where("issn = ?", issn)
+	}
+
+	var count int64
+	if err := query.Limit(1).Count(&count).Error; err != nil {
+		return false, err
+	}
+
 	return count > 0, nil
 }
 
