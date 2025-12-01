@@ -43,8 +43,9 @@ type ScopusIngestResult struct {
 
 // ScopusIngestService fetches and stores publications from the Scopus API.
 type ScopusIngestService struct {
-	db     *gorm.DB
-	client *http.Client
+	db      *gorm.DB
+	client  *http.Client
+	metrics *CiteScoreMetricsService
 }
 
 // NewScopusIngestService constructs a ScopusIngestService.
@@ -55,7 +56,11 @@ func NewScopusIngestService(db *gorm.DB, client *http.Client) *ScopusIngestServi
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &ScopusIngestService{db: db, client: client}
+	return &ScopusIngestService{
+		db:      db,
+		client:  client,
+		metrics: NewCiteScoreMetricsService(db, client),
+	}
 }
 
 // RunForAuthor fetches all publications for the provided Scopus author ID and upserts them.
@@ -79,6 +84,7 @@ func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, 
 
 	start := 0
 	totalResults := -1
+	metricsSeen := make(map[string]struct{})
 
 	for {
 		resp, err := s.fetchPage(ctx, apiKey, scopusAuthorID, start)
@@ -96,9 +102,14 @@ func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, 
 
 		for _, rawEntry := range resp.Entries {
 			result.DocumentsFetched++
-			if err := s.processEntry(ctx, rawEntry, result); err != nil {
+			doc, created, err := s.processEntry(ctx, rawEntry, result)
+			if err != nil {
 				result.DocumentsFailed++
 				log.Printf("scopus ingest: failed to process entry: %v", err)
+				continue
+			}
+			if created && doc != nil {
+				s.enqueueMetricFetch(ctx, doc, metricsSeen)
 			}
 		}
 
@@ -163,34 +174,22 @@ func (s *ScopusIngestService) fetchPage(ctx context.Context, apiKey, scopusAutho
 }
 
 func (s *ScopusIngestService) getAPIKey(ctx context.Context) (string, error) {
-	keys := append([]string{scopusAPIKeyField}, scopusAPIKeyLegacyFields...)
-	for _, key := range keys {
-		var row models.ScopusConfig
-		if err := s.db.WithContext(ctx).
-			Where("`key` = ?", key).
-			First(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				continue
-			}
-			return "", err
-		}
-		if row.Value != nil && strings.TrimSpace(*row.Value) != "" {
-			return strings.TrimSpace(*row.Value), nil
-		}
-	}
-	return "", errors.New("scopus api key not configured")
+	return lookupScopusAPIKey(ctx, s.db)
 }
 
-func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMessage, result *ScopusIngestResult) error {
+func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMessage, result *ScopusIngestResult) (*models.ScopusDocument, bool, error) {
 	entry, err := parseScopusEntry(raw)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	if strings.TrimSpace(entry.EID) == "" {
-		return errors.New("scopus entry missing eid")
+		return nil, false, errors.New("scopus entry missing eid")
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var created bool
+	var persisted models.ScopusDocument
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		docModel := buildScopusDocument(entry)
 		docModel.RawJSON = cloneJSON(raw)
 
@@ -204,6 +203,7 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			}
 			result.DocumentsCreated++
 			doc = *docModel
+			created = true
 		} else {
 			docModel.ID = doc.ID
 			if err := tx.Save(docModel).Error; err != nil {
@@ -213,6 +213,8 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			doc = *docModel
 		}
 
+		persisted = doc
+
 		affiliationMap, err := s.upsertAffiliations(tx, entry, result)
 		if err != nil {
 			return err
@@ -220,6 +222,48 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 
 		return s.upsertAuthorsAndLinks(tx, entry, doc.ID, affiliationMap, result)
 	})
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	return &persisted, created, nil
+}
+
+func (s *ScopusIngestService) enqueueMetricFetch(ctx context.Context, doc *models.ScopusDocument, seen map[string]struct{}) {
+	if doc == nil {
+		return
+	}
+	if s.metrics == nil {
+		s.metrics = NewCiteScoreMetricsService(s.db, s.client)
+	}
+
+	issn := ""
+	if doc.ISSN != nil {
+		issn = *doc.ISSN
+	}
+	sourceID := ""
+	if doc.SourceID != nil {
+		sourceID = *doc.SourceID
+	}
+
+	key := strings.TrimSpace(issn) + "|" + strings.TrimSpace(sourceID)
+	if key == "|" {
+		return
+	}
+	if _, ok := seen[key]; ok {
+		return
+	}
+	seen[key] = struct{}{}
+
+	metricYear := 0
+	if doc.CoverDate != nil {
+		metricYear = doc.CoverDate.Year()
+	}
+
+	if err := s.metrics.EnsureJournalMetrics(ctx, issn, sourceID, metricYear); err != nil {
+		log.Printf("scopus ingest: failed to fetch CiteScore metrics for issn %s source %s: %v", issn, sourceID, err)
+	}
 }
 
 func (s *ScopusIngestService) upsertAffiliations(tx *gorm.DB, entry *scopusEntry, result *ScopusIngestResult) (map[string]uint, error) {
