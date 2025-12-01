@@ -252,7 +252,13 @@ func (s *CiteScoreMetricsService) persistMetrics(ctx context.Context, entry *cit
 		if metricYear == 0 {
 			continue
 		}
-		for _, csInfo := range info.CiteScoreInformationList.Items {
+
+		csInfos, err := info.citeScoreInfos()
+		if err != nil {
+			return err
+		}
+
+		for _, csInfo := range csInfos {
 			docType := strings.TrimSpace(csInfo.DocType)
 			if docType == "" {
 				docType = "all"
@@ -357,13 +363,47 @@ type citeScoreYearInfoList struct {
 type citeScoreYearInfos []citeScoreYearInfo
 
 type citeScoreYearInfo struct {
-	Year                     string                     `json:"@year"`
-	Status                   string                     `json:"@status"`
-	CiteScoreInformationList citeScoreInformationHolder `json:"citeScoreInformationList"`
+	Year                    string          `json:"@year"`
+	Status                  string          `json:"@status"`
+	RawCiteScoreInformation json.RawMessage `json:"citeScoreInformationList"`
+}
+
+func (i *citeScoreYearInfo) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if v, ok := raw["@year"]; ok {
+		_ = json.Unmarshal(v, &i.Year)
+	}
+	if v, ok := raw["@status"]; ok {
+		_ = json.Unmarshal(v, &i.Status)
+	}
+	if v, ok := raw["citeScoreInformationList"]; ok {
+		i.RawCiteScoreInformation = v
+	}
+
+	return nil
 }
 
 type citeScoreInformationHolder struct {
 	Items citeScoreInfos `json:"citeScoreInfo"`
+}
+
+func (i citeScoreYearInfo) citeScoreInfos() (citeScoreInfos, error) {
+	if len(i.RawCiteScoreInformation) == 0 {
+		return nil, nil
+	}
+	var holder citeScoreInformationHolder
+	if err := holder.UnmarshalJSON(i.RawCiteScoreInformation); err != nil {
+		return nil, err
+	}
+	return holder.Items, nil
 }
 
 func (h *citeScoreInformationHolder) UnmarshalJSON(data []byte) error {
