@@ -197,19 +197,26 @@ func (s *CiteScoreMetricsService) fetchMetrics(ctx context.Context, apiKey, issn
 
 	var reqURL *url.URL
 	var err error
+	var q url.Values
 
 	switch {
 	case sourceID != "":
-		reqURL, err = url.Parse(fmt.Sprintf("%s/sourceId/%s", citeScoreBaseURL, url.PathEscape(sourceID)))
+		reqURL, err = url.Parse(citeScoreBaseURL)
+		if err != nil {
+			return nil, err
+		}
+		q = reqURL.Query()
+		q.Set("source-id", sourceID)
 	case issn != "":
 		reqURL, err = url.Parse(fmt.Sprintf("%s/issn/%s", citeScoreBaseURL, url.PathEscape(issn)))
+		if err != nil {
+			return nil, err
+		}
+		q = reqURL.Query()
 	default:
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	q := reqURL.Query()
+
 	q.Set("view", "CITESCORE")
 	reqURL.RawQuery = q.Encode()
 
