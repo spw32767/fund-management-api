@@ -457,7 +457,6 @@ func DeptHeadRequestRevision(c *gin.Context) {
 		"reviewed_at":           now,
 		"submitted_at":          gorm.Expr("NULL"),
 		"head_comment":          message,
-		"comment":               message,
 		"head_approved_by":      gorm.Expr("NULL"),
 		"head_approved_at":      gorm.Expr("NULL"),
 		"head_rejected_by":      gorm.Expr("NULL"),
@@ -658,6 +657,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"admin_rejected_at":      submission.AdminRejectedAt,
 		"admin_rejection_reason": submission.AdminRejectionReason,
 		"admin_comment":          submission.AdminComment,
+
+		"rejected_by":      submission.RejectedBy,
+		"rejected_at":      submission.RejectedAt,
+		"rejection_reason": submission.RejectionReason,
 
 		"category_id":           submission.CategoryID,
 		"subcategory_id":        submission.SubcategoryID,
