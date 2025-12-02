@@ -3,6 +3,7 @@ package controllers
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fund-management-api/config"
 	"fund-management-api/middleware"
 	"fund-management-api/models"
@@ -17,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
@@ -62,6 +64,7 @@ type UserProfile struct {
 	CPWebID          string `json:"cp_web_id,omitempty"`
 	ScopusID         string `json:"scopus_id,omitempty"`
 	IsActive         string `json:"is_active,omitempty"`
+	PhotoURL         string `json:"photo_url,omitempty"`
 }
 
 func stringValue(ptr *string) string {
@@ -69,6 +72,19 @@ func stringValue(ptr *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*ptr)
+}
+
+func getUserPhotoURL(userID int) string {
+	var profile models.CpProfile
+
+	if err := config.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("failed to load cp_profile for user %d: %v", userID, err)
+		}
+		return ""
+	}
+
+	return strings.TrimSpace(profile.PhotoURL)
 }
 
 // DeviceInfo structure for client information
@@ -269,6 +285,7 @@ func Login(c *gin.Context) {
 		CPWebID:          stringValue(user.CPWebID),
 		ScopusID:         stringValue(user.ScopusID),
 		IsActive:         stringValue(user.AccountStatus),
+		PhotoURL:         getUserPhotoURL(user.UserID),
 	}
 
 	// Response with backward compatibility
@@ -320,6 +337,8 @@ func GetProfile(c *gin.Context) {
 	// Update session activity
 	updateSessionActivity(c)
 
+	photoURL := getUserPhotoURL(user.UserID)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"user": gin.H{
@@ -347,6 +366,7 @@ func GetProfile(c *gin.Context) {
 			"cp_web_id":          stringValue(user.CPWebID),
 			"scopus_id":          stringValue(user.ScopusID),
 			"is_active":          stringValue(user.AccountStatus),
+			"photo_url":          photoURL,
 		},
 	})
 }
