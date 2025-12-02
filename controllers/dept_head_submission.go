@@ -587,13 +587,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 				"project_description":       fad.ProjectDescription,
 				"requested_amount":          fad.RequestedAmount,
 				"approved_amount":           fad.ApprovedAmount,
-				"closed_at":                 fad.ClosedAt,
-				"comment":                   fad.Comment,
 				"announce_reference_number": fad.AnnounceReferenceNumber,
-				"approved_by":               fad.ApprovedBy,
-				"approved_at":               fad.ApprovedAt,
-				"rejected_by":               fad.RejectedBy,
-				"rejected_at":               fad.RejectedAt,
 				"subcategory":               fad.Subcategory,
 
 				// >>> ประกาศที่ต้องการ <<<
@@ -664,11 +658,6 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"admin_rejected_at":      submission.AdminRejectedAt,
 		"admin_rejection_reason": submission.AdminRejectionReason,
 		"admin_comment":          submission.AdminComment,
-
-		"rejected_by":      submission.RejectedBy,
-		"rejected_at":      submission.RejectedAt,
-		"rejection_reason": submission.RejectionReason,
-		"comment":          submission.Comment,
 
 		"category_id":           submission.CategoryID,
 		"subcategory_id":        submission.SubcategoryID,

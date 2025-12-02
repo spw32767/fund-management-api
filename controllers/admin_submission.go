@@ -1146,10 +1146,12 @@ func ToggleResearchFundClosure(c *gin.Context) {
 			Updates(submissionUpdates).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&models.FundApplicationDetail{}).
-			Where("submission_id = ?", submission.SubmissionID).
-			Updates(detailUpdates).Error; err != nil {
-			return err
+		if len(detailUpdates) > 0 {
+			if err := tx.Model(&models.FundApplicationDetail{}).
+				Where("submission_id = ?", submission.SubmissionID).
+				Updates(detailUpdates).Error; err != nil {
+				return err
+			}
 		}
 
 		event := models.ResearchFundAdminEvent{
@@ -1309,12 +1311,11 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 
 	if currentlyClosed {
 		submissionUpdates := map[string]any{
-			"status_id": approvedStatusID,
-			"closed_at": nil,
+			"status_id":  approvedStatusID,
+			"updated_at": now,
 		}
-		detailUpdates := map[string]any{"closed_at": nil}
 		statusAfter := approvedStatusID
-		return submissionUpdates, detailUpdates, buildClosureComment(comment, false), &statusAfter, nil
+		return submissionUpdates, nil, buildClosureComment(comment, false), &statusAfter, nil
 	}
 
 	if !closingAllowed {
@@ -1322,12 +1323,11 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 	}
 
 	submissionUpdates := map[string]any{
-		"status_id": closedStatusID,
-		"closed_at": now,
+		"status_id":  closedStatusID,
+		"updated_at": now,
 	}
-	detailUpdates := map[string]any{"closed_at": now}
 	statusAfter := closedStatusID
-	return submissionUpdates, detailUpdates, buildClosureComment(comment, true), &statusAfter, nil
+	return submissionUpdates, nil, buildClosureComment(comment, true), &statusAfter, nil
 }
 
 func buildResearchFundEventsPayload(events []models.ResearchFundAdminEvent) []gin.H {
@@ -1435,11 +1435,6 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 		"approved_amount":   approvedAmount,
 		"remaining_amount":  remaining,
 		"is_closed":         closed,
-		"closed_at":         submission.ClosedAt,
-	}
-
-	if submission.FundApplicationDetail != nil {
-		summary["detail_closed_at"] = submission.FundApplicationDetail.ClosedAt
 	}
 
 	return summary

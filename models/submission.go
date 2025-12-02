@@ -21,8 +21,6 @@ type Submission struct {
 	PublicationRewardJournalName *string    `gorm:"column:publication_reward_journal_name;->" json:"publication_reward_journal_name,omitempty"`
 	SubcategoryBudgetID          *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
 	StatusID                     int        `gorm:"column:status_id" json:"status_id"`
-	ApprovedBy                   *int       `gorm:"column:approved_by" json:"approved_by"`
-	ApprovedAt                   *time.Time `gorm:"column:approved_at" json:"approved_at"`
 	SubmittedAt                  *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
 	InstallmentNumberAtSubmit    *int       `gorm:"column:installment_number_at_submit" json:"installment_number_at_submit,omitempty"`
 	CreatedAt                    time.Time  `gorm:"column:created_at" json:"created_at"`
@@ -51,15 +49,8 @@ type Submission struct {
 	HeadApprovedBy *int       `gorm:"column:head_approved_by" json:"head_approved_by,omitempty"`
 	HeadApprovedAt *time.Time `gorm:"column:head_approved_at" json:"head_approved_at,omitempty"`
 
-	// --- เวลารีวิว/ปิดคำขอ (บางจุดของโค้ดใช้) ---
+	// --- เวลารีวิว ---
 	ReviewedAt *time.Time `gorm:"column:reviewed_at" json:"reviewed_at,omitempty"`
-	ClosedAt   *time.Time `gorm:"column:closed_at"   json:"closed_at,omitempty"`
-
-	// --- ช่องรวมศูนย์แบบ legacy (คงไว้เพื่อความเข้ากันได้/UI บางที่ fallback) ---
-	RejectedBy      *int       `gorm:"column:rejected_by"      json:"rejected_by,omitempty"`
-	RejectedAt      *time.Time `gorm:"column:rejected_at"      json:"rejected_at,omitempty"`
-	RejectionReason *string    `gorm:"column:rejection_reason" json:"rejection_reason,omitempty"`
-	Comment         *string    `gorm:"column:comment"          json:"comment,omitempty"`
 
 	// Relations
 	User     *User             `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -78,24 +69,18 @@ type Submission struct {
 
 // FundApplicationDetail represents fund application specific details
 type FundApplicationDetail struct {
-	DetailID                int        `gorm:"primaryKey;column:detail_id" json:"detail_id"`
-	SubmissionID            int        `gorm:"column:submission_id" json:"submission_id"`
-	SubcategoryID           int        `gorm:"column:subcategory_id" json:"subcategory_id"`
-	ProjectTitle            string     `gorm:"column:project_title" json:"project_title"`
-	ProjectDescription      string     `gorm:"column:project_description" json:"project_description"`
-	RequestedAmount         float64    `gorm:"column:requested_amount" json:"requested_amount"`
-	ApprovedAmount          float64    `gorm:"column:approved_amount" json:"approved_amount"`
-	ClosedAt                *time.Time `gorm:"column:closed_at" json:"closed_at"`
-	Comment                 string     `gorm:"column:comment" json:"comment"`
-	AnnounceReferenceNumber string     `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
+	DetailID                int     `gorm:"primaryKey;column:detail_id" json:"detail_id"`
+	SubmissionID            int     `gorm:"column:submission_id" json:"submission_id"`
+	SubcategoryID           int     `gorm:"column:subcategory_id" json:"subcategory_id"`
+	ProjectTitle            string  `gorm:"column:project_title" json:"project_title"`
+	ProjectDescription      string  `gorm:"column:project_description" json:"project_description"`
+	RequestedAmount         float64 `gorm:"column:requested_amount" json:"requested_amount"`
+	ApprovedAmount          float64 `gorm:"column:approved_amount" json:"approved_amount"`
+	AnnounceReferenceNumber string  `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ tracking ==========
-	ApprovedBy                  *int       `json:"approved_by" gorm:"column:approved_by"`
-	ApprovedAt                  *time.Time `json:"approved_at" gorm:"column:approved_at"`
-	RejectedBy                  *int       `json:"rejected_by" gorm:"column:rejected_by"`
-	RejectedAt                  *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
-	MainAnnoucement             *int       `json:"main_annoucement" gorm:"column:main_annoucement"`
-	ActivitySupportAnnouncement *int       `json:"activity_support_announcement" gorm:"column:activity_support_announcement"`
+	MainAnnoucement             *int `json:"main_annoucement" gorm:"column:main_annoucement"`
+	ActivitySupportAnnouncement *int `json:"activity_support_announcement" gorm:"column:activity_support_announcement"`
 
 	// Relations
 	Submission Submission `gorm:"foreignKey:SubmissionID" json:"submission,omitempty"`
@@ -148,18 +133,7 @@ type PublicationRewardDetail struct {
 	RewardAnnouncement *int `json:"reward_announcement" gorm:"column:reward_announcement"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ Admin Management ==========
-	ApprovedAmount  *float64   `json:"approved_amount,omitempty" gorm:"column:approved_amount"`
-	ApprovalComment *string    `json:"approval_comment" gorm:"column:approval_comment"`
-	ApprovedBy      *int       `json:"approved_by" gorm:"column:approved_by"`
-	ApprovedAt      *time.Time `json:"approved_at" gorm:"column:approved_at"`
-
-	RejectionReason *string    `json:"rejection_reason" gorm:"column:rejection_reason"`
-	RejectedBy      *int       `json:"rejected_by" gorm:"column:rejected_by"`
-	RejectedAt      *time.Time `json:"rejected_at" gorm:"column:rejected_at"`
-
-	RevisionRequest     *string    `json:"revision_request" gorm:"column:revision_request"`
-	RevisionRequestedBy *int       `json:"revision_requested_by" gorm:"column:revision_requested_by"`
-	RevisionRequestedAt *time.Time `json:"revision_requested_at" gorm:"column:revision_requested_at"`
+	ApprovedAmount *float64 `json:"approved_amount,omitempty" gorm:"column:approved_amount"`
 
 	CreateAt time.Time  `json:"create_at" gorm:"column:create_at;autoCreateTime"`
 	UpdateAt time.Time  `json:"update_at" gorm:"column:update_at;autoUpdateTime"`

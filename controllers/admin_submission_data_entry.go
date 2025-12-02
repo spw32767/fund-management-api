@@ -26,8 +26,6 @@ type adminLegacySubmissionCore struct {
 	CategoryID                *int    `json:"category_id"`
 	SubcategoryID             *int    `json:"subcategory_id"`
 	SubcategoryBudgetID       *int    `json:"subcategory_budget_id"`
-	ApprovedBy                *int    `json:"approved_by"`
-	ApprovedAt                *string `json:"approved_at"`
 	SubmittedAt               *string `json:"submitted_at"`
 	InstallmentNumberAtSubmit *int    `json:"installment_number_at_submit"`
 	AdminApprovedBy           *int    `json:"admin_approved_by"`
@@ -43,12 +41,7 @@ type adminLegacySubmissionCore struct {
 	AdminRejectedAt           *string `json:"admin_rejected_at"`
 	AdminRejectionReason      *string `json:"admin_rejection_reason"`
 	AdminComment              *string `json:"admin_comment"`
-	RejectedBy                *int    `json:"rejected_by"`
-	RejectedAt                *string `json:"rejected_at"`
-	RejectionReason           *string `json:"rejection_reason"`
-	Comment                   *string `json:"comment"`
 	ReviewedAt                *string `json:"reviewed_at"`
-	ClosedAt                  *string `json:"closed_at"`
 	CreatedAt                 *string `json:"created_at"`
 	UpdatedAt                 *string `json:"updated_at"`
 	DeletedAt                 *string `json:"deleted_at"`
@@ -516,17 +509,12 @@ func applyLegacySubmissionFields(submission *models.Submission, input adminLegac
 	assignOptionalInt(&submission.CategoryID, input.CategoryID, clear["category_id"])
 	assignOptionalInt(&submission.SubcategoryID, input.SubcategoryID, clear["subcategory_id"])
 	assignOptionalInt(&submission.SubcategoryBudgetID, input.SubcategoryBudgetID, clear["subcategory_budget_id"])
-	assignOptionalInt(&submission.ApprovedBy, input.ApprovedBy, clear["approved_by"])
 	assignOptionalInt(&submission.InstallmentNumberAtSubmit, input.InstallmentNumberAtSubmit, clear["installment_number_at_submit"])
 	assignOptionalInt(&submission.AdminApprovedBy, input.AdminApprovedBy, clear["admin_approved_by"])
 	assignOptionalInt(&submission.HeadApprovedBy, input.HeadApprovedBy, clear["head_approved_by"])
 	assignOptionalInt(&submission.HeadRejectedBy, input.HeadRejectedBy, clear["head_rejected_by"])
 	assignOptionalInt(&submission.AdminRejectedBy, input.AdminRejectedBy, clear["admin_rejected_by"])
-	assignOptionalInt(&submission.RejectedBy, input.RejectedBy, clear["rejected_by"])
 
-	if err := assignOptionalTime(&submission.ApprovedAt, input.ApprovedAt, clear["approved_at"], "approved_at"); err != nil {
-		return err
-	}
 	if err := assignOptionalTime(&submission.SubmittedAt, input.SubmittedAt, clear["submitted_at"], "submitted_at"); err != nil {
 		return err
 	}
@@ -542,13 +530,7 @@ func applyLegacySubmissionFields(submission *models.Submission, input adminLegac
 	if err := assignOptionalTime(&submission.AdminRejectedAt, input.AdminRejectedAt, clear["admin_rejected_at"], "admin_rejected_at"); err != nil {
 		return err
 	}
-	if err := assignOptionalTime(&submission.RejectedAt, input.RejectedAt, clear["rejected_at"], "rejected_at"); err != nil {
-		return err
-	}
 	if err := assignOptionalTime(&submission.ReviewedAt, input.ReviewedAt, clear["reviewed_at"], "reviewed_at"); err != nil {
-		return err
-	}
-	if err := assignOptionalTime(&submission.ClosedAt, input.ClosedAt, clear["closed_at"], "closed_at"); err != nil {
 		return err
 	}
 	if err := assignOptionalTime(&submission.DeletedAt, input.DeletedAt, clear["deleted_at"], "deleted_at"); err != nil {
@@ -560,8 +542,6 @@ func applyLegacySubmissionFields(submission *models.Submission, input adminLegac
 	assignOptionalString(&submission.HeadSignature, input.HeadSignature, clear["head_signature"])
 	assignOptionalString(&submission.AdminRejectionReason, input.AdminRejectionReason, clear["admin_rejection_reason"])
 	assignOptionalString(&submission.AdminComment, input.AdminComment, clear["admin_comment"])
-	assignOptionalString(&submission.RejectionReason, input.RejectionReason, clear["rejection_reason"])
-	assignOptionalString(&submission.Comment, input.Comment, clear["comment"])
 
 	if input.CreatedAt != nil {
 		if t, err := parseOptionalTime(input.CreatedAt); err != nil {
@@ -611,12 +591,10 @@ func validateLegacySubmission(db *gorm.DB, submission *models.Submission) error 
 	}
 
 	userPointers := []*int{
-		submission.ApprovedBy,
 		submission.AdminApprovedBy,
 		submission.HeadApprovedBy,
 		submission.HeadRejectedBy,
 		submission.AdminRejectedBy,
-		submission.RejectedBy,
 	}
 
 	for _, pointer := range userPointers {
