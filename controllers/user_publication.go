@@ -119,6 +119,32 @@ func GetUserScopusPublicationStats(c *gin.Context) {
 	})
 }
 
+// GET /api/v1/admin/publications/scopus?limit=25&offset=0&sort=year&direction=desc&q=keyword
+func AdminListScopusPublications(c *gin.Context) {
+	limit := parseIntOrDefault(c.Query("limit"), 10)
+	offset := parseIntOrDefault(c.Query("offset"), 0)
+	sortField := c.DefaultQuery("sort", "year")
+	sortDirection := strings.ToLower(c.DefaultQuery("direction", "desc"))
+	search := c.Query("q")
+
+	svc := services.NewScopusPublicationService(nil)
+	items, total, err := svc.ListAll(limit, offset, sortField, sortDirection, search)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    items,
+		"paging": gin.H{
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		},
+	})
+}
+
 // POST /api/v1/teacher/user-publications/upsert
 // Body: { title, authors, journal, publication_type, publication_date, publication_year, doi, url, source, external_ids, is_verified, fingerprint }
 func UpsertUserPublication(c *gin.Context) {

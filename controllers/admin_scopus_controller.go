@@ -83,6 +83,18 @@ func AdminImportScopusForAll(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "summary": summary})
 }
 
+// POST /api/v1/admin/scopus/metrics/backfill
+func AdminBackfillCiteScoreMetrics(c *gin.Context) {
+	metrics := services.NewCiteScoreMetricsService(nil, nil)
+	summary, err := metrics.BackfillMissingMetrics(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "summary": summary})
+}
+
 type setScopusAuthorIDRequest struct {
 	ScopusID string `json:"scopus_id"`
 }
