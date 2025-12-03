@@ -16,20 +16,35 @@ import (
 
 // ScopusPublication represents a normalized publication row returned to clients.
 type ScopusPublication struct {
-	ID                  uint     `json:"id"`
-	Title               string   `json:"title"`
-	PublicationName     *string  `json:"publication_name,omitempty"`
-	Venue               *string  `json:"venue,omitempty"`
-	PublicationYear     *int     `json:"publication_year,omitempty"`
-	CitedBy             *int     `json:"cited_by,omitempty"`
-	CiteScorePercentile *float64 `json:"cite_score_percentile,omitempty"`
-	CiteScoreQuartile   *string  `json:"cite_score_quartile,omitempty"`
-	DOI                 *string  `json:"doi,omitempty"`
-	URL                 *string  `json:"url,omitempty"`
-	EID                 string   `json:"eid"`
-	ScopusID            *string  `json:"scopus_id,omitempty"`
-	ScopusURL           *string  `json:"scopus_url,omitempty"`
-	Source              string   `json:"source"`
+	ID                  uint       `json:"id"`
+	Title               string     `json:"title"`
+	Abstract            *string    `json:"abstract,omitempty"`
+	AggregationType     *string    `json:"aggregation_type,omitempty"`
+	PublicationName     *string    `json:"publication_name,omitempty"`
+	Venue               *string    `json:"venue,omitempty"`
+	SourceID            *string    `json:"source_id,omitempty"`
+	PublicationYear     *int       `json:"publication_year,omitempty"`
+	CoverDate           *time.Time `json:"cover_date,omitempty"`
+	CitedBy             *int       `json:"cited_by,omitempty"`
+	CiteScorePercentile *float64   `json:"cite_score_percentile,omitempty"`
+	CiteScoreQuartile   *string    `json:"cite_score_quartile,omitempty"`
+	CiteScoreStatus     *string    `json:"cite_score_status,omitempty"`
+	CiteScoreRank       *int       `json:"cite_score_rank,omitempty"`
+	ISSN                *string    `json:"issn,omitempty"`
+	EISSN               *string    `json:"eissn,omitempty"`
+	ISBN                *string    `json:"isbn,omitempty"`
+	Volume              *string    `json:"volume,omitempty"`
+	Issue               *string    `json:"issue,omitempty"`
+	PageRange           *string    `json:"page_range,omitempty"`
+	ArticleNumber       *string    `json:"article_number,omitempty"`
+	AuthKeywords        *string    `json:"authkeywords,omitempty"`
+	FundSponsor         *string    `json:"fund_sponsor,omitempty"`
+	DOI                 *string    `json:"doi,omitempty"`
+	URL                 *string    `json:"url,omitempty"`
+	EID                 string     `json:"eid"`
+	ScopusID            *string    `json:"scopus_id,omitempty"`
+	ScopusURL           *string    `json:"scopus_url,omitempty"`
+	Source              string     `json:"source"`
 }
 
 // ScopusPublicationTrendPoint represents per-year document/citation aggregates.
@@ -60,8 +75,17 @@ type ScopusPublicationService struct {
 type scopusPublicationRow struct {
 	ID                  uint
 	Title               *string
+	Abstract            *string
+	AggregationType     *string
 	PublicationName     *string
 	SourceID            *string
+	ISSN                *string
+	EISSN               *string
+	ISBN                *string
+	Volume              *string
+	Issue               *string
+	PageRange           *string
+	ArticleNumber       *string
 	CoverDate           *time.Time
 	CitedByCount        *int `gorm:"column:citedby_count"`
 	DOI                 *string
@@ -70,6 +94,10 @@ type scopusPublicationRow struct {
 	ScopusLink          *string  `gorm:"column:scopus_link"`
 	CiteScorePercentile *float64 `gorm:"column:cite_score_percentile"`
 	CiteScoreQuartile   *string  `gorm:"column:cite_score_quartile"`
+	CiteScoreStatus     *string  `gorm:"column:cite_score_status"`
+	CiteScoreRank       *int     `gorm:"column:cite_score_rank"`
+	AuthKeywords        []byte   `gorm:"column:authkeywords"`
+	FundSponsor         *string  `gorm:"column:fund_sponsor"`
 }
 
 // NewScopusPublicationService instantiates the service.
@@ -148,7 +176,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	orderClause := orderForScopus(sortField, sortDirection)
 	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
 		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
 
@@ -174,7 +202,7 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 
 	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
 
 	if search = strings.TrimSpace(search); search != "" {
@@ -211,16 +239,37 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 		publication := ScopusPublication{
 			ID:                  row.ID,
 			Title:               strings.TrimSpace(stringOrEmpty(row.Title)),
+			Abstract:            normalizeNullable(row.Abstract),
+			AggregationType:     normalizeNullable(row.AggregationType),
 			Venue:               row.PublicationName,
+			SourceID:            normalizeNullable(row.SourceID),
 			Source:              "scopus",
 			CitedBy:             row.CitedByCount,
 			CiteScorePercentile: row.CiteScorePercentile,
 			CiteScoreQuartile:   row.CiteScoreQuartile,
+			CiteScoreStatus:     row.CiteScoreStatus,
+			CiteScoreRank:       row.CiteScoreRank,
+			ISSN:                normalizeNullable(row.ISSN),
+			EISSN:               normalizeNullable(row.EISSN),
+			ISBN:                normalizeNullable(row.ISBN),
+			Volume:              normalizeNullable(row.Volume),
+			Issue:               normalizeNullable(row.Issue),
+			PageRange:           normalizeNullable(row.PageRange),
+			ArticleNumber:       normalizeNullable(row.ArticleNumber),
+			FundSponsor:         normalizeNullable(row.FundSponsor),
 			DOI:                 normalizeNullable(row.DOI),
 			EID:                 row.EID,
 			ScopusID:            row.ScopusID,
 		}
+		publication.CoverDate = row.CoverDate
 		publication.PublicationName = row.PublicationName
+
+		if len(row.AuthKeywords) > 0 {
+			keywords := strings.TrimSpace(string(row.AuthKeywords))
+			if keywords != "" {
+				publication.AuthKeywords = &keywords
+			}
+		}
 
 		if link := normalizeNullable(row.ScopusLink); link != nil {
 			publication.ScopusURL = link
@@ -258,7 +307,7 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 
 func latestCiteScoreMetricsSubquery(db *gorm.DB) *gorm.DB {
 	return db.Table("scopus_source_metrics AS ssm").
-		Select("ssm.source_id, ssm.cite_score_percentile, ssm.cite_score_quartile").
+		Select("ssm.source_id, ssm.cite_score_percentile, ssm.cite_score_quartile, ssm.cite_score_status, ssm.cite_score_rank").
 		Where("ssm.doc_type = ?", "all").
 		Where(
 			"ssm.metric_year = (SELECT MAX(metric_year) FROM scopus_source_metrics WHERE source_id = ssm.source_id AND doc_type = ssm.doc_type)",
