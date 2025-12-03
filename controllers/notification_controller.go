@@ -79,6 +79,22 @@ type templatedMessage struct {
 
 func getDB() *gorm.DB { return config.DB }
 
+// schema helpers -------------------------------------------------------------
+
+func tableExists(db *gorm.DB, table string) bool {
+	if db == nil {
+		return false
+	}
+	return db.Migrator().HasTable(table)
+}
+
+func columnExists(db *gorm.DB, table, column string) bool {
+	if db == nil {
+		return false
+	}
+	return db.Migrator().HasColumn(table, column)
+}
+
 func getCurrentUserID(c *gin.Context) (uint, bool) {
 	if v, ok := c.Get("userID"); ok {
 		switch t := v.(type) {
@@ -199,26 +215,30 @@ func getCurrentDeptHeadIDs(db *gorm.DB) []uint {
 
 	// A) system_config.current_dept_head_user_id
 	var one struct{ UserID uint }
-	if err := db.Raw(`
-		SELECT current_dept_head_user_id AS user_id
-		FROM system_config
-		WHERE current_dept_head_user_id IS NOT NULL
-		ORDER BY updated_at DESC LIMIT 1
-	`).Scan(&one).Error; err == nil && one.UserID != 0 {
-		ids = append(ids, one.UserID)
+	if columnExists(db, "system_config", "current_dept_head_user_id") {
+		if err := db.Raw(`
+                        SELECT current_dept_head_user_id AS user_id
+                        FROM system_config
+                        WHERE current_dept_head_user_id IS NOT NULL
+                        ORDER BY updated_at DESC LIMIT 1
+                `).Scan(&one).Error; err == nil && one.UserID != 0 {
+			ids = append(ids, one.UserID)
+		}
 	}
 
 	// B) ตารางประวัติ (ช่วงเวลาปัจจุบัน)
 	var rows []struct{ UserID uint }
-	if err := db.Raw(`
-		SELECT user_id
-		FROM dept_head_history
-		WHERE start_at <= NOW() AND (end_at IS NULL OR end_at > NOW())
-		ORDER BY start_at DESC
-	`).Scan(&rows).Error; err == nil {
-		for _, r := range rows {
-			if r.UserID != 0 {
-				ids = append(ids, r.UserID)
+	if tableExists(db, "dept_head_history") {
+		if err := db.Raw(`
+                        SELECT user_id
+                        FROM dept_head_history
+                        WHERE start_at <= NOW() AND (end_at IS NULL OR end_at > NOW())
+                        ORDER BY start_at DESC
+                `).Scan(&rows).Error; err == nil {
+			for _, r := range rows {
+				if r.UserID != 0 {
+					ids = append(ids, r.UserID)
+				}
 			}
 		}
 	}
