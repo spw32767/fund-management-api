@@ -1348,7 +1348,8 @@ func validateResearchFundEvent(submission *models.Submission, eventType string, 
 			return errSubmissionClosedForPayments
 		}
 		if existingPaid+*amount > submission.FundApplicationDetail.ApprovedAmount+1e-6 {
-			return errPaymentCapExceeded
+			remaining := math.Max(0, submission.FundApplicationDetail.ApprovedAmount-existingPaid)
+			return fmt.Errorf("%w: remaining allowance is %.2f", errPaymentCapExceeded, remaining)
 		}
 	default:
 		if !isValidResearchFundEventType(eventType) {
