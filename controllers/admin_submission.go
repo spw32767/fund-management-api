@@ -634,10 +634,21 @@ func RejectSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	var req struct {
-		RejectionReason string `json:"rejection_reason" binding:"required"`
-		Comment         string `json:"comment"` // ออปชัน
+		AdminRejectionReason string `json:"admin_rejection_reason"`
+		RejectionReason      string `json:"rejection_reason"` // fallback from legacy clients
+		Comment              string `json:"comment"`          // ออปชัน
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
+		return
+	}
+
+	rejectionReason := strings.TrimSpace(req.AdminRejectionReason)
+	if rejectionReason == "" {
+		rejectionReason = strings.TrimSpace(req.RejectionReason)
+	}
+
+	if rejectionReason == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
 		return
 	}
@@ -676,7 +687,7 @@ func RejectSubmission(c *gin.Context) {
 		"updated_at":             now,
 		"admin_rejected_by":      adminID,
 		"admin_rejected_at":      now,
-		"admin_rejection_reason": strings.TrimSpace(req.RejectionReason),
+		"admin_rejection_reason": rejectionReason,
 	}
 	if strings.TrimSpace(req.Comment) != "" {
 		updates["admin_comment"] = strings.TrimSpace(req.Comment)
@@ -691,7 +702,7 @@ func RejectSubmission(c *gin.Context) {
 	}
 
 	// Audit
-	desc := req.RejectionReason
+	desc := rejectionReason
 	if err := tx.Create(&models.AuditLog{
 		UserID:       *adminID,
 		Action:       "reject",

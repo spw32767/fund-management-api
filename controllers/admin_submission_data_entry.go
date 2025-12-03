@@ -45,7 +45,6 @@ type adminLegacySubmissionCore struct {
 	AdminComment              *string `json:"admin_comment"`
 	RejectedBy                *int    `json:"rejected_by"`
 	RejectedAt                *string `json:"rejected_at"`
-	RejectionReason           *string `json:"rejection_reason"`
 	Comment                   *string `json:"comment"`
 	ReviewedAt                *string `json:"reviewed_at"`
 	ClosedAt                  *string `json:"closed_at"`
@@ -560,7 +559,6 @@ func applyLegacySubmissionFields(submission *models.Submission, input adminLegac
 	assignOptionalString(&submission.HeadSignature, input.HeadSignature, clear["head_signature"])
 	assignOptionalString(&submission.AdminRejectionReason, input.AdminRejectionReason, clear["admin_rejection_reason"])
 	assignOptionalString(&submission.AdminComment, input.AdminComment, clear["admin_comment"])
-	assignOptionalString(&submission.RejectionReason, input.RejectionReason, clear["rejection_reason"])
 
 	if input.CreatedAt != nil {
 		if t, err := parseOptionalTime(input.CreatedAt); err != nil {
