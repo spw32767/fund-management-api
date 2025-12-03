@@ -527,6 +527,10 @@ func ApproveSubmission(c *gin.Context) {
 		"updated_at":        now,
 		"admin_approved_by": adminID,
 		"admin_approved_at": now,
+		"approved_by":       adminID,
+		"approved_at":       now,
+		"rejected_by":       gorm.Expr("NULL"),
+		"rejected_at":       gorm.Expr("NULL"),
 	}
 	// (ออปชัน) เก็บความเห็นของแอดมินตอนอนุมัติ
 	if strings.TrimSpace(req.ApprovalComment) != "" {
@@ -677,6 +681,10 @@ func RejectSubmission(c *gin.Context) {
 		"admin_rejected_by":      adminID,
 		"admin_rejected_at":      now,
 		"admin_rejection_reason": strings.TrimSpace(req.RejectionReason),
+		"rejected_by":            adminID,
+		"rejected_at":            now,
+		"approved_by":            gorm.Expr("NULL"),
+		"approved_at":            gorm.Expr("NULL"),
 	}
 	if strings.TrimSpace(req.Comment) != "" {
 		updates["admin_comment"] = strings.TrimSpace(req.Comment)
@@ -799,6 +807,10 @@ func RequestSubmissionRevision(c *gin.Context) {
 		"head_rejected_by":       gorm.Expr("NULL"),
 		"head_rejected_at":       gorm.Expr("NULL"),
 		"head_rejection_reason":  gorm.Expr("NULL"),
+		"approved_by":            gorm.Expr("NULL"),
+		"approved_at":            gorm.Expr("NULL"),
+		"rejected_by":            gorm.Expr("NULL"),
+		"rejected_at":            gorm.Expr("NULL"),
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -1279,6 +1291,9 @@ func loadResearchFundSubmissionByID(submissionID int, preloadEvents bool) (*mode
 	if err := query.First(&submission, "submission_id = ?", submissionID).Error; err != nil {
 		return nil, err
 	}
+	if submission.FundApplicationDetail != nil {
+		submission.ClosedAt = submission.FundApplicationDetail.ClosedAt
+	}
 	return &submission, nil
 }
 
@@ -1371,7 +1386,6 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 	if currentlyClosed {
 		submissionUpdates := map[string]any{
 			"status_id": approvedStatusID,
-			"closed_at": nil,
 		}
 		detailUpdates := map[string]any{"closed_at": nil}
 		statusAfter := approvedStatusID
@@ -1384,7 +1398,6 @@ func applyClosureTransition(submission *models.Submission, currentlyClosed bool,
 
 	submissionUpdates := map[string]any{
 		"status_id": closedStatusID,
-		"closed_at": now,
 	}
 	detailUpdates := map[string]any{"closed_at": now}
 	statusAfter := closedStatusID
@@ -1496,7 +1509,12 @@ func buildResearchFundSummary(submission *models.Submission) gin.H {
 		"approved_amount":   approvedAmount,
 		"remaining_amount":  remaining,
 		"is_closed":         closed,
-		"closed_at":         submission.ClosedAt,
+		"closed_at": func() *time.Time {
+			if submission.FundApplicationDetail != nil {
+				return submission.FundApplicationDetail.ClosedAt
+			}
+			return nil
+		}(),
 	}
 
 	if submission.FundApplicationDetail != nil {

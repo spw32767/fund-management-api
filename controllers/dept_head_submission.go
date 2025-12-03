@@ -189,6 +189,8 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		"reviewed_at":      now,
 		"head_approved_at": now,
 		"head_approved_by": userID,
+		"approved_at":      now,
+		"approved_by":      userID,
 
 		// บันทึกลงคอลัมน์ใหม่เท่านั้น
 		"head_comment": func() interface{} {
@@ -202,6 +204,8 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		"head_rejected_by":      gorm.Expr("NULL"),
 		"head_rejected_at":      gorm.Expr("NULL"),
 		"head_rejection_reason": gorm.Expr("NULL"),
+		"rejected_by":           gorm.Expr("NULL"),
+		"rejected_at":           gorm.Expr("NULL"),
 		// ไม่อัปเดตคอลัมน์ legacy: comment
 	}
 
@@ -338,6 +342,10 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 		"head_rejected_by":      userID,
 		"head_rejected_at":      now,
 		"head_rejection_reason": rejectionReason,
+		"approved_by":           gorm.Expr("NULL"),
+		"approved_at":           gorm.Expr("NULL"),
+		"rejected_by":           userID,
+		"rejected_at":           now,
 	}
 	if headComment != "" {
 		updates["head_comment"] = headComment

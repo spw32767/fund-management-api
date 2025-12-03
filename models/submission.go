@@ -4,6 +4,8 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // Submission represents the main submission table
@@ -21,8 +23,8 @@ type Submission struct {
 	PublicationRewardJournalName *string    `gorm:"column:publication_reward_journal_name;->" json:"publication_reward_journal_name,omitempty"`
 	SubcategoryBudgetID          *int       `gorm:"column:subcategory_budget_id" json:"subcategory_budget_id"` // ✅ เพิ่มใหม่
 	StatusID                     int        `gorm:"column:status_id" json:"status_id"`
-	ApprovedBy                   *int       `gorm:"-" json:"approved_by"`
-	ApprovedAt                   *time.Time `gorm:"-" json:"approved_at"`
+	ApprovedBy                   *int       `gorm:"column:approved_by" json:"approved_by"`
+	ApprovedAt                   *time.Time `gorm:"column:approved_at" json:"approved_at"`
 	SubmittedAt                  *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
 	InstallmentNumberAtSubmit    *int       `gorm:"column:installment_number_at_submit" json:"installment_number_at_submit,omitempty"`
 	CreatedAt                    time.Time  `gorm:"column:created_at" json:"created_at"`
@@ -53,11 +55,12 @@ type Submission struct {
 
 	// --- เวลารีวิว/ปิดคำขอ (บางจุดของโค้ดใช้) ---
 	ReviewedAt *time.Time `gorm:"column:reviewed_at" json:"reviewed_at,omitempty"`
-	ClosedAt   *time.Time `gorm:"column:closed_at"   json:"closed_at,omitempty"`
+	// closed_at now tracked on fund_application_details; keep JSON for legacy payloads
+	ClosedAt *time.Time `gorm:"-" json:"closed_at,omitempty"`
 
 	// --- ช่องรวมศูนย์แบบ legacy (คงไว้เพื่อความเข้ากันได้/UI บางที่ fallback) ---
-	RejectedBy      *int       `gorm:"-" json:"rejected_by,omitempty"`
-	RejectedAt      *time.Time `gorm:"-" json:"rejected_at,omitempty"`
+	RejectedBy      *int       `gorm:"column:rejected_by" json:"rejected_by,omitempty"`
+	RejectedAt      *time.Time `gorm:"column:rejected_at" json:"rejected_at,omitempty"`
 	RejectionReason *string    `gorm:"-" json:"rejection_reason,omitempty"`
 	Comment         *string    `gorm:"-" json:"comment,omitempty"`
 
@@ -86,7 +89,7 @@ type FundApplicationDetail struct {
 	RequestedAmount         float64    `gorm:"column:requested_amount" json:"requested_amount"`
 	ApprovedAmount          float64    `gorm:"column:approved_amount" json:"approved_amount"`
 	AnnounceReferenceNumber string     `gorm:"column:announce_reference_number" json:"announce_reference_number,omitempty"`
-	ClosedAt                *time.Time `gorm:"-" json:"closed_at,omitempty"`
+	ClosedAt                *time.Time `gorm:"column:closed_at" json:"closed_at,omitempty"`
 
 	// ========== เพิ่ม fields ใหม่สำหรับ tracking ==========
 	MainAnnoucement             *int `json:"main_annoucement" gorm:"column:main_annoucement"`
@@ -242,6 +245,19 @@ func (PublicationRewardExternalFund) TableName() string {
 
 func (SubmissionDocument) TableName() string {
 	return "submission_documents"
+}
+
+// AfterFind populates legacy/derived fields that are no longer stored on submissions.
+func (s *Submission) AfterFind(tx *gorm.DB) error {
+	if s == nil {
+		return nil
+	}
+
+	if s.FundApplicationDetail != nil && s.FundApplicationDetail.ClosedAt != nil {
+		s.ClosedAt = s.FundApplicationDetail.ClosedAt
+	}
+
+	return nil
 }
 
 // Helper methods for Submission

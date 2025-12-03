@@ -47,7 +47,6 @@ type adminLegacySubmissionCore struct {
 	RejectedAt                *string `json:"rejected_at"`
 	Comment                   *string `json:"comment"`
 	ReviewedAt                *string `json:"reviewed_at"`
-	ClosedAt                  *string `json:"closed_at"`
 	CreatedAt                 *string `json:"created_at"`
 	UpdatedAt                 *string `json:"updated_at"`
 	DeletedAt                 *string `json:"deleted_at"`
@@ -545,9 +544,6 @@ func applyLegacySubmissionFields(submission *models.Submission, input adminLegac
 		return err
 	}
 	if err := assignOptionalTime(&submission.ReviewedAt, input.ReviewedAt, clear["reviewed_at"], "reviewed_at"); err != nil {
-		return err
-	}
-	if err := assignOptionalTime(&submission.ClosedAt, input.ClosedAt, clear["closed_at"], "closed_at"); err != nil {
 		return err
 	}
 	if err := assignOptionalTime(&submission.DeletedAt, input.DeletedAt, clear["deleted_at"], "deleted_at"); err != nil {
