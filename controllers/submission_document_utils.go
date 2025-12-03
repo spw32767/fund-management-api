@@ -23,17 +23,44 @@ var (
 // once per process and omit the field on inserts when the schema does not
 // expose it, matching the behaviour of earlier revisions of the service.
 func createFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
+	if db == nil {
+		db = config.DB
+	}
+
 	if !fileUploadSupportsMetadata(db) {
 		return db.Omit("Metadata").Create(fileUpload).Error
 	}
-	return db.Create(fileUpload).Error
+
+	if err := db.Create(fileUpload).Error; err != nil {
+		// Be tolerant of legacy schemas that might not include the metadata column.
+		if strings.Contains(strings.ToLower(err.Error()), "metadata") {
+			markFileUploadMetadataUnsupported()
+			return db.Omit("Metadata").Create(fileUpload).Error
+		}
+		return err
+	}
+
+	return nil
 }
 
 func saveFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
+	if db == nil {
+		db = config.DB
+	}
+
 	if !fileUploadSupportsMetadata(db) {
 		return db.Omit("Metadata").Save(fileUpload).Error
 	}
-	return db.Save(fileUpload).Error
+
+	if err := db.Save(fileUpload).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "metadata") {
+			markFileUploadMetadataUnsupported()
+			return db.Omit("Metadata").Save(fileUpload).Error
+		}
+		return err
+	}
+
+	return nil
 }
 
 func createSubmissionDocumentRecord(db *gorm.DB, document *models.SubmissionDocument) error {
@@ -55,6 +82,13 @@ func fileUploadSupportsMetadata(db *gorm.DB) bool {
 		fileUploadMetadataSupported = db.Migrator().HasColumn(&models.FileUpload{}, "metadata")
 	})
 	return fileUploadMetadataSupported
+}
+
+// markFileUploadMetadataUnsupported resets the detection cache so future calls
+// will avoid using the metadata column when talking to legacy databases.
+func markFileUploadMetadataUnsupported() {
+	fileUploadMetadataSupported = false
+	fileUploadMetadataOnce = sync.Once{}
 }
 
 func submissionDocumentSupportsOriginalName(db *gorm.DB) bool {
