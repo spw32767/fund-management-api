@@ -28,6 +28,12 @@ type CiteScoreMetricsService struct {
 	client *http.Client
 }
 
+// CiteScoreRefreshTarget identifies a journal whose metrics should be refreshed.
+type CiteScoreRefreshTarget struct {
+	SourceID string  `json:"source_id"`
+	ISSN     *string `json:"issn,omitempty"`
+}
+
 // CiteScoreBackfillSummary reports the result of a backfill run over existing Scopus documents.
 type CiteScoreBackfillSummary struct {
 	JournalsScanned int `json:"journals_scanned"`
@@ -35,6 +41,16 @@ type CiteScoreBackfillSummary struct {
 	SkippedExisting int `json:"skipped_existing"`
 	Errors          int `json:"errors"`
 }
+
+// CiteScoreRefreshSummary reports the result of a manual refresh run over existing scopus_source_metrics rows.
+type CiteScoreRefreshSummary struct {
+	SourcesScanned   int `json:"sources_scanned"`
+	SourcesRefreshed int `json:"sources_refreshed"`
+	Skipped          int `json:"skipped"`
+	Errors           int `json:"errors"`
+}
+
+const citescoreRefreshStaleness = 30 * 24 * time.Hour
 
 // NewCiteScoreMetricsService constructs a CiteScoreMetricsService.
 func NewCiteScoreMetricsService(db *gorm.DB, client *http.Client) *CiteScoreMetricsService {
@@ -45,6 +61,32 @@ func NewCiteScoreMetricsService(db *gorm.DB, client *http.Client) *CiteScoreMetr
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &CiteScoreMetricsService{db: db, client: client}
+}
+
+// FindRefreshTargets selects journals in scopus_source_metrics that should have their metrics refreshed.
+func (s *CiteScoreMetricsService) FindRefreshTargets(ctx context.Context, staleAfter time.Duration) ([]CiteScoreRefreshTarget, error) {
+	if s == nil {
+		return nil, errors.New("citescore metrics service is nil")
+	}
+
+	if staleAfter <= 0 {
+		staleAfter = citescoreRefreshStaleness
+	}
+
+	cutoff := time.Now().Add(-staleAfter)
+	currentYear := time.Now().Year()
+
+	var targets []CiteScoreRefreshTarget
+	query := s.db.WithContext(ctx).Model(&models.ScopusSourceMetric{}).
+		Select("DISTINCT source_id, issn").
+		Where("(source_id IS NOT NULL AND source_id <> '') OR (issn IS NOT NULL AND issn <> '')").
+		Where("cite_score_status = ? OR (metric_year >= ? AND (last_fetched_at IS NULL OR last_fetched_at < ?))", "In-Progress", currentYear-1, cutoff)
+
+	if err := query.Find(&targets).Error; err != nil {
+		return nil, err
+	}
+
+	return targets, nil
 }
 
 // EnsureJournalMetrics fetches CiteScore metrics for a journal if they are not already stored for the given year.
@@ -152,6 +194,47 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 		}
 
 		summary.MetricsFetched++
+	}
+
+	return summary, nil
+}
+
+// RefreshExistingMetrics refreshes CiteScore metrics for journals already present in scopus_source_metrics
+// that are either marked as in-progress or have recent metrics with stale fetch timestamps.
+func (s *CiteScoreMetricsService) RefreshExistingMetrics(ctx context.Context) (*CiteScoreRefreshSummary, error) {
+	if s == nil {
+		return nil, errors.New("citescore metrics service is nil")
+	}
+
+	targets, err := s.FindRefreshTargets(ctx, citescoreRefreshStaleness)
+	if err != nil {
+		return nil, err
+	}
+
+	summary := &CiteScoreRefreshSummary{SourcesScanned: len(targets)}
+
+	for _, target := range targets {
+		issn := ""
+		if target.ISSN != nil {
+			issn = *target.ISSN
+		}
+		sourceID := strings.TrimSpace(target.SourceID)
+		issn = strings.TrimSpace(issn)
+
+		if sourceID == "" && issn == "" {
+			summary.Skipped++
+			continue
+		}
+
+		log.Printf("citescore refresh: refreshing metrics for source %s issn %s", sourceID, issn)
+
+		if err := s.EnsureJournalMetrics(ctx, issn, sourceID, 0); err != nil {
+			summary.Errors++
+			log.Printf("citescore refresh: failed for source %s issn %s: %v", sourceID, issn, err)
+			continue
+		}
+
+		summary.SourcesRefreshed++
 	}
 
 	return summary, nil
