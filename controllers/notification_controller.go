@@ -788,9 +788,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 
 	headTemplate, err := fetchNotificationTemplate(db, "submission_submitted", "dept_head")
 	if err != nil {
-		log.Printf("notify submission submitted: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "notification template missing"})
-		return
+		log.Printf("notify submission submitted (dept_head): %v", err)
 	}
 
 	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, userMsg.Title, userMsg.Body, "success", sub.SubmissionID).Error
@@ -801,7 +799,8 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		User userLite
 		Msg  templatedMessage
 	}, 0, len(headIDs))
-	if len(headIDs) > 0 {
+
+	if err == nil && len(headIDs) > 0 {
 		_ = db.Where("user_id IN ?", headIDs).Find(&heads).Error
 		for _, h := range heads {
 			headData := map[string]string{}
