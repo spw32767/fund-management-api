@@ -159,6 +159,26 @@ func linkifyURLs(text string) string {
 	})
 }
 
+func createNotificationSafe(db *gorm.DB, userID uint, title, message, ntype string, related *uint) (uint, error) {
+	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`, userID, title, message, ntype, related).Error; err == nil {
+		return 0, nil
+	}
+
+	n := Notification{
+		UserID:              userID,
+		Title:               title,
+		Message:             message,
+		Type:                ntype,
+		RelatedSubmissionID: related,
+		IsRead:              false,
+		CreateAt:            time.Now(),
+	}
+	if err := db.Create(&n).Error; err != nil {
+		return 0, err
+	}
+	return n.NotificationID, nil
+}
+
 func buildTemplatedMessage(db *gorm.DB, eventKey, sendTo string, data map[string]string) (templatedMessage, error) {
 	tmpl, err := fetchNotificationTemplate(db, eventKey, sendTo)
 	if err != nil {
@@ -538,7 +558,9 @@ func notifyNeedsMoreInfo(submissionID int, actor string, comment string) error {
 		return err
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, msg.Title, msg.Body, "info", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, msg.Title, msg.Body, "info", &sub.SubmissionID); err != nil {
+		return err
+	}
 
 	if submitterEmail != "" {
 		subj := msg.Title
@@ -593,28 +615,18 @@ func CreateNotification(c *gin.Context) {
 		}
 	}
 
-	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
-		req.UserID, req.Title, req.Message, req.Type, req.RelatedSubmissionID,
-	).Error; err != nil {
-		// fallback insert ตรง
-		n := Notification{
-			UserID:              req.UserID,
-			Title:               req.Title,
-			Message:             req.Message,
-			Type:                req.Type,
-			RelatedSubmissionID: req.RelatedSubmissionID,
-			IsRead:              false,
-			CreateAt:            time.Now(),
-		}
-		if e2 := db.Create(&n).Error; e2 != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": e2.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true, "notification_id": n.NotificationID})
+	nID, err := createNotificationSafe(db, req.UserID, req.Title, req.Message, req.Type, req.RelatedSubmissionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	resp := gin.H{"ok": true}
+	if nID != 0 {
+		resp["notification_id"] = nID
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func GetNotifications(c *gin.Context) {
@@ -793,7 +805,9 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		log.Printf("notify submission submitted (dept_head template missing): %v", headTemplateErr)
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, userMsg.Title, userMsg.Body, "success", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, userMsg.Title, userMsg.Body, "success", &sub.SubmissionID); err != nil {
+		log.Printf("failed to create submission_submitted user notification: %v", err)
+	}
 
 	headIDs := getCurrentDeptHeadIDs(db)
 	var heads []userLite
@@ -827,7 +841,9 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 				Msg  templatedMessage
 			}{User: h, Msg: msg})
 
-			_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, h.UserID, msg.Title, msg.Body, "info", sub.SubmissionID).Error
+			if _, err := createNotificationSafe(db, h.UserID, msg.Title, msg.Body, "info", &sub.SubmissionID); err != nil {
+				log.Printf("failed to create submission_submitted dept head notification for user %d: %v", h.UserID, err)
+			}
 		}
 	}
 
@@ -897,7 +913,9 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 		return
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, userMsg.Title, userMsg.Body, "success", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, userMsg.Title, userMsg.Body, "success", &sub.SubmissionID); err != nil {
+		log.Printf("failed to create dept-head recommended user notification: %v", err)
+	}
 
 	adminTemplate, err := fetchNotificationTemplate(db, "dept_head_recommended", "admin")
 	if err != nil {
@@ -920,7 +938,9 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			Body:  applyTemplatePlaceholders(adminTemplate.BodyTemplate, adminData),
 		}
 
-		_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, a.UserID, adminMsg.Title, adminMsg.Body, "info", sub.SubmissionID).Error
+		if _, err := createNotificationSafe(db, a.UserID, adminMsg.Title, adminMsg.Body, "info", &sub.SubmissionID); err != nil {
+			log.Printf("failed to create dept-head recommended admin notification for user %d: %v", a.UserID, err)
+		}
 	}
 
 	go func() {
@@ -1006,7 +1026,9 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 		return
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, msg.Title, msg.Body, "warning", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, msg.Title, msg.Body, "warning", &sub.SubmissionID); err != nil {
+		log.Printf("failed to create submission_rejected notification: %v", err)
+	}
 
 	go func() {
 		if ownerEmail != "" {
@@ -1092,7 +1114,9 @@ func NotifyAdminApproved(c *gin.Context) {
 		return
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, msg.Title, msg.Body, "success", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, msg.Title, msg.Body, "success", &sub.SubmissionID); err != nil {
+		log.Printf("failed to create submission_approved notification: %v", err)
+	}
 
 	go func() {
 		if ownerEmail != "" {
@@ -1177,8 +1201,9 @@ func NotifyAdminRejected(c *gin.Context) {
 		return
 	}
 
-	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`,
-		sub.UserID, msg.Title, msg.Body, "error", sub.SubmissionID).Error
+	if _, err := createNotificationSafe(db, sub.UserID, msg.Title, msg.Body, "error", &sub.SubmissionID); err != nil {
+		log.Printf("failed to create admin_rejected notification: %v", err)
+	}
 
 	go func() {
 		if ownerEmail != "" {
