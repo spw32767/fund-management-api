@@ -781,14 +781,16 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 
 	userMsg, err := buildTemplatedMessage(db, "submission_submitted", "user", data)
 	if err != nil {
-		log.Printf("notify submission submitted: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "notification template missing"})
-		return
+		log.Printf("notify submission submitted (user template missing): %v", err)
+		userMsg = templatedMessage{
+			Title: fmt.Sprintf("ส่งคำร้องสำเร็จ - %s", sub.SubmissionNumber),
+			Body:  fmt.Sprintf("ระบบได้รับคำร้อง %s (%s) เมื่อ %s", submissionTitle, sub.SubmissionNumber, submittedAt),
+		}
 	}
 
-	headTemplate, err := fetchNotificationTemplate(db, "submission_submitted", "dept_head")
-	if err != nil {
-		log.Printf("notify submission submitted (dept_head): %v", err)
+	headTemplate, headTemplateErr := fetchNotificationTemplate(db, "submission_submitted", "dept_head")
+	if headTemplateErr != nil {
+		log.Printf("notify submission submitted (dept_head template missing): %v", headTemplateErr)
 	}
 
 	_ = db.Exec(`CALL CreateNotification(?,?,?,?,?)`, sub.UserID, userMsg.Title, userMsg.Body, "success", sub.SubmissionID).Error
@@ -800,7 +802,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		Msg  templatedMessage
 	}, 0, len(headIDs))
 
-	if err == nil && len(headIDs) > 0 {
+	if len(headIDs) > 0 {
 		_ = db.Where("user_id IN ?", headIDs).Find(&heads).Error
 		for _, h := range heads {
 			headData := map[string]string{}
@@ -810,8 +812,14 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			headData["depthead_name"] = buildThaiDisplayName(h, "")
 
 			msg := templatedMessage{
-				Title: applyTemplatePlaceholders(headTemplate.TitleTemplate, headData),
-				Body:  applyTemplatePlaceholders(headTemplate.BodyTemplate, headData),
+				Title: fmt.Sprintf("คำร้องใหม่: %s", sub.SubmissionNumber),
+				Body:  fmt.Sprintf("%s ส่งคำร้อง %s (%s) เมื่อ %s", submitterName, submissionTitle, sub.SubmissionNumber, submittedAt),
+			}
+			if headTemplateErr == nil {
+				msg = templatedMessage{
+					Title: applyTemplatePlaceholders(headTemplate.TitleTemplate, headData),
+					Body:  applyTemplatePlaceholders(headTemplate.BodyTemplate, headData),
+				}
 			}
 
 			headMessages = append(headMessages, struct {
