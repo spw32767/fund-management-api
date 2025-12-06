@@ -837,8 +837,8 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 	})
 
 	// Delete a folder
-	rg.DELETE("/folders/*path", func(c *gin.Context) {
-		rawPath := strings.TrimPrefix(c.Param("path"), "/")
+	rg.DELETE("/folders/:path", func(c *gin.Context) {
+		rawPath := c.Param("path")
 
 		// Decode URL
 		folderPath, err := url.QueryUnescape(rawPath)
@@ -872,8 +872,8 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 	})
 
 	// Delete a file (enhanced to support nested paths)
-	rg.DELETE("/files/*path", func(c *gin.Context) {
-		rawPath := strings.TrimPrefix(c.Param("path"), "/")
+	rg.DELETE("/files/:path", func(c *gin.Context) {
+		rawPath := c.Param("path")
 
 		// Decode URL
 		filePath, err := url.QueryUnescape(rawPath)
