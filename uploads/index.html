@@ -1217,7 +1217,7 @@
           const item = allItems.find(i => i.name === itemName);
           const endpoint = item && item.type === 'folder' ? '/api/v1/folders' : '/api/v1/files';
           
-          const res = await fetch(`${endpoint}/${encodeURIComponent(itemPath)}`, { method: "DELETE" });
+          const res = await fetch(`${endpoint}?path=${encodeURIComponent(itemPath)}`, { method: "DELETE" });
           const data = await res.json();
           results.push(`${itemName}: ${data.message || data.error}`);
         } catch (error) {
@@ -1383,7 +1383,7 @@
       try {
         const itemPath = currentPath ? `${currentPath}/${name}` : name;
         const endpoint = type === 'folder' ? '/api/v1/folders' : '/api/v1/files';
-        const res = await fetch(`${endpoint}/${encodeURIComponent(itemPath)}`, { method: "DELETE" });
+        const res = await fetch(`${endpoint}?path=${encodeURIComponent(itemPath)}`, { method: "DELETE" });
         const data = await res.json();
         alert(data.message || data.error);
         selectedItems.delete(name);
