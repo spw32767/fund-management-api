@@ -116,7 +116,23 @@ func columnExists(db *gorm.DB, table, column string) bool {
 	if db == nil {
 		return false
 	}
-	return db.Migrator().HasColumn(table, column)
+	table = strings.TrimSpace(table)
+	column = strings.TrimSpace(column)
+	if table == "" || column == "" {
+		return false
+	}
+
+	var count int64
+	if err := db.Raw(`
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+`, table, column).Scan(&count).Error; err != nil {
+		log.Printf("columnExists failed for %s.%s: %v", table, column, err)
+		return false
+	}
+
+	return count > 0
 }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
