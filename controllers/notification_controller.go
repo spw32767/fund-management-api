@@ -204,12 +204,29 @@ func createNotificationSafe(db *gorm.DB, userID uint, title, message, ntype stri
 func buildTemplatedMessage(db *gorm.DB, eventKey, sendTo string, data map[string]string) (templatedMessage, error) {
 	tmpl, err := fetchNotificationTemplate(db, eventKey, sendTo)
 	if err != nil {
+		log.Printf("notification template missing for event=%s send_to=%s: %v", eventKey, sendTo, err)
 		return templatedMessage{}, fmt.Errorf("notification template missing for event %s -> %s", eventKey, sendTo)
 	}
 
+	title := strings.TrimSpace(tmpl.TitleTemplate)
+	body := strings.TrimSpace(tmpl.BodyTemplate)
+	if title == "" {
+		log.Printf("notification template empty title for event=%s send_to=%s (id=%d); falling back to default", eventKey, sendTo, tmpl.ID)
+		title = strings.TrimSpace(tmpl.DefaultTitle)
+	}
+	if body == "" {
+		log.Printf("notification template empty body for event=%s send_to=%s (id=%d); falling back to default", eventKey, sendTo, tmpl.ID)
+		body = strings.TrimSpace(tmpl.DefaultBody)
+	}
+
+	if title == "" || body == "" {
+		log.Printf("notification template has no usable title/body for event=%s send_to=%s (id=%d)", eventKey, sendTo, tmpl.ID)
+		return templatedMessage{}, fmt.Errorf("notification template for %s -> %s has no title/body", eventKey, sendTo)
+	}
+
 	msg := templatedMessage{
-		Title: applyTemplatePlaceholders(tmpl.TitleTemplate, data),
-		Body:  applyTemplatePlaceholders(tmpl.BodyTemplate, data),
+		Title: applyTemplatePlaceholders(title, data),
+		Body:  applyTemplatePlaceholders(body, data),
 	}
 	return msg, nil
 }
@@ -839,11 +856,6 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}
 
-	headTemplate, headTemplateErr := fetchNotificationTemplate(db, "submission_submitted", "dept_head")
-	if headTemplateErr != nil {
-		log.Printf("notify submission submitted (dept_head template missing): %v", headTemplateErr)
-	}
-
 	if _, err := createNotificationSafe(db, sub.UserID, userMsg.Title, userMsg.Body, "success", &sub.SubmissionID); err != nil {
 		log.Printf("failed to create submission_submitted user notification: %v", err)
 	}
@@ -864,23 +876,21 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 			}
 			headData["depthead_name"] = buildThaiDisplayName(h, "")
 
-			msg := templatedMessage{
-				Title: fmt.Sprintf("คำร้องใหม่: %s", sub.SubmissionNumber),
-				Body:  fmt.Sprintf("%s ส่งคำร้อง %s (%s) เมื่อ %s", submitterName, submissionTitle, sub.SubmissionNumber, submittedAt),
-			}
-			if headTemplateErr == nil {
-				msg = templatedMessage{
-					Title: applyTemplatePlaceholders(headTemplate.TitleTemplate, headData),
-					Body:  applyTemplatePlaceholders(headTemplate.BodyTemplate, headData),
+			headMsg, err := buildTemplatedMessage(db, "submission_submitted", "dept_head", headData)
+			if err != nil {
+				log.Printf("notify submission submitted (dept_head template missing): %v", err)
+				headMsg = templatedMessage{
+					Title: fmt.Sprintf("คำร้องใหม่: %s", sub.SubmissionNumber),
+					Body:  fmt.Sprintf("%s ส่งคำร้อง %s (%s) เมื่อ %s", submitterName, submissionTitle, sub.SubmissionNumber, submittedAt),
 				}
 			}
 
 			headMessages = append(headMessages, struct {
 				User userLite
 				Msg  templatedMessage
-			}{User: h, Msg: msg})
+			}{User: h, Msg: headMsg})
 
-			if _, err := createNotificationSafe(db, h.UserID, msg.Title, msg.Body, "info", &sub.SubmissionID); err != nil {
+			if _, err := createNotificationSafe(db, h.UserID, headMsg.Title, headMsg.Body, "info", &sub.SubmissionID); err != nil {
 				log.Printf("failed to create submission_submitted dept head notification for user %d: %v", h.UserID, err)
 			}
 		}
@@ -958,13 +968,6 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 		log.Printf("failed to create dept-head recommended user notification: %v", err)
 	}
 
-	adminTemplate, err := fetchNotificationTemplate(db, "dept_head_recommended", "admin")
-	if err != nil {
-		log.Printf("notify dept head recommended: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "notification template missing"})
-		return
-	}
-
 	var admins []userLite
 	_ = db.Where("role_id = ?", 3).Find(&admins).Error
 	for _, a := range admins {
@@ -974,9 +977,13 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 		}
 		adminData["admin_name"] = buildThaiDisplayName(a, "")
 
-		adminMsg := templatedMessage{
-			Title: applyTemplatePlaceholders(adminTemplate.TitleTemplate, adminData),
-			Body:  applyTemplatePlaceholders(adminTemplate.BodyTemplate, adminData),
+		adminMsg, err := buildTemplatedMessage(db, "dept_head_recommended", "admin", adminData)
+		if err != nil {
+			log.Printf("notify dept head recommended (admin template missing): %v", err)
+			adminMsg = templatedMessage{
+				Title: fmt.Sprintf("คำร้อง %s ได้รับการแนะนำ", sub.SubmissionNumber),
+				Body:  fmt.Sprintf("คำร้อง %s ถูกหัวหน้าสาขาแนะนำให้พิจารณา", sub.SubmissionNumber),
+			}
 		}
 
 		if _, err := createNotificationSafe(db, a.UserID, adminMsg.Title, adminMsg.Body, "info", &sub.SubmissionID); err != nil {
@@ -1001,9 +1008,13 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			}
 			adminData["admin_name"] = buildThaiDisplayName(a, "")
 
-			adminMsg := templatedMessage{
-				Title: applyTemplatePlaceholders(adminTemplate.TitleTemplate, adminData),
-				Body:  applyTemplatePlaceholders(adminTemplate.BodyTemplate, adminData),
+			adminMsg, err := buildTemplatedMessage(db, "dept_head_recommended", "admin", adminData)
+			if err != nil {
+				log.Printf("notify dept head recommended email (admin template missing): %v", err)
+				adminMsg = templatedMessage{
+					Title: fmt.Sprintf("คำร้อง %s ได้รับการแนะนำ", sub.SubmissionNumber),
+					Body:  fmt.Sprintf("คำร้อง %s ถูกหัวหน้าสาขาแนะนำให้พิจารณา", sub.SubmissionNumber),
+				}
 			}
 
 			subj := adminMsg.Title
