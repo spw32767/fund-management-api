@@ -837,12 +837,14 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 	})
 
 	// Delete a folder
-	rg.DELETE("/folders/:path", func(c *gin.Context) {
-		rawPath := c.Param("path")
+	deleteFolder := func(c *gin.Context) {
+		rawPath := strings.TrimPrefix(c.Param("path"), "/")
+		if rawPath == "" {
+			rawPath = strings.TrimPrefix(c.Query("path"), "/")
+		}
 
-		// Decode URL
-		folderPath, err := url.QueryUnescape(rawPath)
-		if err != nil {
+		folderPath, err := url.PathUnescape(rawPath)
+		if err != nil || folderPath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid folder path"})
 			return
 		}
@@ -869,15 +871,20 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 
 		log.Printf("✅ Deleted folder: %s", folderPath)
 		c.JSON(http.StatusOK, gin.H{"message": "Folder deleted successfully"})
-	})
+	}
+
+	rg.DELETE("/folders/*path", deleteFolder)
+	rg.DELETE("/folders", deleteFolder)
 
 	// Delete a file (enhanced to support nested paths)
-	rg.DELETE("/files/:path", func(c *gin.Context) {
-		rawPath := c.Param("path")
+	deleteFile := func(c *gin.Context) {
+		rawPath := strings.TrimPrefix(c.Param("path"), "/")
+		if rawPath == "" {
+			rawPath = strings.TrimPrefix(c.Query("path"), "/")
+		}
 
-		// Decode URL
-		filePath, err := url.QueryUnescape(rawPath)
-		if err != nil {
+		filePath, err := url.PathUnescape(rawPath)
+		if err != nil || filePath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
 			return
 		}
@@ -909,7 +916,10 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 
 		log.Printf("✅ Deleted file: %s", filePath)
 		c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
-	})
+	}
+
+	rg.DELETE("/files/*path", deleteFile)
+	rg.DELETE("/files", deleteFile)
 }
 
 // You'll also need to update your upload handler to support paths
