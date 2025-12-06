@@ -39,6 +39,16 @@ type Notification struct {
 
 func (Notification) TableName() string { return "notifications" }
 
+func countUnreadForUser(db *gorm.DB, userID uint) (int64, error) {
+	var unread int64
+	if err := db.Model(&Notification{}).
+		Where("user_id = ? AND is_read = 0", userID).
+		Count(&unread).Error; err != nil {
+		return 0, err
+	}
+	return unread, nil
+}
+
 type userLite struct {
 	UserID     uint    `gorm:"column:user_id"`
 	RoleID     uint    `gorm:"column:role_id"`
@@ -78,6 +88,20 @@ type templatedMessage struct {
    ========================== */
 
 func getDB() *gorm.DB { return config.DB }
+
+func respondOKWithUnread(c *gin.Context, db *gorm.DB, userID uint) {
+	if userID == 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
+
+	unread, err := countUnreadForUser(db, userID)
+	if err != nil {
+		log.Printf("failed to count unread for user %d: %v", userID, err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "unread": unread})
+}
 
 // schema helpers -------------------------------------------------------------
 
@@ -619,7 +643,12 @@ func CreateNotification(c *gin.Context) {
 		return
 	}
 
-	resp := gin.H{"ok": true}
+	unread, err := countUnreadForUser(db, req.UserID)
+	if err != nil {
+		log.Printf("failed to count unread after create: %v", err)
+	}
+
+	resp := gin.H{"ok": true, "unread": unread}
 	if nID != 0 {
 		resp["notification_id"] = nID
 	}
@@ -704,7 +733,13 @@ func MarkNotificationRead(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	unread, err := countUnreadForUser(db, uid)
+	if err != nil {
+		log.Printf("failed to count unread after mark read: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "unread": unread})
 }
 
 func MarkAllNotificationsRead(c *gin.Context) {
@@ -722,7 +757,13 @@ func MarkAllNotificationsRead(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	unread, err := countUnreadForUser(db, uid)
+	if err != nil {
+		log.Printf("failed to count unread after mark all read: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "unread": unread})
 }
 
 /* ==========================
@@ -863,13 +904,15 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	respondOKWithUnread(c, db, uid)
 }
 
 // POST /api/v1/notifications/events/submissions/:submissionId/dept-head/recommended
 // -> แจ้ง "ผู้ยื่น" (เห็นควรพิจารณา) แล้ว "แจ้งแอดมิน"
 func NotifyDeptHeadRecommended(c *gin.Context) {
 	db := getDB()
+
+	uid, _ := getCurrentUserID(c)
 
 	sid, err := strconv.Atoi(c.Param("submissionId"))
 	if err != nil || sid <= 0 {
@@ -969,13 +1012,16 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			sendMailSafe([]string{*a.Email}, subj, emailBody)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	respondOKWithUnread(c, db, uid)
 }
 
 // POST /api/v1/notifications/events/submissions/:submissionId/dept-head/not-recommended
 // -> แจ้ง "ผู้ยื่น" (ไม่เห็นควรพิจารณา) — ไม่แจ้งแอดมิน
 func NotifyDeptHeadNotRecommended(c *gin.Context) {
 	db := getDB()
+
+	uid, _ := getCurrentUserID(c)
 
 	sid, err := strconv.Atoi(c.Param("submissionId"))
 	if err != nil || sid <= 0 {
@@ -1035,7 +1081,8 @@ func NotifyDeptHeadNotRecommended(c *gin.Context) {
 			sendMailSafe([]string{ownerEmail}, subj, emailBody)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	respondOKWithUnread(c, db, uid)
 }
 
 // POST /api/v1/notifications/events/submissions/:submissionId/approved
@@ -1045,7 +1092,7 @@ func NotifyAdminApproved(c *gin.Context) {
 	db := getDB()
 
 	// เฉพาะแอดมิน
-	_, ok := getCurrentUserID(c)
+	uid, ok := getCurrentUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
@@ -1123,7 +1170,8 @@ func NotifyAdminApproved(c *gin.Context) {
 			sendMailSafe([]string{ownerEmail}, subj, emailBody)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	respondOKWithUnread(c, db, uid)
 }
 
 // POST /api/v1/notifications/events/submissions/:submissionId/rejected
@@ -1132,7 +1180,7 @@ func NotifyAdminRejected(c *gin.Context) {
 	db := getDB()
 
 	// เฉพาะแอดมิน
-	_, ok := getCurrentUserID(c)
+	uid, ok := getCurrentUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
@@ -1210,5 +1258,6 @@ func NotifyAdminRejected(c *gin.Context) {
 			sendMailSafe([]string{ownerEmail}, subj, emailBody)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+
+	respondOKWithUnread(c, db, uid)
 }

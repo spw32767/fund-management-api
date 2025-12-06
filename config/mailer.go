@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -76,6 +77,14 @@ func SendMail(to []string, subject, html string) error {
 		return fmt.Errorf("smtp not configured (SMTP_HOST/SMTP_FROM)")
 	}
 
+	// Ensure TLS server name doesn't include a port
+	serverName := func(h string) string {
+		if idx := strings.Index(h, ":"); idx > 0 {
+			return h[:idx]
+		}
+		return h
+	}(host)
+
 	m := mail.NewMessage()
 	m.SetHeader("From", from)
 	m.SetHeader("To", to...)
@@ -94,9 +103,14 @@ func SendMail(to []string, subject, html string) error {
 
 	// แก้ TLS: ต้องมี ServerName หรือ InsecureSkipVerify
 	d.TLSConfig = &tls.Config{
-		ServerName:         host,       // สำคัญ! ให้ตรงกับ hostname เช่น "smtp.gmail.com"
+		ServerName:         serverName, // สำคัญ! ให้ตรงกับ hostname เช่น "smtp.gmail.com"
 		InsecureSkipVerify: skipVerify, // dev เท่านั้น: ตั้ง .env เป็น 1 หากต้องข้ามการตรวจ cert
 	}
 
-	return d.DialAndSend(m)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("SendMail failed (host=%s port=%d implicitTLS=%t to=%v): %v", host, port, implicitTLS, to, err)
+		return err
+	}
+
+	return nil
 }
