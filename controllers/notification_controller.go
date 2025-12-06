@@ -160,8 +160,15 @@ func linkifyURLs(text string) string {
 }
 
 func createNotificationSafe(db *gorm.DB, userID uint, title, message, ntype string, related *uint) (uint, error) {
-	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`, userID, title, message, ntype, related).Error; err == nil {
+	var relatedVal interface{}
+	if related != nil {
+		relatedVal = *related
+	}
+
+	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`, userID, title, message, ntype, relatedVal).Error; err == nil {
 		return 0, nil
+	} else {
+		log.Printf("CreateNotification stored procedure failed, falling back to direct insert: %v", err)
 	}
 
 	n := Notification{
