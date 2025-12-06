@@ -160,17 +160,6 @@ func linkifyURLs(text string) string {
 }
 
 func createNotificationSafe(db *gorm.DB, userID uint, title, message, ntype string, related *uint) (uint, error) {
-	var relatedVal interface{}
-	if related != nil {
-		relatedVal = *related
-	}
-
-	if err := db.Exec(`CALL CreateNotification(?,?,?,?,?)`, userID, title, message, ntype, relatedVal).Error; err == nil {
-		return 0, nil
-	} else {
-		log.Printf("CreateNotification stored procedure failed, falling back to direct insert: %v", err)
-	}
-
 	n := Notification{
 		UserID:              userID,
 		Title:               title,
@@ -180,9 +169,11 @@ func createNotificationSafe(db *gorm.DB, userID uint, title, message, ntype stri
 		IsRead:              false,
 		CreateAt:            time.Now(),
 	}
+
 	if err := db.Create(&n).Error; err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to create notification: %w", err)
 	}
+
 	return n.NotificationID, nil
 }
 
