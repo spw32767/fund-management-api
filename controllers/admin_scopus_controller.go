@@ -386,3 +386,83 @@ func AdminListScopusAPIRequests(c *gin.Context) {
 		},
 	})
 }
+
+// GET /api/v1/admin/scopus/import/batch/runs
+func AdminListScopusBatchImportRuns(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	var total int64
+	if err := config.DB.Model(&models.ScopusBatchImportRun{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var runs []models.ScopusBatchImportRun
+	offset := (page - 1) * perPage
+	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	pagination := gin.H{
+		"current_page": page,
+		"per_page":     perPage,
+		"total_count":  total,
+		"total_pages":  int((total + int64(perPage) - 1) / int64(perPage)),
+		"has_next":     int64(offset+perPage) < total,
+		"has_prev":     page > 1,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": runs, "pagination": pagination})
+}
+
+// GET /api/v1/admin/scopus/metrics/runs?run_type=refresh|backfill
+func AdminListCiteScoreMetricRuns(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	runType := strings.TrimSpace(c.Query("run_type"))
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	query := config.DB.Model(&models.CiteScoreMetricsRun{})
+	if runType != "" {
+		query = query.Where("run_type = ?", runType)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var runs []models.CiteScoreMetricsRun
+	offset := (page - 1) * perPage
+	if err := query.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	pagination := gin.H{
+		"current_page": page,
+		"per_page":     perPage,
+		"total_count":  total,
+		"total_pages":  int((total + int64(perPage) - 1) / int64(perPage)),
+		"has_next":     int64(offset+perPage) < total,
+		"has_prev":     page > 1,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": runs, "pagination": pagination})
+}
