@@ -404,6 +404,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
 				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
 				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
+				admin.GET("/scopus/import/jobs", controllers.AdminListScopusAPIImportJobs)
+				admin.GET("/scopus/import/jobs/:id/requests", controllers.AdminListScopusAPIRequests)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
 				admin.GET("/users/scopus", controllers.AdminListUsersWithScopusID)
