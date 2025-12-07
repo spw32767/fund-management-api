@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -15,12 +16,13 @@ var (
 	mailerOnce sync.Once
 	mailerMu   sync.RWMutex
 
-	smtpHost      string
-	smtpPort      int
-	smtpUser      string
-	smtpPass      string
-	smtpFrom      string
-	skipTLSVerify bool
+	smtpHost         string
+	smtpPort         int
+	smtpUser         string
+	smtpPass         string
+	smtpFrom         string
+	skipTLSVerify    bool
+	forceImplicitTLS bool
 )
 
 func loadMailerConfig() {
@@ -39,6 +41,7 @@ func loadMailerConfig() {
 	smtpPass = os.Getenv("SMTP_PASS")
 	smtpFrom = strings.TrimSpace(os.Getenv("SMTP_FROM"))
 	skipTLSVerify = os.Getenv("SMTP_SKIP_TLS_VERIFY") == "1"
+	forceImplicitTLS = os.Getenv("SMTP_IMPLICIT_TLS") == "1"
 }
 
 func ensureMailerConfig() {
@@ -67,11 +70,20 @@ func SendMail(to []string, subject, html string) error {
 	pass := smtpPass
 	from := smtpFrom
 	skipVerify := skipTLSVerify
+	implicitTLS := forceImplicitTLS || port == 465
 	mailerMu.RUnlock()
 
 	if host == "" || from == "" {
 		return fmt.Errorf("smtp not configured (SMTP_HOST/SMTP_FROM)")
 	}
+
+	// Ensure TLS server name doesn't include a port
+	serverName := func(h string) string {
+		if idx := strings.Index(h, ":"); idx > 0 {
+			return h[:idx]
+		}
+		return h
+	}(host)
 
 	m := mail.NewMessage()
 	m.SetHeader("From", from)
@@ -81,14 +93,24 @@ func SendMail(to []string, subject, html string) error {
 
 	d := mail.NewDialer(host, port, user, pass)
 
-	// ใช้ STARTTLS บนพอร์ต 587 แบบบังคับ (เหมาะกับ Gmail/Office365)
-	d.StartTLSPolicy = mail.MandatoryStartTLS
+	// STARTTLS สำหรับพอร์ต 587 (หรือ SMTP ปกติ) / Implicit TLS สำหรับพอร์ต 465
+	if implicitTLS {
+		d.StartTLSPolicy = mail.NoStartTLS
+		d.SSL = true
+	} else {
+		d.StartTLSPolicy = mail.MandatoryStartTLS
+	}
 
 	// แก้ TLS: ต้องมี ServerName หรือ InsecureSkipVerify
 	d.TLSConfig = &tls.Config{
-		ServerName:         host,       // สำคัญ! ให้ตรงกับ hostname เช่น "smtp.gmail.com"
+		ServerName:         serverName, // สำคัญ! ให้ตรงกับ hostname เช่น "smtp.gmail.com"
 		InsecureSkipVerify: skipVerify, // dev เท่านั้น: ตั้ง .env เป็น 1 หากต้องข้ามการตรวจ cert
 	}
 
-	return d.DialAndSend(m)
+	if err := d.DialAndSend(m); err != nil {
+		log.Printf("SendMail failed (host=%s port=%d implicitTLS=%t to=%v): %v", host, port, implicitTLS, to, err)
+		return err
+	}
+
+	return nil
 }
