@@ -381,6 +381,8 @@ func SetupRoutes(router *gin.Engine) {
 			admin := protected.Group("/admin")
 			admin.Use(middleware.RequireRole(3)) // Require admin role
 			{
+				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
+
 				notificationMessages := admin.Group("/notification-messages")
 				{
 					notificationMessages.GET("", controllers.ListNotificationMessages)
