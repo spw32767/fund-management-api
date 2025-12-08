@@ -148,6 +148,26 @@ type ImportTemplateResponse struct {
 	UpdateAt         time.Time `json:"update_at"`
 }
 
+type ImportTemplateCreateRequest struct {
+	Title        string  `json:"title" binding:"required"`
+	Description  *string `json:"description"`
+	TemplateType string  `json:"template_type" binding:"omitempty,oneof=user_import legacy_submission other"`
+	IsRequired   *bool   `json:"is_required"`
+	DisplayOrder *int    `json:"display_order"`
+	Status       string  `json:"status" binding:"omitempty,oneof=active inactive archived"`
+	YearID       *int    `json:"year_id"`
+}
+
+type ImportTemplateUpdateRequest struct {
+	Title        *string `json:"title"`
+	Description  *string `json:"description"`
+	TemplateType *string `json:"template_type" binding:"omitempty,oneof=user_import legacy_submission other"`
+	IsRequired   *bool   `json:"is_required"`
+	DisplayOrder *int    `json:"display_order"`
+	Status       *string `json:"status" binding:"omitempty,oneof=active inactive archived"`
+	YearID       *int    `json:"year_id"`
+}
+
 func formatFloat(val float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", val), "0"), ".")
 }

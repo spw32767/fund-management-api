@@ -382,6 +382,9 @@ func SetupRoutes(router *gin.Engine) {
 			admin.Use(middleware.RequireRole(3)) // Require admin role
 			{
 				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
+				admin.POST("/import-templates", controllers.CreateImportTemplateAdmin)
+				admin.PUT("/import-templates/:id", controllers.UpdateImportTemplateAdmin)
+				admin.DELETE("/import-templates/:id", controllers.DeleteImportTemplateAdmin)
 
 				notificationMessages := admin.Group("/notification-messages")
 				{
