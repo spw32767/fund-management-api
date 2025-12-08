@@ -38,13 +38,12 @@ type PublicationRewardPreviewSubmissionRequest struct {
 
 // PublicationRewardPreviewFormPayload represents the form-based preview payload.
 type PublicationRewardPreviewFormPayload struct {
-	YearID       *int                                 `json:"year_id"`
-	SubmissionID *int                                 `json:"submission_id"`
-	FormData     PublicationRewardPreviewFormData     `json:"formData"`
-	Applicant    PublicationRewardPreviewApplicant    `json:"applicant"`
-	Coauthors    []PublicationRewardPreviewCoauthor   `json:"coauthors"`
-	Attachments  []PublicationRewardPreviewAttachment `json:"attachments"`
-	External     []PublicationRewardPreviewExternal   `json:"external_fundings"`
+	YearID      *int                                 `json:"year_id"`
+	FormData    PublicationRewardPreviewFormData     `json:"formData"`
+	Applicant   PublicationRewardPreviewApplicant    `json:"applicant"`
+	Coauthors   []PublicationRewardPreviewCoauthor   `json:"coauthors"`
+	Attachments []PublicationRewardPreviewAttachment `json:"attachments"`
+	External    []PublicationRewardPreviewExternal   `json:"external_fundings"`
 }
 
 type PublicationRewardPreviewFormData struct {
@@ -71,9 +70,6 @@ type PublicationRewardPreviewFormData struct {
 	JournalURL            string `json:"journal_url"`
 	ArticleOnlineDB       string `json:"article_online_db"`
 	ArticleOnlineDate     string `json:"article_online_date"`
-	HasUniversityFunding  string `json:"has_university_funding"`
-	FundingReferences     string `json:"funding_references"`
-	UniversityRankings    string `json:"university_rankings"`
 }
 
 type PublicationRewardPreviewApplicant struct {
@@ -92,26 +88,15 @@ type PublicationRewardPreviewCoauthor struct {
 }
 
 type PublicationRewardPreviewAttachment struct {
-	Filename          string `json:"filename"`
-	DocumentTypeID    *int   `json:"document_type_id"`
-	DocumentTypeName  string `json:"document_type_name"`
-	DisplayOrder      int    `json:"display_order"`
-	DocumentID        *int   `json:"document_id"`
-	FileID            *int   `json:"file_id"`
-	Source            string `json:"source"`
-	ExternalFundingID *int   `json:"external_funding_id"`
+	Filename         string `json:"filename"`
+	DocumentTypeID   *int   `json:"document_type_id"`
+	DocumentTypeName string `json:"document_type_name"`
+	DisplayOrder     int    `json:"display_order"`
 }
 
 type PublicationRewardPreviewExternal struct {
 	FundName string `json:"fund_name"`
 	Amount   string `json:"amount"`
-}
-
-type previewAttachment struct {
-	Filename         string
-	Data             []byte
-	DocumentTypeID   *int
-	DocumentTypeName string
 }
 
 // PreviewPublicationReward generates a Publication Reward preview PDF from a DOCX template.
@@ -263,20 +248,14 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 		return
 	}
 
+	attachments := form.File["attachments"]
+
 	requesterID := 0
 	if id, ok := getUserIDFromContext(c); ok {
 		requesterID = int(id)
 	}
 
-	attachments := form.File["attachments"]
-
-	resolvedAttachments, err := resolvePreviewAttachments(&payload, attachments)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	replacements, err := buildFormPreviewReplacements(&payload, sysConfig, resolvedAttachments, requesterID)
+	replacements, err := buildFormPreviewReplacements(&payload, sysConfig, attachments, requesterID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -288,7 +267,7 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 		return
 	}
 
-	merged, err := mergePreviewPDFWithAttachments(pdfData, resolvedAttachments)
+	merged, err := mergePreviewPDFWithAttachments(pdfData, attachments)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -299,220 +278,7 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", merged)
 }
 
-func resolvePreviewAttachments(payload *PublicationRewardPreviewFormPayload, uploads []*multipart.FileHeader) ([]previewAttachment, error) {
-	resolved := make([]previewAttachment, 0, len(uploads))
-	uploadIndex := 0
-
-	consumeUpload := func(meta PublicationRewardPreviewAttachment, preferredName string) (*previewAttachment, error) {
-		if uploadIndex >= len(uploads) {
-			return nil, nil
-		}
-
-		header := uploads[uploadIndex]
-		uploadIndex++
-
-		data, err := readMultipartFile(header)
-		if err != nil {
-			return nil, err
-		}
-
-		name := strings.TrimSpace(preferredName)
-		if name == "" {
-			name = strings.TrimSpace(header.Filename)
-		}
-
-		if len(bytes.TrimSpace(data)) == 0 {
-			return nil, nil
-		}
-
-		return &previewAttachment{
-			Filename:         name,
-			Data:             data,
-			DocumentTypeID:   meta.DocumentTypeID,
-			DocumentTypeName: meta.DocumentTypeName,
-		}, nil
-	}
-
-	if payload == nil {
-		for uploadIndex < len(uploads) {
-			attachment, err := consumeUpload(PublicationRewardPreviewAttachment{}, "")
-			if err != nil {
-				return nil, err
-			}
-			if attachment != nil {
-				resolved = append(resolved, *attachment)
-			}
-		}
-		return resolved, nil
-	}
-
-	for _, meta := range payload.Attachments {
-		filename := strings.TrimSpace(meta.Filename)
-		if filename == "" {
-			filename = strings.TrimSpace(meta.DocumentTypeName)
-		}
-
-		source := strings.ToLower(strings.TrimSpace(meta.Source))
-		if source == "server" {
-			data, fallbackName, err := fetchServerAttachment(meta, payload.SubmissionID)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(bytes.TrimSpace(data)) == 0 {
-				continue
-			}
-
-			if strings.TrimSpace(filename) == "" {
-				filename = strings.TrimSpace(fallbackName)
-			}
-
-			resolved = append(resolved, previewAttachment{
-				Filename:         filename,
-				Data:             data,
-				DocumentTypeID:   meta.DocumentTypeID,
-				DocumentTypeName: meta.DocumentTypeName,
-			})
-			continue
-		}
-
-		attachment, err := consumeUpload(meta, filename)
-		if err != nil {
-			return nil, err
-		}
-		if attachment != nil {
-			resolved = append(resolved, *attachment)
-		}
-	}
-
-	for uploadIndex < len(uploads) {
-		attachment, err := consumeUpload(PublicationRewardPreviewAttachment{}, "")
-		if err != nil {
-			return nil, err
-		}
-		if attachment != nil {
-			resolved = append(resolved, *attachment)
-		}
-	}
-
-	return resolved, nil
-}
-
-func fetchServerAttachment(meta PublicationRewardPreviewAttachment, submissionID *int) ([]byte, string, error) {
-	if meta.FileID != nil {
-		file, err := fetchFileUploadByID(*meta.FileID, submissionID)
-		if err != nil {
-			return nil, "", err
-		}
-
-		data, err := readFileUploadContent(file)
-		if err != nil {
-			return nil, "", err
-		}
-
-		return data, file.OriginalName, nil
-	}
-
-	if meta.DocumentID != nil {
-		file, name, err := fetchSubmissionDocumentFile(*meta.DocumentID, submissionID)
-		if err != nil {
-			return nil, "", err
-		}
-
-		data, err := readFileUploadContent(file)
-		if err != nil {
-			return nil, "", err
-		}
-
-		return data, name, nil
-	}
-
-	return nil, "", nil
-}
-
-func fetchFileUploadByID(fileID int, submissionID *int) (*models.FileUpload, error) {
-	var file models.FileUpload
-	query := config.DB.Where("file_id = ?", fileID)
-	if submissionID != nil {
-		query = query.Where("(submission_id IS NULL OR submission_id = ?)", *submissionID)
-	}
-
-	if err := query.First(&file).Error; err != nil {
-		return nil, err
-	}
-
-	if file.DeleteAt != nil && !file.DeleteAt.IsZero() {
-		return nil, fmt.Errorf("file %d is deleted", fileID)
-	}
-
-	if strings.TrimSpace(file.StoredPath) == "" {
-		return nil, fmt.Errorf("file %d is missing stored path", fileID)
-	}
-
-	return &file, nil
-}
-
-func fetchSubmissionDocumentFile(documentID int, submissionID *int) (*models.FileUpload, string, error) {
-	var doc models.SubmissionDocument
-
-	query := config.DB.Preload("File").Where("document_id = ?", documentID)
-	if submissionID != nil {
-		query = query.Where("submission_id = ?", *submissionID)
-	}
-
-	if err := query.First(&doc).Error; err != nil {
-		return nil, "", err
-	}
-
-	if doc.File.FileID == 0 {
-		return nil, "", fmt.Errorf("document %d is missing file", documentID)
-	}
-
-	if doc.File.DeleteAt != nil && !doc.File.DeleteAt.IsZero() {
-		return nil, "", fmt.Errorf("document %d file is deleted", documentID)
-	}
-
-	name := strings.TrimSpace(doc.OriginalName)
-	if name == "" {
-		name = strings.TrimSpace(doc.File.OriginalName)
-	}
-
-	return &doc.File, name, nil
-}
-
-func readMultipartFile(header *multipart.FileHeader) ([]byte, error) {
-	if header == nil {
-		return nil, nil
-	}
-
-	src, err := header.Open()
-	if err != nil {
-		return nil, fmt.Errorf("failed to open attachment %s: %w", header.Filename, err)
-	}
-	defer src.Close()
-
-	data, err := io.ReadAll(src)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read attachment %s: %w", header.Filename, err)
-	}
-
-	return data, nil
-}
-
-func readFileUploadContent(file *models.FileUpload) ([]byte, error) {
-	if file == nil {
-		return nil, fmt.Errorf("file record is empty")
-	}
-
-	data, err := os.ReadFile(file.StoredPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %d: %w", file.FileID, err)
-	}
-
-	return data, nil
-}
-
-func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []previewAttachment, requesterID int) (map[string]string, error) {
+func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, sysConfig *systemConfigSnapshot, attachments []*multipart.FileHeader, requesterID int) (map[string]string, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("invalid form payload")
 	}
@@ -794,7 +560,7 @@ func buildPreviewApplicantName(app PublicationRewardPreviewApplicant) string {
 	return strings.Join(filtered, " ")
 }
 
-func mergePreviewPDFWithAttachments(base []byte, files []previewAttachment) ([]byte, error) {
+func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) ([]byte, error) {
 	if len(files) == 0 {
 		return base, nil
 	}
@@ -812,23 +578,26 @@ func mergePreviewPDFWithAttachments(base []byte, files []previewAttachment) ([]b
 
 	inputFiles := []string{basePath}
 
-	for idx, attachment := range files {
-		data := attachment.Data
-		name := strings.TrimSpace(attachment.Filename)
-		if name == "" {
-			name = fmt.Sprintf("attachment-%d.pdf", idx+1)
+	for idx, header := range files {
+		src, err := header.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open attachment %s: %w", header.Filename, err)
 		}
-
+		data, err := io.ReadAll(src)
+		src.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read attachment %s: %w", header.Filename, err)
+		}
 		if len(bytes.TrimSpace(data)) == 0 {
 			continue
 		}
 		if !bytes.HasPrefix(data, []byte("%PDF")) {
-			return nil, fmt.Errorf("attachment %s is not a PDF file", name)
+			return nil, fmt.Errorf("attachment %s is not a PDF file", header.Filename)
 		}
 
 		destPath := filepath.Join(tmpDir, fmt.Sprintf("attachment-%d.pdf", idx+1))
 		if err := os.WriteFile(destPath, data, 0600); err != nil {
-			return nil, fmt.Errorf("failed to write attachment %s: %w", name, err)
+			return nil, fmt.Errorf("failed to write attachment %s: %w", header.Filename, err)
 		}
 		inputFiles = append(inputFiles, destPath)
 	}
@@ -1106,7 +875,7 @@ func resolveNodeBinary() (string, error) {
 	return "", fmt.Errorf("node binary not found")
 }
 
-func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachments []previewAttachment) string {
+func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachments []*multipart.FileHeader) string {
 	metaCopy := append([]PublicationRewardPreviewAttachment(nil), meta...)
 	if len(metaCopy) > 0 {
 		sort.SliceStable(metaCopy, func(i, j int) bool {
@@ -1123,30 +892,23 @@ func buildPreviewDocumentLine(meta []PublicationRewardPreviewAttachment, attachm
 	// collapsing into a single item with quantity 1.
 	if len(attachments) > 0 {
 		entries := make([]documentAggregationEntry, 0, len(attachments))
-		for idx, attachment := range attachments {
+		for idx, header := range attachments {
 			var key string
-			name := strings.TrimSpace(attachment.DocumentTypeName)
+			var name string
 
 			if idx < len(metaCopy) {
 				metaEntry := metaCopy[idx]
 				if metaEntry.DocumentTypeID != nil && *metaEntry.DocumentTypeID > 0 {
 					key = fmt.Sprintf("id:%d", *metaEntry.DocumentTypeID)
 				}
-				if name == "" {
-					name = strings.TrimSpace(metaEntry.DocumentTypeName)
-				}
+				name = strings.TrimSpace(metaEntry.DocumentTypeName)
 				if name == "" {
 					name = strings.TrimSpace(metaEntry.Filename)
 				}
-			} else if attachment.DocumentTypeID != nil && *attachment.DocumentTypeID > 0 {
-				key = fmt.Sprintf("id:%d", *attachment.DocumentTypeID)
 			}
 
 			if name == "" {
-				name = strings.TrimSpace(attachment.Filename)
-			}
-			if name == "" && idx < len(metaCopy) {
-				name = strings.TrimSpace(metaCopy[idx].Filename)
+				name = strings.TrimSpace(header.Filename)
 			}
 			if name == "" {
 				continue
@@ -1288,15 +1050,10 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 	var documents []models.SubmissionDocument
 	if err := db.
 		Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
-		Joins("LEFT JOIN file_uploads fu ON fu.file_id = submission_documents.file_id").
 		Select("submission_documents.*, dt.document_type_name").
 		Preload("DocumentType").
 		Preload("File").
-		Preload("Verifier", func(db *gorm.DB) *gorm.DB {
-			return db.Select("user_id", "user_fname", "user_lname", "email")
-		}).
 		Where("submission_id = ?", submissionID).
-		Where("fu.file_id IS NULL OR fu.delete_at IS NULL OR fu.delete_at = '0000-00-00 00:00:00'").
 		Order("display_order ASC, document_id ASC").
 		Find(&documents).Error; err != nil {
 		return nil, err
