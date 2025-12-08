@@ -131,6 +131,40 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 		return nil, errors.New("citescore metrics service is nil")
 	}
 
+	summary := &CiteScoreBackfillSummary{}
+	run := &models.CiteScoreMetricsRun{RunType: "backfill", Status: "running", StartedAt: time.Now()}
+	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
+		return nil, err
+	}
+
+	started := time.Now()
+	var runErr error
+	defer func() {
+		status := "success"
+		if runErr != nil {
+			status = "failed"
+		}
+
+		updates := map[string]interface{}{
+			"status":           status,
+			"finished_at":      time.Now(),
+			"duration_seconds": time.Since(started).Seconds(),
+			"journals_scanned": summary.JournalsScanned,
+			"metrics_fetched":  summary.MetricsFetched,
+			"skipped_existing": summary.SkippedExisting,
+			"errors":           summary.Errors,
+		}
+
+		if runErr != nil {
+			errMsg := runErr.Error()
+			updates["error_message"] = &errMsg
+		}
+
+		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+			log.Printf("failed to update citescore backfill run %d: %v", run.ID, err)
+		}
+	}()
+
 	var targets []struct {
 		SourceID  *string
 		ISSN      *string
@@ -143,10 +177,10 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 		Group("source_id, issn")
 
 	if err := query.Find(&targets).Error; err != nil {
+		runErr = err
 		return nil, err
 	}
 
-	summary := &CiteScoreBackfillSummary{}
 	seen := make(map[string]struct{})
 
 	for _, target := range targets {
@@ -180,6 +214,7 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 
 		exists, err := s.metricExistsAny(ctx, issn, sourceID)
 		if err != nil {
+			runErr = err
 			return nil, err
 		}
 		if exists {
@@ -206,12 +241,47 @@ func (s *CiteScoreMetricsService) RefreshExistingMetrics(ctx context.Context) (*
 		return nil, errors.New("citescore metrics service is nil")
 	}
 
-	targets, err := s.FindRefreshTargets(ctx, citescoreRefreshStaleness)
-	if err != nil {
+	summary := &CiteScoreRefreshSummary{}
+	run := &models.CiteScoreMetricsRun{RunType: "refresh", Status: "running", StartedAt: time.Now()}
+	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
 		return nil, err
 	}
 
-	summary := &CiteScoreRefreshSummary{SourcesScanned: len(targets)}
+	started := time.Now()
+	var runErr error
+	defer func() {
+		status := "success"
+		if runErr != nil {
+			status = "failed"
+		}
+
+		updates := map[string]interface{}{
+			"status":            status,
+			"finished_at":       time.Now(),
+			"duration_seconds":  time.Since(started).Seconds(),
+			"sources_scanned":   summary.SourcesScanned,
+			"sources_refreshed": summary.SourcesRefreshed,
+			"skipped":           summary.Skipped,
+			"errors":            summary.Errors,
+		}
+
+		if runErr != nil {
+			errMsg := runErr.Error()
+			updates["error_message"] = &errMsg
+		}
+
+		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+			log.Printf("failed to update citescore refresh run %d: %v", run.ID, err)
+		}
+	}()
+
+	targets, err := s.FindRefreshTargets(ctx, citescoreRefreshStaleness)
+	if err != nil {
+		runErr = err
+		return nil, err
+	}
+
+	summary.SourcesScanned = len(targets)
 
 	for _, target := range targets {
 		issn := ""

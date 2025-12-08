@@ -381,6 +381,11 @@ func SetupRoutes(router *gin.Engine) {
 			admin := protected.Group("/admin")
 			admin.Use(middleware.RequireRole(3)) // Require admin role
 			{
+				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
+				admin.POST("/import-templates", controllers.CreateImportTemplateAdmin)
+				admin.PUT("/import-templates/:id", controllers.UpdateImportTemplateAdmin)
+				admin.DELETE("/import-templates/:id", controllers.DeleteImportTemplateAdmin)
+
 				notificationMessages := admin.Group("/notification-messages")
 				{
 					notificationMessages.GET("", controllers.ListNotificationMessages)
@@ -402,8 +407,12 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/publications/scopus", controllers.AdminListScopusPublications)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
+				admin.GET("/scopus/metrics/runs", controllers.AdminListCiteScoreMetricRuns)
 				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
 				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
+				admin.GET("/scopus/import/jobs", controllers.AdminListScopusAPIImportJobs)
+				admin.GET("/scopus/import/batch/runs", controllers.AdminListScopusBatchImportRuns)
+				admin.GET("/scopus/import/jobs/:id/requests", controllers.AdminListScopusAPIRequests)
 				admin.GET("/user-publications/scholar/search", controllers.TeacherScholarAuthorSearch)
 				admin.GET("/users/search", controllers.AdminSearchUsers)
 				admin.GET("/users/scopus", controllers.AdminListUsersWithScopusID)

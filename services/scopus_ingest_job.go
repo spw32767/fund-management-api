@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strconv"
 	"strings"
+	"time"
 
 	"fund-management-api/config"
+	"fund-management-api/models"
 
 	"gorm.io/gorm"
 )
@@ -77,6 +80,64 @@ func (s *ScopusIngestJobService) RunForAll(ctx context.Context, input *ScopusIng
 	}
 
 	summary := &ScopusIngestJobSummary{}
+	run := &models.ScopusBatchImportRun{
+		Status:    "running",
+		StartedAt: time.Now(),
+	}
+
+	if len(input.UserIDs) > 0 {
+		parts := make([]string, 0, len(input.UserIDs))
+		for _, id := range input.UserIDs {
+			parts = append(parts, strconv.FormatUint(uint64(id), 10))
+		}
+		csv := strings.Join(parts, ",")
+		run.RequestedUserIDs = &csv
+	}
+
+	if input.Limit > 0 {
+		limit := input.Limit
+		run.Limit = &limit
+	}
+
+	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
+		return nil, err
+	}
+
+	startedAt := time.Now()
+	var runErr error
+	defer func() {
+		status := "success"
+		if runErr != nil {
+			status = "failed"
+		}
+
+		updates := map[string]interface{}{
+			"status":               status,
+			"finished_at":          time.Now(),
+			"duration_seconds":     time.Since(startedAt).Seconds(),
+			"users_processed":      summary.UsersProcessed,
+			"users_with_errors":    summary.UsersWithErrors,
+			"documents_fetched":    summary.DocumentsFetched,
+			"documents_created":    summary.DocumentsCreated,
+			"documents_updated":    summary.DocumentsUpdated,
+			"documents_failed":     summary.DocumentsFailed,
+			"authors_created":      summary.AuthorsCreated,
+			"authors_updated":      summary.AuthorsUpdated,
+			"affiliations_created": summary.AffiliationsCreated,
+			"affiliations_updated": summary.AffiliationsUpdated,
+			"links_inserted":       summary.LinksInserted,
+			"links_updated":        summary.LinksUpdated,
+		}
+
+		if runErr != nil {
+			errMsg := runErr.Error()
+			updates["error_message"] = &errMsg
+		}
+
+		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+			log.Printf("failed to update scopus batch import run %d: %v", run.ID, err)
+		}
+	}()
 
 	type userRow struct {
 		UserID   uint
@@ -96,6 +157,7 @@ func (s *ScopusIngestJobService) RunForAll(ctx context.Context, input *ScopusIng
 
 	var users []userRow
 	if err := query.Order("user_id ASC").Find(&users).Error; err != nil {
+		runErr = err
 		return nil, err
 	}
 

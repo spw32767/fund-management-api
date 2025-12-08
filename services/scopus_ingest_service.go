@@ -82,14 +82,47 @@ func (s *ScopusIngestService) RunForAuthor(ctx context.Context, scopusAuthorID s
 func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, apiKey string) (*ScopusIngestResult, error) {
 	result := &ScopusIngestResult{}
 
+	job, err := s.startImportJob(ctx, scopusAuthorID)
+	if err != nil {
+		return nil, err
+	}
+
 	start := 0
 	totalResults := -1
 	metricsSeen := make(map[string]struct{})
+	var ingestErr error
+
+	defer func() {
+		status := "success"
+		var errMsg *string
+		if ingestErr != nil {
+			status = "failed"
+			msg := ingestErr.Error()
+			errMsg = &msg
+		}
+
+		updates := map[string]interface{}{
+			"status":      status,
+			"finished_at": time.Now(),
+			"total_results": func() *int {
+				if totalResults >= 0 {
+					return &totalResults
+				}
+				return nil
+			}(),
+			"error_message": errMsg,
+		}
+
+		if err := s.db.WithContext(ctx).Model(job).Updates(updates).Error; err != nil {
+			log.Printf("failed to update scopus import job %d: %v", job.ID, err)
+		}
+	}()
 
 	for {
-		resp, err := s.fetchPage(ctx, apiKey, scopusAuthorID, start)
+		resp, err := s.fetchPage(ctx, apiKey, scopusAuthorID, start, job.ID)
 		if err != nil {
-			return nil, err
+			ingestErr = err
+			break
 		}
 
 		if totalResults < 0 {
@@ -119,6 +152,10 @@ func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, 
 		}
 	}
 
+	if ingestErr != nil {
+		return nil, ingestErr
+	}
+
 	return result, nil
 }
 
@@ -127,7 +164,7 @@ type scopusResponse struct {
 	Entries      []json.RawMessage
 }
 
-func (s *ScopusIngestService) fetchPage(ctx context.Context, apiKey, scopusAuthorID string, start int) (*scopusResponse, error) {
+func (s *ScopusIngestService) fetchPage(ctx context.Context, apiKey, scopusAuthorID string, start int, jobID uint64) (*scopusResponse, error) {
 	reqURL, err := url.Parse(scopusBaseURL)
 	if err != nil {
 		return nil, err
@@ -147,35 +184,106 @@ func (s *ScopusIngestService) fetchPage(ctx context.Context, apiKey, scopusAutho
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-ELS-APIKey", apiKey)
 
+	started := time.Now()
 	resp, err := s.client.Do(req)
+	duration := time.Since(started)
+
+	var payload scopusResponse
+	var requestErr error
+	var itemsReturned int
+	var statusCode int
+
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+
+	if err == nil && resp != nil {
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			requestErr = fmt.Errorf("scopus api error: status %d body %s", resp.StatusCode, string(body))
+		} else {
+			var decoded struct {
+				SearchResults struct {
+					TotalResults string            `json:"opensearch:totalResults"`
+					Entries      []json.RawMessage `json:"entry"`
+				} `json:"search-results"`
+			}
+
+			if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+				requestErr = fmt.Errorf("decode scopus response: %w", err)
+			} else {
+				payload.TotalResults = parseIntSafe(decoded.SearchResults.TotalResults)
+				payload.Entries = decoded.SearchResults.Entries
+				itemsReturned = len(decoded.SearchResults.Entries)
+			}
+		}
+	}
+
+	s.recordAPIRequest(ctx, jobID, req, statusCode, duration, start, scopusPageSize, itemsReturned)
+
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("scopus api error: status %d body %s", resp.StatusCode, string(body))
+	if requestErr != nil {
+		return nil, requestErr
 	}
 
-	var payload struct {
-		SearchResults struct {
-			TotalResults string            `json:"opensearch:totalResults"`
-			Entries      []json.RawMessage `json:"entry"`
-		} `json:"search-results"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode scopus response: %w", err)
-	}
-
-	total := parseIntSafe(payload.SearchResults.TotalResults)
-	return &scopusResponse{TotalResults: total, Entries: payload.SearchResults.Entries}, nil
+	return &payload, nil
 }
 
 func (s *ScopusIngestService) getAPIKey(ctx context.Context) (string, error) {
 	return lookupScopusAPIKey(ctx, s.db)
 }
+
+func (s *ScopusIngestService) startImportJob(ctx context.Context, scopusAuthorID string) (*models.ScopusAPIImportJob, error) {
+	job := &models.ScopusAPIImportJob{
+		Service:        "scopus",
+		JobType:        "author_documents",
+		ScopusAuthorID: &scopusAuthorID,
+		QueryString:    fmt.Sprintf("AU-ID(%s)", scopusAuthorID),
+		Status:         "running",
+		StartedAt:      time.Now(),
+	}
+
+	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
+func (s *ScopusIngestService) recordAPIRequest(ctx context.Context, jobID uint64, req *http.Request, statusCode int, duration time.Duration, pageStart, pageCount, itemsReturned int) {
+	if jobID == 0 || req == nil {
+		return
+	}
+
+	paramsJSON, _ := json.Marshal(req.URL.Query())
+	headersJSON, _ := json.Marshal(req.Header)
+	responseMs := int(duration / time.Millisecond)
+
+	request := &models.ScopusAPIRequest{
+		JobID:          jobID,
+		HTTPMethod:     req.Method,
+		Endpoint:       req.URL.Path,
+		QueryParams:    stringPtr(string(paramsJSON)),
+		RequestHeaders: stringPtr(string(headersJSON)),
+		ResponseStatus: intPtr(statusCode),
+		ResponseTimeMs: intPtr(responseMs),
+		PageStart:      intPtr(pageStart),
+		PageCount:      intPtr(pageCount),
+		ItemsReturned:  intPtr(itemsReturned),
+	}
+
+	if err := s.db.WithContext(ctx).Create(request).Error; err != nil {
+		log.Printf("failed to record scopus api request for job %d: %v", jobID, err)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
+
+func intPtr(value int) *int { return &value }
 
 func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMessage, result *ScopusIngestResult) (*models.ScopusDocument, bool, error) {
 	entry, err := parseScopusEntry(raw)
