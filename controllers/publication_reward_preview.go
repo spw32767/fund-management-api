@@ -1053,9 +1053,6 @@ func fetchSubmissionDocuments(db *gorm.DB, submissionID int) ([]models.Submissio
 		Select("submission_documents.*, dt.document_type_name").
 		Preload("DocumentType").
 		Preload("File").
-		Preload("Verifier", func(db *gorm.DB) *gorm.DB {
-			return db.Select("user_id", "user_fname", "user_lname", "email")
-		}).
 		Where("submission_id = ?", submissionID).
 		Order("display_order ASC, document_id ASC").
 		Find(&documents).Error; err != nil {
