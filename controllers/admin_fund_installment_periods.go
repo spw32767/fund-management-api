@@ -179,6 +179,11 @@ func AdminCreateFundInstallmentPeriod(c *gin.Context) {
 		return
 	}
 
+	if err := purgeSoftDeletedInstallmentPeriods(config.DB, *req.YearID, *req.InstallmentNumber); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to clear deleted installment periods"})
+		return
+	}
+
 	if conflictErr := checkInstallmentConflicts(0, *req.YearID, *req.InstallmentNumber, cutoffDate); conflictErr != nil {
 		respondConflictError(c, conflictErr)
 		return
@@ -330,6 +335,11 @@ func AdminUpdateFundInstallmentPeriod(c *gin.Context) {
 			"message": "no changes applied",
 			"period":  newAdminFundInstallmentPeriodResponse(period),
 		})
+		return
+	}
+
+	if err := purgeSoftDeletedInstallmentPeriods(config.DB, period.YearID, period.InstallmentNumber); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to clear deleted installment periods"})
 		return
 	}
 
@@ -588,6 +598,11 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 			continue
 		}
 
+		if err := purgeSoftDeletedInstallmentPeriods(tx, targetYear.YearID, period.InstallmentNumber); err != nil {
+			rollbackWithError(http.StatusInternalServerError, "failed to clear deleted installment periods", err.Error())
+			return
+		}
+
 		currentTime := time.Now()
 		cutoff := period.CutoffDate
 		if yearDiff != 0 && !period.CutoffDate.IsZero() {
@@ -826,4 +841,12 @@ func parseCalendarYearValue(value string) (int, bool) {
 	}
 
 	return numeric, true
+}
+
+func purgeSoftDeletedInstallmentPeriods(db *gorm.DB, yearID int, installmentNumber int) error {
+	return db.Unscoped().Where(
+		"year_id = ? AND installment_number = ? AND deleted_at IS NOT NULL",
+		yearID,
+		installmentNumber,
+	).Delete(&models.FundInstallmentPeriod{}).Error
 }
