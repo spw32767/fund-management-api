@@ -55,6 +55,7 @@ COALESCE(st.status_name, '') AS status_name,
 y.year AS year_name
 `).
 		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID).
+		Where("submissions.status_id = ?", 2).
 		Where(keywordFilter, keywords[0], keywords[1])
 
 	// Default sort by submission (most recent first) with NULL registered dates last (MariaDB compatible)
