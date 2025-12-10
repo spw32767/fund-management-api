@@ -57,8 +57,8 @@ y.year AS year_name
 		Where("submissions.user_id = ? AND submissions.deleted_at IS NULL", userID).
 		Where(keywordFilter, keywords[0], keywords[1])
 
-	// Default sort by submission (most recent first)
-	query = query.Order("submissions.submitted_at DESC NULLS LAST").Order("submissions.created_at DESC")
+	// Default sort by submission (most recent first) with NULL registered dates last (MariaDB compatible)
+	query = query.Order("submissions.submitted_at IS NULL, submissions.submitted_at DESC").Order("submissions.created_at DESC")
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
