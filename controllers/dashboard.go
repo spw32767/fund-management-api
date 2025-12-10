@@ -725,11 +725,16 @@ func buildAdminOverview(filter dashboardFilter, statuses dashboardStatusSets) ma
 	}
 
 	var fundAmounts amountSummary
-	fundQuery := config.DB.Table("fund_application_details fad").
-		Joins("JOIN submissions s ON fad.submission_id = s.submission_id").
-		Where("s.submission_type = ? AND s.deleted_at IS NULL", "fund_application")
-	fundQuery = applyFilterToSubmissions(fundQuery, "s", filter)
-	fundQuery.Select("COALESCE(SUM(fad.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN fad.approved_amount ELSE 0 END),0) AS approved", approvedIDs).
+	fundQuery := config.DB.Table("v_fund_applications fa").
+		Where("fa.delete_at IS NULL")
+	if !filter.IncludeAll && len(filter.YearIDs) > 0 {
+		fundQuery = fundQuery.Where("fa.year_id IN ?", filter.YearIDs)
+	}
+	if filter.Scope == "installment" && len(filter.Installments) > 0 {
+		fundQuery = fundQuery.Joins("JOIN submissions s ON s.submission_id = fa.application_id AND s.deleted_at IS NULL").
+			Where("s.installment_number_at_submit IN ?", filter.Installments)
+	}
+	fundQuery.Select("COALESCE(SUM(fa.requested_amount),0) AS requested, COALESCE(SUM(CASE WHEN fa.application_status_id IN ? THEN fa.approved_amount ELSE 0 END),0) AS approved", approvedIDs).
 		Scan(&fundAmounts)
 
 	var rewardAmounts amountSummary
@@ -904,10 +909,10 @@ func buildAdminCategoryBudgets(filter dashboardFilter, statuses dashboardStatusS
 			}
 		}
 
-		remaining := row.RemainingBudget
-		if remaining <= 0 && allocated > 0 {
-			remaining = math.Max(allocated, 0)
-		}
+		// Use the tracked remaining budget directly instead of resetting it to the
+		// allocated amount. The previous fallback caused exhausted subcategories to
+		// appear as if they still had their full allocation available.
+		remaining := math.Max(row.RemainingBudget, 0)
 
 		if row.SubcategoryID != nil && *row.SubcategoryID != 0 {
 			subID := *row.SubcategoryID
