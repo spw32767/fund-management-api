@@ -20,6 +20,8 @@ type ScopusPublication struct {
 	Title               string     `json:"title"`
 	Abstract            *string    `json:"abstract,omitempty"`
 	AggregationType     *string    `json:"aggregation_type,omitempty"`
+	Subtype             *string    `json:"subtype,omitempty"`
+	SubtypeDescription  *string    `json:"subtype_description,omitempty"`
 	PublicationName     *string    `json:"publication_name,omitempty"`
 	Venue               *string    `json:"venue,omitempty"`
 	SourceID            *string    `json:"source_id,omitempty"`
@@ -77,6 +79,8 @@ type scopusPublicationRow struct {
 	Title               *string
 	Abstract            *string
 	AggregationType     *string
+	Subtype             *string
+	SubtypeDescription  *string `gorm:"column:subtype_description"`
 	PublicationName     *string
 	SourceID            *string
 	ISSN                *string
@@ -176,7 +180,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	orderClause := orderForScopus(sortField, sortDirection)
 	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
 		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
 
@@ -202,7 +206,7 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 
 	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
 
 	if search = strings.TrimSpace(search); search != "" {
@@ -241,6 +245,8 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 			Title:               strings.TrimSpace(stringOrEmpty(row.Title)),
 			Abstract:            normalizeNullable(row.Abstract),
 			AggregationType:     normalizeNullable(row.AggregationType),
+			Subtype:             normalizeNullable(row.Subtype),
+			SubtypeDescription:  normalizeNullable(row.SubtypeDescription),
 			Venue:               row.PublicationName,
 			SourceID:            normalizeNullable(row.SourceID),
 			Source:              "scopus",
