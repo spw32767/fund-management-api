@@ -50,13 +50,13 @@ func countUnreadForUser(db *gorm.DB, userID uint) (int64, error) {
 }
 
 type userLite struct {
-	UserID     uint    `gorm:"column:user_id"`
-	RoleID     uint    `gorm:"column:role_id"`
-	Email      *string `gorm:"column:email"`
-	Prefix     *string `gorm:"column:prefix"`
-	FName      *string `gorm:"column:user_fname"`
-	LName      *string `gorm:"column:user_lname"`
-	PositionID *uint   `gorm:"column:position_id"`
+	UserID            uint    `gorm:"column:user_id"`
+	RoleID            uint    `gorm:"column:role_id"`
+	EmailNotification *string `gorm:"column:email_notification"`
+	Prefix            *string `gorm:"column:prefix"`
+	FName             *string `gorm:"column:user_fname"`
+	LName             *string `gorm:"column:user_lname"`
+	PositionID        *uint   `gorm:"column:position_id"`
 }
 
 func (userLite) TableName() string { return "users" }
@@ -344,7 +344,7 @@ func getCurrentDeptHeadIDs(db *gorm.DB) []uint {
 
 func loadOwnerDisplay(db *gorm.DB, userID uint) (displayName string, email string) {
 	var owner userLite
-	_ = db.Select("user_id, role_id, email, prefix, user_fname, user_lname, position_id").
+	_ = db.Select("user_id, role_id, email_notification, prefix, user_fname, user_lname, position_id").
 		First(&owner, "user_id = ?", userID).Error
 
 	posName := ""
@@ -356,8 +356,8 @@ func loadOwnerDisplay(db *gorm.DB, userID uint) (displayName string, email strin
 		}
 	}
 	displayName = strings.TrimSpace(buildThaiDisplayName(owner, posName))
-	if owner.Email != nil {
-		email = *owner.Email
+	if owner.EmailNotification != nil {
+		email = *owner.EmailNotification
 	}
 	return
 }
@@ -920,13 +920,13 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 
 		for _, hm := range headMessages {
-			if hm.User.Email == nil || *hm.User.Email == "" {
+			if hm.User.EmailNotification == nil || *hm.User.EmailNotification == "" {
 				continue
 			}
 			subj := hm.Msg.Title
 			name := buildThaiDisplayName(hm.User, "")
 			emailBody := buildFormalEmailHTML(subj, name, hm.Msg.Body)
-			sendMailSafe([]string{*hm.User.Email}, subj, emailBody)
+			sendMailSafe([]string{*hm.User.EmailNotification}, subj, emailBody)
 		}
 	}()
 
@@ -1014,7 +1014,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			sendMailSafe([]string{ownerEmail}, subj, emailBody)
 		}
 		for _, a := range admins {
-			if a.Email == nil || *a.Email == "" {
+			if a.EmailNotification == nil || *a.EmailNotification == "" {
 				continue
 			}
 
@@ -1036,7 +1036,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			subj := adminMsg.Title
 			name := adminData["admin_name"]
 			emailBody := buildFormalEmailHTML(subj, name, adminMsg.Body)
-			sendMailSafe([]string{*a.Email}, subj, emailBody)
+			sendMailSafe([]string{*a.EmailNotification}, subj, emailBody)
 		}
 	}()
 
