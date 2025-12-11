@@ -542,11 +542,9 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 			return
 		}
 	} else {
-		targetBudget := sourceYear.Budget
 		now := time.Now()
 		targetYear = models.Year{
 			Year:   targetYearValue,
-			Budget: targetBudget,
 			Status: sourceYear.Status,
 		}
 		if strings.TrimSpace(targetYear.Status) == "" {

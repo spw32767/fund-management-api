@@ -526,14 +526,9 @@ func getUserDashboard(userID int) map[string]interface{} {
 		Scan(&rewardUsed)
 	budgetUsage.UsedBudget += rewardUsed
 
-	// Query total budget for the current year
-	config.DB.Table("years").
-		Where("year = ?", currentYear).
-		Select("COALESCE(budget, 0)").
-		Scan(&budgetUsage.YearBudget)
-
-	// Calculate remaining budget
-	budgetUsage.RemainingBudget = budgetUsage.YearBudget - budgetUsage.UsedBudget
+	// Year-level budget ceiling removed from schema; only usage totals remain.
+	budgetUsage.YearBudget = 0
+	budgetUsage.RemainingBudget = 0
 
 	stats["budget_usage"] = budgetUsage
 

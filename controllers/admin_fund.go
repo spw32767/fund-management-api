@@ -1026,8 +1026,8 @@ func CreateYear(c *gin.Context) {
 	}
 
 	type CreateYearRequest struct {
-		Year   string  `json:"year" binding:"required"`
-		Budget float64 `json:"budget" binding:"required"`
+		Year   string `json:"year" binding:"required"`
+		Status string `json:"status"`
 	}
 
 	var req CreateYearRequest
@@ -1047,10 +1047,14 @@ func CreateYear(c *gin.Context) {
 
 	// Create new year
 	now := time.Now()
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "active"
+	}
+
 	year := models.Year{
 		Year:     req.Year,
-		Budget:   req.Budget,
-		Status:   "active",
+		Status:   status,
 		CreateAt: &now,
 		UpdateAt: &now,
 	}
@@ -1079,9 +1083,8 @@ func UpdateYear(c *gin.Context) {
 	yearID := c.Param("id")
 
 	type UpdateYearRequest struct {
-		Year   string  `json:"year"`
-		Budget float64 `json:"budget"`
-		Status string  `json:"status"`
+		Year   string `json:"year"`
+		Status string `json:"status"`
 	}
 
 	var req UpdateYearRequest
@@ -1118,9 +1121,6 @@ func UpdateYear(c *gin.Context) {
 
 	if req.Year != "" {
 		updates["year"] = req.Year
-	}
-	if req.Budget > 0 {
-		updates["budget"] = req.Budget
 	}
 	if req.Status != "" {
 		if req.Status != "active" && req.Status != "inactive" {
@@ -1271,7 +1271,6 @@ func GetYearStats(c *gin.Context) {
 	type YearStats struct {
 		YearID           int     `json:"year_id"`
 		Year             string  `json:"year"`
-		Budget           float64 `json:"budget"`
 		Status           string  `json:"status"`
 		CategoryCount    int64   `json:"category_count"`
 		SubcategoryCount int64   `json:"subcategory_count"`
@@ -1289,7 +1288,6 @@ func GetYearStats(c *gin.Context) {
 	// Basic year info
 	stats.YearID = year.YearID
 	stats.Year = year.Year
-	stats.Budget = year.Budget
 	stats.Status = year.Status
 
 	// Category count
@@ -2070,10 +2068,9 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 	}
 
 	type CopyRequest struct {
-		SourceYearID int      `json:"source_year_id" binding:"required"`
-		TargetYear   string   `json:"target_year"`
-		TargetYearID *int     `json:"target_year_id"`
-		TargetBudget *float64 `json:"target_budget"`
+		SourceYearID int    `json:"source_year_id" binding:"required"`
+		TargetYear   string `json:"target_year"`
+		TargetYearID *int   `json:"target_year_id"`
 	}
 
 	var req CopyRequest
@@ -2135,26 +2132,10 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		c.JSON(status, payload)
 	}
 
-	if usingExistingTarget {
-		if req.TargetBudget != nil {
-			if err := tx.Model(&models.Year{}).
-				Where("year_id = ? AND delete_at IS NULL", targetYear.YearID).
-				Update("budget", *req.TargetBudget).Error; err != nil {
-				rollbackWithError(http.StatusInternalServerError, "Failed to update target year budget", err.Error())
-				return
-			}
-			targetYear.Budget = *req.TargetBudget
-		}
-	} else {
-		targetBudget := sourceYear.Budget
-		if req.TargetBudget != nil {
-			targetBudget = *req.TargetBudget
-		}
-
+	if !usingExistingTarget {
 		now := time.Now()
 		targetYear = models.Year{
 			Year:   targetYearValue,
-			Budget: targetBudget,
 			Status: sourceYear.Status,
 		}
 		if targetYear.Status == "" {
