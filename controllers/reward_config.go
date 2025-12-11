@@ -28,7 +28,8 @@ func GetRewardConfig(c *gin.Context) {
 	query := baseQuery.Where("year = ?", requestedYear)
 
 	// Filter by quartile
-	if quartile := c.Query("quartile"); quartile != "" {
+	quartile := c.Query("quartile")
+	if quartile != "" {
 		query = query.Where("journal_quartile = ?", quartile)
 	}
 
@@ -41,8 +42,12 @@ func GetRewardConfig(c *gin.Context) {
 	// Fallback to the latest available year if the requested year has no data
 	if len(configs) == 0 {
 		var fallbackYears []string
-		if err := baseQuery.Model(&models.RewardConfig{}).
-			Select("year").
+		fallbackQuery := baseQuery.Model(&models.RewardConfig{}).Select("year")
+		if quartile != "" {
+			fallbackQuery = fallbackQuery.Where("journal_quartile = ?", quartile)
+		}
+
+		if err := fallbackQuery.
 			Order("year DESC").
 			Limit(1).
 			Pluck("year", &fallbackYears).Error; err != nil {
@@ -51,8 +56,12 @@ func GetRewardConfig(c *gin.Context) {
 		}
 
 		if len(fallbackYears) > 0 && fallbackYears[0] != requestedYear {
-			if err := baseQuery.
-				Where("year = ?", fallbackYears[0]).
+			fallbackFetch := baseQuery.Where("year = ?", fallbackYears[0])
+			if quartile != "" {
+				fallbackFetch = fallbackFetch.Where("journal_quartile = ?", quartile)
+			}
+
+			if err := fallbackFetch.
 				Order("journal_quartile").
 				Find(&configs).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fallback reward config"})
