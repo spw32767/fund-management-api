@@ -26,16 +26,19 @@ func dedupeFundTypes(values []string) []string {
 	normalized := make([]string, 0, len(values))
 
 	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
+		parts := strings.Split(value, ",")
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			lower := strings.ToLower(trimmed)
+			if seen[lower] {
+				continue
+			}
+			seen[lower] = true
+			normalized = append(normalized, trimmed)
 		}
-		lower := strings.ToLower(trimmed)
-		if seen[lower] {
-			continue
-		}
-		seen[lower] = true
-		normalized = append(normalized, trimmed)
 	}
 
 	return normalized
