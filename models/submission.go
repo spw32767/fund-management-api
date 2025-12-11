@@ -49,6 +49,12 @@ type Submission struct {
 	AdminRejectionReason *string    `gorm:"column:admin_rejection_reason" json:"admin_rejection_reason,omitempty"`
 	AdminComment         *string    `gorm:"column:admin_comment" json:"admin_comment,omitempty"`
 
+	// --- ช่องข้อมูลติดต่อและบัญชีธนาคาร (ใช้ร่วมทุกประเภทคำร้อง) ---
+	ContactPhone    *string `gorm:"column:contact_phone" json:"contact_phone,omitempty"`
+	BankAccount     *string `gorm:"column:bank_account" json:"bank_account,omitempty"`
+	BankName        *string `gorm:"column:bank_name" json:"bank_name,omitempty"`
+	BankAccountName *string `gorm:"column:bank_account_name" json:"bank_account_name,omitempty"`
+
 	// --- อนุมัติของหัวหน้าสาขา ---
 	HeadApprovedBy *int       `gorm:"column:head_approved_by" json:"head_approved_by,omitempty"`
 	HeadApprovedAt *time.Time `gorm:"column:head_approved_at" json:"head_approved_at,omitempty"`

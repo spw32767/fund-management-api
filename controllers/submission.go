@@ -226,12 +226,16 @@ func CreateSubmission(c *gin.Context) {
 	}
 
 	type CreateSubmissionRequest struct {
-		SubmissionType      string `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward', ...
-		YearID              int    `json:"year_id" binding:"required"`
-		CategoryID          *int   `json:"category_id"`           // <-- ใหม่
-		SubcategoryID       *int   `json:"subcategory_id"`        // <-- ใหม่
-		SubcategoryBudgetID *int   `json:"subcategory_budget_id"` // <-- ใหม่
-		StatusID            *int   `json:"status_id"`
+		SubmissionType      string  `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward', ...
+		YearID              int     `json:"year_id" binding:"required"`
+		CategoryID          *int    `json:"category_id"`           // <-- ใหม่
+		SubcategoryID       *int    `json:"subcategory_id"`        // <-- ใหม่
+		SubcategoryBudgetID *int    `json:"subcategory_budget_id"` // <-- ใหม่
+		StatusID            *int    `json:"status_id"`
+		ContactPhone        *string `json:"contact_phone"`
+		BankAccount         *string `json:"bank_account"`
+		BankName            *string `json:"bank_name"`
+		BankAccountName     *string `json:"bank_account_name"`
 	}
 
 	var req CreateSubmissionRequest
@@ -267,6 +271,17 @@ func CreateSubmission(c *gin.Context) {
 		return
 	}
 
+	normalizeOptionalString := func(value *string) *string {
+		if value == nil {
+			return nil
+		}
+		trimmed := strings.TrimSpace(*value)
+		if trimmed == "" {
+			return nil
+		}
+		return &trimmed
+	}
+
 	// Create submission
 	now := time.Now()
 	submission := models.Submission{
@@ -278,6 +293,11 @@ func CreateSubmission(c *gin.Context) {
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
+
+	submission.ContactPhone = normalizeOptionalString(req.ContactPhone)
+	submission.BankAccount = normalizeOptionalString(req.BankAccount)
+	submission.BankName = normalizeOptionalString(req.BankName)
+	submission.BankAccountName = normalizeOptionalString(req.BankAccountName)
 
 	// เซ็ตฟิลด์หมวดหมู่ถ้ามีส่งมา
 	if req.CategoryID != nil {
@@ -348,10 +368,14 @@ func UpdateSubmission(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type UpdateSubmissionRequest struct {
-		CategoryID                *int `json:"category_id"`
-		SubcategoryID             *int `json:"subcategory_id"`
-		SubcategoryBudgetID       *int `json:"subcategory_budget_id"`
-		InstallmentNumberAtSubmit *int `json:"installment_number_at_submit"`
+		CategoryID                *int    `json:"category_id"`
+		SubcategoryID             *int    `json:"subcategory_id"`
+		SubcategoryBudgetID       *int    `json:"subcategory_budget_id"`
+		InstallmentNumberAtSubmit *int    `json:"installment_number_at_submit"`
+		ContactPhone              *string `json:"contact_phone"`
+		BankAccount               *string `json:"bank_account"`
+		BankName                  *string `json:"bank_name"`
+		BankAccountName           *string `json:"bank_account_name"`
 		// อนาคตจะมีฟิลด์อื่นก็ใส่เพิ่มได้
 	}
 
@@ -373,6 +397,17 @@ func UpdateSubmission(c *gin.Context) {
 
 	updates := map[string]interface{}{"updated_at": time.Now()}
 
+	normalizeOptionalString := func(value *string) *string {
+		if value == nil {
+			return nil
+		}
+		trimmed := strings.TrimSpace(*value)
+		if trimmed == "" {
+			return nil
+		}
+		return &trimmed
+	}
+
 	if req.CategoryID != nil {
 		updates["category_id"] = *req.CategoryID
 	}
@@ -384,6 +419,19 @@ func UpdateSubmission(c *gin.Context) {
 	}
 	if req.InstallmentNumberAtSubmit != nil {
 		updates["installment_number_at_submit"] = *req.InstallmentNumberAtSubmit
+	}
+
+	if phone := normalizeOptionalString(req.ContactPhone); phone != nil {
+		updates["contact_phone"] = *phone
+	}
+	if bankAccount := normalizeOptionalString(req.BankAccount); bankAccount != nil {
+		updates["bank_account"] = *bankAccount
+	}
+	if bankName := normalizeOptionalString(req.BankName); bankName != nil {
+		updates["bank_name"] = *bankName
+	}
+	if bankAccountName := normalizeOptionalString(req.BankAccountName); bankAccountName != nil {
+		updates["bank_account_name"] = *bankAccountName
 	}
 
 	if err := config.DB.Model(&submission).Updates(updates).Error; err != nil {
@@ -1591,6 +1639,10 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		DisplayOrder      int    `json:"display_order"`
 		OriginalName      string `json:"original_name"`
 		ExternalFundingID *int   `json:"external_funding_id"`
+		PhoneNumber       string `json:"phone_number"`
+		BankAccount       string `json:"bank_account"`
+		BankName          string `json:"bank_name"`
+		BankAccountName   string `json:"bank_account_name"`
 	}
 
 	var req AttachDocumentRequest
@@ -1605,6 +1657,27 @@ func AttachDocumentToSubmission(c *gin.Context) {
 		First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
+	}
+
+	contactUpdates := map[string]interface{}{}
+	if phone := strings.TrimSpace(req.PhoneNumber); phone != "" {
+		contactUpdates["contact_phone"] = phone
+	}
+	if bankAccount := strings.TrimSpace(req.BankAccount); bankAccount != "" {
+		contactUpdates["bank_account"] = bankAccount
+	}
+	if bankName := strings.TrimSpace(req.BankName); bankName != "" {
+		contactUpdates["bank_name"] = bankName
+	}
+	if bankAccountName := strings.TrimSpace(req.BankAccountName); bankAccountName != "" {
+		contactUpdates["bank_account_name"] = bankAccountName
+	}
+	if len(contactUpdates) > 0 {
+		contactUpdates["updated_at"] = time.Now()
+		if err := config.DB.Model(&submission).Updates(contactUpdates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission contact info"})
+			return
+		}
 	}
 
 	// Verify file exists and belongs to user
@@ -2208,6 +2281,10 @@ func AddPublicationDetails(c *gin.Context) {
 
 		// === อื่นๆ ===
 		AnnounceReferenceNumber string `json:"announce_reference_number"`
+		PhoneNumber             string `json:"phone_number"`
+		BankAccount             string `json:"bank_account"`
+		BankName                string `json:"bank_name"`
+		BankAccountName         string `json:"bank_account_name"`
 
 		// === ฟิลด์ใหม่จาก FE (ไม่บังคับใช้ ใช้เป็น fallback) ===
 		MainAnnoucement    *int `json:"main_annoucement"`
@@ -2522,6 +2599,10 @@ func AddFundDetails(c *gin.Context) {
 		SubcategoryID               int     `json:"subcategory_id"`
 		MainAnnoucement             *int    `json:"main_annoucement"`
 		ActivitySupportAnnouncement *int    `json:"activity_support_announcement"`
+		ContactPhone                string  `json:"contact_phone"`
+		BankAccount                 string  `json:"bank_account"`
+		BankName                    string  `json:"bank_name"`
+		BankAccountName             string  `json:"bank_account_name"`
 	}
 
 	var req FundDetailsRequest
@@ -2557,6 +2638,27 @@ func AddFundDetails(c *gin.Context) {
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
+	}
+
+	contactUpdates := map[string]interface{}{}
+	if phone := strings.TrimSpace(req.ContactPhone); phone != "" {
+		contactUpdates["contact_phone"] = phone
+	}
+	if bankAccount := strings.TrimSpace(req.BankAccount); bankAccount != "" {
+		contactUpdates["bank_account"] = bankAccount
+	}
+	if bankName := strings.TrimSpace(req.BankName); bankName != "" {
+		contactUpdates["bank_name"] = bankName
+	}
+	if bankAccountName := strings.TrimSpace(req.BankAccountName); bankAccountName != "" {
+		contactUpdates["bank_account_name"] = bankAccountName
+	}
+	if len(contactUpdates) > 0 {
+		contactUpdates["updated_at"] = time.Now()
+		if err := config.DB.Model(&submission).Updates(contactUpdates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission contact info"})
+			return
+		}
 	}
 
 	// Fetch subcategory to determine its parent category
