@@ -398,7 +398,6 @@ func SetupRoutes(router *gin.Engine) {
 
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
-				admin.GET("/dashboard/export", controllers.ExportDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
 
 				// User Publications Import from Scholar
