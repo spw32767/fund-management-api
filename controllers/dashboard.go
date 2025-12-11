@@ -99,10 +99,17 @@ func ExportDashboardStats(c *gin.Context) {
 	installmentParam := c.Query("installment")
 
 	filter, options := resolveDashboardFilter(scopeParam, yearParam, installmentParam)
+	summaryYear := filter.SelectedYear
+	if summaryYear == "" {
+		summaryYear = filter.CurrentYear
+	}
+
 	stats := getAdminDashboard(filter, options)
 	if stats == nil {
 		stats = make(map[string]interface{})
 	}
+
+	topCategories := extractTopSpendingCategories(stats["category_budgets"], summaryYear, 5)
 
 	exportPayload := map[string]interface{}{
 		"generated_at": time.Now().Format(time.RFC3339),
@@ -111,16 +118,17 @@ func ExportDashboardStats(c *gin.Context) {
 			"role_id": roleID,
 		},
 		"filters": filter.toMap(),
-		"data": map[string]interface{}{
-			"overview":              stats["overview"],
-			"financial_overview":    stats["financial_overview"],
-			"status_breakdown":      stats["status_breakdown"],
-			"category_budgets":      stats["category_budgets"],
-			"trend_breakdown":       stats["trend_breakdown"],
-			"pending_applications":  stats["pending_applications"],
-			"quota_summary":         stats["quota_summary"],
-			"quota_usage_view_rows": stats["quota_usage_view_rows"],
-			"upcoming_periods":      stats["upcoming_periods"],
+		"summary_period": map[string]interface{}{
+			"scope":       filter.Scope,
+			"year":        summaryYear,
+			"installment": filter.SelectedInstallment,
+		},
+		"summary": map[string]interface{}{
+			"overview":                stats["overview"],
+			"application_statuses":    stats["status_breakdown"],
+			"submission_trends":       stats["trend_breakdown"],
+			"financial_and_approvals": stats["financial_overview"],
+			"top_spending_categories": topCategories,
 		},
 	}
 
@@ -133,9 +141,99 @@ func ExportDashboardStats(c *gin.Context) {
 		return
 	}
 
-	filename := fmt.Sprintf("admin-dashboard-export-%s.json", time.Now().Format("20060102-150405"))
+	filePrefix := "admin-dashboard-summary"
+	if summaryYear != "" {
+		filePrefix = fmt.Sprintf("%s-%s", filePrefix, summaryYear)
+	}
+
+	filename := fmt.Sprintf("%s-%s.json", filePrefix, time.Now().Format("20060102-150405"))
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	c.Data(http.StatusOK, "application/json", content)
+}
+
+func extractTopSpendingCategories(raw interface{}, summaryYear string, limit int) []map[string]interface{} {
+	var rows []map[string]interface{}
+
+	switch value := raw.(type) {
+	case []map[string]interface{}:
+		rows = value
+	case []interface{}:
+		for _, item := range value {
+			if row, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, row)
+			}
+		}
+	}
+
+	results := make([]map[string]interface{}, 0, len(rows))
+
+	for _, row := range rows {
+		year := strings.TrimSpace(fmt.Sprintf("%v", row["year"]))
+		if summaryYear != "" && year != "" && year != summaryYear {
+			continue
+		}
+
+		usedAmount := parseFloatValue(row["used_amount"])
+		results = append(results, map[string]interface{}{
+			"category_id":              row["category_id"],
+			"category_name":            row["category_name"],
+			"year":                     year,
+			"used_amount":              usedAmount,
+			"approved_applications":    row["approved_applications"],
+			"requested_amount":         row["requested_amount"],
+			"approved_amount":          row["approved_amount"],
+			"remaining_budget":         row["remaining_budget"],
+			"subcategory_count":        row["subcategory_count"],
+			"top_subcategories_by_use": extractTopSubcategories(row),
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return parseFloatValue(results[i]["used_amount"]) > parseFloatValue(results[j]["used_amount"])
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results
+}
+
+func extractTopSubcategories(row map[string]interface{}) []map[string]interface{} {
+	rawSubs, ok := row["subcategories"].([]interface{})
+	if !ok || len(rawSubs) == 0 {
+		if typed, ok := row["subcategories"].([]map[string]interface{}); ok {
+			rawSubs = make([]interface{}, 0, len(typed))
+			for _, item := range typed {
+				rawSubs = append(rawSubs, item)
+			}
+		} else {
+			return nil
+		}
+	}
+
+	subcategories := make([]map[string]interface{}, 0, len(rawSubs))
+	for _, item := range rawSubs {
+		if sub, ok := item.(map[string]interface{}); ok {
+			subcategories = append(subcategories, map[string]interface{}{
+				"subcategory_id":   sub["subcategory_id"],
+				"subcategory_name": sub["subcategory_name"],
+				"used_amount":      parseFloatValue(sub["used_amount"]),
+				"approved_amount":  parseFloatValue(sub["approved_amount"]),
+				"requested_amount": parseFloatValue(sub["requested_amount"]),
+			})
+		}
+	}
+
+	sort.Slice(subcategories, func(i, j int) bool {
+		return parseFloatValue(subcategories[i]["used_amount"]) > parseFloatValue(subcategories[j]["used_amount"])
+	})
+
+	if len(subcategories) > 3 {
+		subcategories = subcategories[:3]
+	}
+
+	return subcategories
 }
 
 type dashboardFilter struct {
