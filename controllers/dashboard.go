@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -64,7 +66,7 @@ func GetDashboardStats(c *gin.Context) {
 	})
 }
 
-// ExportDashboardStats returns the admin dashboard statistics as a downloadable JSON file
+// ExportDashboardStats returns the admin dashboard statistics as a downloadable file
 func ExportDashboardStats(c *gin.Context) {
 	userIDVal, userExists := c.Get("userID")
 	roleIDVal, roleExists := c.Get("roleID")
@@ -110,6 +112,7 @@ func ExportDashboardStats(c *gin.Context) {
 	}
 
 	topCategories := extractTopSpendingCategories(stats["category_budgets"], summaryYear, 5)
+	summary := buildDashboardSummary(stats, topCategories)
 
 	exportPayload := map[string]interface{}{
 		"generated_at": time.Now().Format(time.RFC3339),
@@ -123,22 +126,12 @@ func ExportDashboardStats(c *gin.Context) {
 			"year":        summaryYear,
 			"installment": filter.SelectedInstallment,
 		},
-		"summary": map[string]interface{}{
-			"overview":                stats["overview"],
-			"application_statuses":    stats["status_breakdown"],
-			"submission_trends":       stats["trend_breakdown"],
-			"financial_and_approvals": stats["financial_overview"],
-			"top_spending_categories": topCategories,
-		},
+		"summary": summary,
 	}
 
-	content, err := json.MarshalIndent(exportPayload, "", "  ")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "failed to serialize export data",
-		})
-		return
+	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "json")))
+	if format == "xlsx" || format == "xls" {
+		format = "excel"
 	}
 
 	filePrefix := "admin-dashboard-summary"
@@ -146,9 +139,285 @@ func ExportDashboardStats(c *gin.Context) {
 		filePrefix = fmt.Sprintf("%s-%s", filePrefix, summaryYear)
 	}
 
-	filename := fmt.Sprintf("%s-%s.json", filePrefix, time.Now().Format("20060102-150405"))
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-	c.Data(http.StatusOK, "application/json", content)
+	switch format {
+	case "excel":
+		content, err := buildDashboardExcel(exportPayload, filePrefix)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to build excel export",
+			})
+			return
+		}
+		filename := fmt.Sprintf("%s-%s.xlsx", filePrefix, time.Now().Format("20060102-150405"))
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content)
+		return
+	case "pdf":
+		content, err := buildDashboardPDF(exportPayload, filePrefix)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to build pdf export",
+			})
+			return
+		}
+		filename := fmt.Sprintf("%s-%s.pdf", filePrefix, time.Now().Format("20060102-150405"))
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		c.Data(http.StatusOK, "application/pdf", content)
+		return
+	default:
+		content, err := json.MarshalIndent(exportPayload, "", "  ")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to serialize export data",
+			})
+			return
+		}
+
+		filename := fmt.Sprintf("%s-%s.json", filePrefix, time.Now().Format("20060102-150405"))
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		c.Data(http.StatusOK, "application/json", content)
+	}
+}
+
+func buildDashboardSummary(stats map[string]interface{}, topCategories []map[string]interface{}) map[string]interface{} {
+	cleanOverview := cloneMap(stats["overview"])
+	cleanStatus := cloneMap(stats["status_breakdown"])
+	cleanTrends := cloneMap(stats["trend_breakdown"])
+	cleanFinancial := cloneMap(stats["financial_overview"])
+
+	return map[string]interface{}{
+		"overview":                cleanOverview,
+		"application_statuses":    cleanStatus,
+		"submission_trends":       cleanTrends,
+		"financial_and_approvals": cleanFinancial,
+		"top_spending_categories": topCategories,
+	}
+}
+
+func cloneMap(raw interface{}) map[string]interface{} {
+	typed, ok := raw.(map[string]interface{})
+	if !ok || typed == nil {
+		return map[string]interface{}{}
+	}
+	result := make(map[string]interface{}, len(typed))
+	for key, value := range typed {
+		result[key] = value
+	}
+	return result
+}
+
+func buildDashboardExcel(payload map[string]interface{}, filePrefix string) ([]byte, error) {
+	summary, _ := payload["summary"].(map[string]interface{})
+	buf := &bytes.Buffer{}
+	writer := csv.NewWriter(buf)
+	writer.Write([]string{"ส่วน", "หัวข้อ", "ค่า"})
+
+	writeCSVSection(writer, "ภาพรวม", asMap(summary["overview"]))
+	writeCSVSection(writer, "สถานะคำร้อง", asMap(summary["application_statuses"]))
+	writeCSVTrends(writer, "แนวโน้มการยื่นคำร้อง", summary["submission_trends"])
+	writeCSVSection(writer, "การเงินและการอนุมัติ", asMap(summary["financial_and_approvals"]))
+	writeCSVTopCategories(writer, "หมวดหมู่การใช้งบสูงสุด", asSliceMap(summary["top_spending_categories"]))
+
+	writer.Flush()
+
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func writeCSVSection(writer *csv.Writer, section string, data map[string]interface{}) {
+	if len(data) == 0 {
+		return
+	}
+
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		writer.Write([]string{section, key, formatAny(data[key])})
+	}
+}
+
+func writeCSVTrends(writer *csv.Writer, section string, raw interface{}) {
+	trendMap := asMap(raw)
+	monthly := asSliceMap(trendMap["monthly"])
+	if len(monthly) == 0 {
+		monthly = asSliceMap(raw)
+	}
+
+	for _, entry := range monthly {
+		writer.Write([]string{section, fmt.Sprintf("%v", entry["period"]), fmt.Sprintf("ทั้งหมด %v | อนุมัติ %v | ไม่อนุมัติ %v", formatAny(entry["total"]), formatAny(entry["approved"]), formatAny(entry["rejected"]))})
+	}
+}
+
+func writeCSVTopCategories(writer *csv.Writer, section string, rows []map[string]interface{}) {
+	for _, row := range rows {
+		desc := fmt.Sprintf("%v (%v)", row["category_name"], row["year"])
+		value := fmt.Sprintf("ขอ %v | อนุมัติ %v | ใช้ %v | คงเหลือ %v", formatAny(row["requested_amount"]), formatAny(row["approved_amount"]), formatAny(row["used_amount"]), formatAny(row["remaining_budget"]))
+		writer.Write([]string{section, desc, value})
+	}
+}
+
+func buildDashboardPDF(payload map[string]interface{}, filePrefix string) ([]byte, error) {
+	summary, _ := payload["summary"].(map[string]interface{})
+	lines := []string{"สรุปแดชบอร์ดผู้ดูแลระบบ"}
+
+	appendMapLines(&lines, "ภาพรวม", asMap(summary["overview"]))
+	appendMapLines(&lines, "สถานะคำร้อง", asMap(summary["application_statuses"]))
+	appendTrendLines(&lines, "แนวโน้มการยื่นคำร้อง", summary["submission_trends"])
+	appendMapLines(&lines, "การเงินและการอนุมัติ", asMap(summary["financial_and_approvals"]))
+	appendTopCategoryLines(&lines, "หมวดหมู่การใช้งบสูงสุด", asSliceMap(summary["top_spending_categories"]))
+
+	return buildSinglePagePDF(lines)
+}
+
+func appendMapLines(lines *[]string, title string, data map[string]interface{}) {
+	if len(data) == 0 {
+		return
+	}
+
+	*lines = append(*lines, title)
+
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		*lines = append(*lines, fmt.Sprintf("- %s: %s", key, formatAny(data[key])))
+	}
+}
+
+func appendTrendLines(lines *[]string, title string, raw interface{}) {
+	trendMap := asMap(raw)
+	monthly := asSliceMap(trendMap["monthly"])
+	if len(monthly) == 0 {
+		monthly = asSliceMap(raw)
+	}
+
+	if len(monthly) == 0 {
+		return
+	}
+
+	*lines = append(*lines, title)
+	for _, entry := range monthly {
+		*lines = append(*lines, fmt.Sprintf("- %v: ทั้งหมด %v อนุมัติ %v ไม่อนุมัติ %v", entry["period"], formatAny(entry["total"]), formatAny(entry["approved"]), formatAny(entry["rejected"])))
+	}
+}
+
+func appendTopCategoryLines(lines *[]string, title string, rows []map[string]interface{}) {
+	if len(rows) == 0 {
+		return
+	}
+
+	*lines = append(*lines, title)
+	for _, row := range rows {
+		*lines = append(*lines, fmt.Sprintf("- %v (%v): ขอ %v | อนุมัติ %v | ใช้ %v | คงเหลือ %v", row["category_name"], row["year"], formatAny(row["requested_amount"]), formatAny(row["approved_amount"]), formatAny(row["used_amount"]), formatAny(row["remaining_budget"])))
+	}
+}
+
+func buildSinglePagePDF(lines []string) ([]byte, error) {
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("no content to export")
+	}
+
+	content := buildPDFTextStream(lines)
+	var buf bytes.Buffer
+
+	// Basic single-page PDF structure
+	objects := []string{
+		"1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n",
+		"2 0 obj<< /Type /Pages /Count 1 /Kids [3 0 R] >>endobj\n",
+		"3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources<< /Font<< /F1 5 0 R>> >> /Contents 4 0 R>>endobj\n",
+		fmt.Sprintf("4 0 obj<< /Length %d >>stream\n%s\nendstream endobj\n", len(content), content),
+		"5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n",
+	}
+
+	buf.WriteString("%PDF-1.4\n")
+	positions := []int{}
+	for _, obj := range objects {
+		positions = append(positions, buf.Len())
+		buf.WriteString(obj)
+	}
+
+	xrefPos := buf.Len()
+	buf.WriteString("xref\n0 6\n0000000000 65535 f \n")
+	for _, pos := range positions {
+		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", pos))
+	}
+
+	buf.WriteString("trailer<< /Size 6 /Root 1 0 R >>\nstartxref\n")
+	buf.WriteString(fmt.Sprintf("%d\n%%EOF", xrefPos))
+
+	return buf.Bytes(), nil
+}
+
+func buildPDFTextStream(lines []string) string {
+	var b strings.Builder
+	b.WriteString("BT /F1 12 Tf 50 780 Td\n")
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("0 -16 Td\n")
+		}
+		b.WriteString(fmt.Sprintf("(%s) Tj\n", escapePDFString(line)))
+	}
+	b.WriteString("ET")
+	return b.String()
+}
+
+func escapePDFString(s string) string {
+	replacer := strings.NewReplacer("\\", "\\\\", "(", "\\(", ")", "\\)")
+	return replacer.Replace(s)
+}
+func asMap(raw interface{}) map[string]interface{} {
+	if raw == nil {
+		return map[string]interface{}{}
+	}
+	if typed, ok := raw.(map[string]interface{}); ok && typed != nil {
+		return typed
+	}
+	return map[string]interface{}{}
+}
+
+func asSliceMap(raw interface{}) []map[string]interface{} {
+	result := []map[string]interface{}{}
+	switch value := raw.(type) {
+	case []map[string]interface{}:
+		return value
+	case []interface{}:
+		for _, item := range value {
+			if typed, ok := item.(map[string]interface{}); ok {
+				result = append(result, typed)
+			}
+		}
+	}
+	return result
+}
+
+func formatAny(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case float64:
+		return fmt.Sprintf("%.2f", v)
+	case float32:
+		return fmt.Sprintf("%.2f", v)
+	case int, int64, int32, uint, uint64, uint32:
+		return fmt.Sprintf("%v", v)
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func extractTopSpendingCategories(raw interface{}, summaryYear string, limit int) []map[string]interface{} {
