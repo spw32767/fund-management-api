@@ -702,23 +702,6 @@ func buildAdminOverview(filter dashboardFilter, statuses dashboardStatusSets) ma
 		Count(&totalUsers)
 	overview["total_users"] = totalUsers
 
-	var budget struct {
-		Allocated float64
-		Used      float64
-		Remaining float64
-	}
-
-	budgetQuery := config.DB.Table("view_budget_summary").
-		Select("COALESCE(SUM(allocated_amount),0) AS allocated, COALESCE(SUM(used_amount),0) AS used, COALESCE(SUM(remaining_budget),0) AS remaining")
-	budgetQuery = applyFilterToYearColumn(budgetQuery, "year", filter)
-	budgetQuery.Scan(&budget)
-
-	overview["total_budget"] = budget.Allocated
-	overview["allocated_budget"] = budget.Allocated
-	overview["used_budget"] = budget.Used
-	overview["approved_amount_total"] = budget.Used
-	overview["remaining_budget"] = budget.Remaining
-
 	type amountSummary struct {
 		Requested float64
 		Approved  float64
@@ -745,8 +728,15 @@ func buildAdminOverview(filter dashboardFilter, statuses dashboardStatusSets) ma
 	rewardQuery.Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved", approvedIDs).
 		Scan(&rewardAmounts)
 
-	overview["total_requested_amount"] = fundAmounts.Requested + rewardAmounts.Requested
-	overview["total_approved_amount"] = fundAmounts.Approved + rewardAmounts.Approved
+	totalRequested := fundAmounts.Requested + rewardAmounts.Requested
+	totalApproved := fundAmounts.Approved + rewardAmounts.Approved
+
+	overview["total_requested_amount"] = totalRequested
+	overview["total_approved_amount"] = totalApproved
+	overview["total_budget"] = totalRequested
+	overview["allocated_budget"] = totalRequested
+	overview["used_budget"] = totalApproved
+	overview["approved_amount_total"] = totalApproved
 
 	if filter.SelectedYear != "" {
 		overview["current_year"] = filter.SelectedYear
