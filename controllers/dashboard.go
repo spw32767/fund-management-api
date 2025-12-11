@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -61,6 +62,80 @@ func GetDashboardStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"stats": stats,
 	})
+}
+
+// ExportDashboardStats returns the admin dashboard statistics as a downloadable JSON file
+func ExportDashboardStats(c *gin.Context) {
+	userIDVal, userExists := c.Get("userID")
+	roleIDVal, roleExists := c.Get("roleID")
+	if !userExists || !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "authentication context missing",
+		})
+		return
+	}
+
+	userID, okUser := userIDVal.(int)
+	roleID, okRole := roleIDVal.(int)
+	if !okUser || !okRole {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "invalid user or role id",
+		})
+		return
+	}
+
+	if roleID != 3 && roleID != 4 {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "insufficient permissions",
+		})
+		return
+	}
+
+	scopeParam := c.Query("scope")
+	yearParam := c.Query("year")
+	installmentParam := c.Query("installment")
+
+	filter, options := resolveDashboardFilter(scopeParam, yearParam, installmentParam)
+	stats := getAdminDashboard(filter, options)
+	if stats == nil {
+		stats = make(map[string]interface{})
+	}
+
+	exportPayload := map[string]interface{}{
+		"generated_at": time.Now().Format(time.RFC3339),
+		"generated_by": map[string]interface{}{
+			"user_id": userID,
+			"role_id": roleID,
+		},
+		"filters": filter.toMap(),
+		"data": map[string]interface{}{
+			"overview":              stats["overview"],
+			"financial_overview":    stats["financial_overview"],
+			"status_breakdown":      stats["status_breakdown"],
+			"category_budgets":      stats["category_budgets"],
+			"trend_breakdown":       stats["trend_breakdown"],
+			"pending_applications":  stats["pending_applications"],
+			"quota_summary":         stats["quota_summary"],
+			"quota_usage_view_rows": stats["quota_usage_view_rows"],
+			"upcoming_periods":      stats["upcoming_periods"],
+		},
+	}
+
+	content, err := json.MarshalIndent(exportPayload, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to serialize export data",
+		})
+		return
+	}
+
+	filename := fmt.Sprintf("admin-dashboard-export-%s.json", time.Now().Format("20060102-150405"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Data(http.StatusOK, "application/json", content)
 }
 
 type dashboardFilter struct {
