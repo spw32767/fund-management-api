@@ -17,16 +17,15 @@ func GetRewardConfig(c *gin.Context) {
 	var configs []models.RewardConfig
 
 	// Build query
-	query := config.DB.Where("is_active = ? AND delete_at IS NULL", true)
+	baseQuery := config.DB.Where("is_active = ? AND delete_at IS NULL", true)
 
-	// Filter by year
-	if year := c.Query("year"); year != "" {
-		query = query.Where("year = ?", year)
-	} else {
+	requestedYear := c.Query("year")
+	if requestedYear == "" {
 		// Default to current Buddhist year
-		currentYear := strconv.Itoa(time.Now().Year() + 543)
-		query = query.Where("year = ?", currentYear)
+		requestedYear = strconv.Itoa(time.Now().Year() + 543)
 	}
+
+	query := baseQuery.Where("year = ?", requestedYear)
 
 	// Filter by quartile
 	if quartile := c.Query("quartile"); quartile != "" {
@@ -37,6 +36,29 @@ func GetRewardConfig(c *gin.Context) {
 	if err := query.Order("journal_quartile").Find(&configs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reward config"})
 		return
+	}
+
+	// Fallback to the latest available year if the requested year has no data
+	if len(configs) == 0 {
+		var fallbackYears []string
+		if err := baseQuery.Model(&models.RewardConfig{}).
+			Select("year").
+			Order("year DESC").
+			Limit(1).
+			Pluck("year", &fallbackYears).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve fallback reward config"})
+			return
+		}
+
+		if len(fallbackYears) > 0 && fallbackYears[0] != requestedYear {
+			if err := baseQuery.
+				Where("year = ?", fallbackYears[0]).
+				Order("journal_quartile").
+				Find(&configs).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fallback reward config"})
+				return
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -108,14 +130,32 @@ func GetRewardConfigLookup(c *gin.Context) {
 		return
 	}
 
-	// 2) ไม่เจอ active → เช็คว่ามีแถว (แต่ inactive) หรือไม่มีเลย
+	// 2) ไม่เจอ active → หา active ของปีล่าสุดที่มีข้อมูล
+	var fallbackActive models.RewardConfig
+	err = config.DB.
+		Where("journal_quartile = ? AND is_active = ? AND delete_at IS NULL", quartile, true).
+		Order("year DESC").
+		First(&fallbackActive).Error
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"found":      true,
+			"is_active":  true,
+			"max_amount": fallbackActive.MaxAmount,
+			"condition":  fallbackActive.ConditionDescription,
+		})
+		return
+	}
+
+	// 3) ไม่เจอ active ไหนเลย → เช็คว่ามีแถว (inactive) หรือไม่มีเลย โดยใช้ข้อมูลปีล่าสุดที่มี
 	var any models.RewardConfig
-	err2 := config.DB.
-		Where("year = ? AND journal_quartile = ? AND delete_at IS NULL", year, quartile).
+	err = config.DB.
+		Where("journal_quartile = ? AND delete_at IS NULL", quartile).
+		Order("year DESC").
 		First(&any).Error
 
 	// คืน 200 เสมอ เพื่อ "กลืน" เคส inactive/ไม่มีค่า ให้ FE ปิดช่องเองจากค่า null
-	if err2 == nil {
+	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
 			"found":      true,
@@ -126,7 +166,7 @@ func GetRewardConfigLookup(c *gin.Context) {
 		return
 	}
 
-	// 3) ไม่มี record เลย → คืน 200 พร้อม found=false
+	// 4) ไม่มี record เลย → คืน 200 พร้อม found=false
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"found":      false,
