@@ -2095,6 +2095,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 
 	usingExistingTarget := false
 	var targetYear models.Year
+	copyTime := time.Now()
 
 	if req.TargetYearID != nil {
 		if err := config.DB.Where("year_id = ? AND delete_at IS NULL", *req.TargetYearID).
@@ -2133,7 +2134,6 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 	}
 
 	if !usingExistingTarget {
-		now := time.Now()
 		targetYear = models.Year{
 			Year:   targetYearValue,
 			Status: sourceYear.Status,
@@ -2141,8 +2141,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		if targetYear.Status == "" {
 			targetYear.Status = "active"
 		}
-		targetYear.CreateAt = &now
-		targetYear.UpdateAt = &now
+		targetYear.CreateAt = &copyTime
+		targetYear.UpdateAt = &copyTime
 
 		if err := tx.Create(&targetYear).Error; err != nil {
 			rollbackWithError(http.StatusInternalServerError, "Failed to create target year", err.Error())
@@ -2160,13 +2160,12 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 
 	categoryMap := make(map[int]int)
 	for _, category := range categories {
-		currentTime := time.Now()
 		newCategory := models.FundCategory{
 			CategoryName: category.CategoryName,
 			Status:       category.Status,
 			YearID:       targetYear.YearID,
-			CreateAt:     &currentTime,
-			UpdateAt:     &currentTime,
+			CreateAt:     &copyTime,
+			UpdateAt:     &copyTime,
 		}
 		if newCategory.Status == "" {
 			newCategory.Status = "active"
@@ -2200,7 +2199,6 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 				continue
 			}
 
-			currentTime := time.Now()
 			newSubcategory := models.FundSubcategory{
 				CategoryID:      mappedCategoryID,
 				SubcategoryName: subcategory.SubcategoryName,
@@ -2210,8 +2208,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 				FormURL:         subcategory.FormURL,
 				Status:          subcategory.Status,
 				Comment:         subcategory.Comment,
-				CreateAt:        &currentTime,
-				UpdateAt:        &currentTime,
+				CreateAt:        &copyTime,
+				UpdateAt:        &copyTime,
 			}
 			if newSubcategory.Status == "" {
 				newSubcategory.Status = "active"
@@ -2325,13 +2323,12 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 				commentVal = row.CommentValue.String
 			}
 
-			currentTime := time.Now()
 			if err := tx.Exec(
 				`INSERT INTO subcategory_budgets (
-                                        subcategory_id, record_scope, allocated_amount, used_amount, remaining_budget,
-                                        max_amount_per_year, max_grants, max_amount_per_grant, remaining_grant, level,
-                                        status, fund_description, comment, create_at, update_at
-                                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+subcategory_id, record_scope, allocated_amount, used_amount, remaining_budget,
+max_amount_per_year, max_grants, max_amount_per_grant, remaining_grant, level,
+status, fund_description, comment, create_at, update_at
+) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				mappedSubcategoryID,
 				scope,
 				insertAllocated,
@@ -2344,8 +2341,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 				statusText,
 				fundDescriptionVal,
 				commentVal,
-				currentTime,
-				currentTime,
+				copyTime,
+				copyTime,
 			).Error; err != nil {
 				rollbackWithError(http.StatusInternalServerError, "Failed to copy budgets", err.Error())
 				return
