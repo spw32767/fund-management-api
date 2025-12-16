@@ -3,6 +3,7 @@ package controllers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // matchesFund determines if a fund description matches a given quartile bucket.
@@ -103,13 +105,36 @@ func GetPublicationOptions(c *gin.Context) {
 		return
 	}
 
-	// Load active rates for the given year
+	// Load active rates for the given year, fallback to the latest available year when missing
 	var rates []models.PublicationRewardRate
+	rateYear := year.Year
 	if err := config.DB.
-		Where("year = ? AND is_active = ?", year.Year, true).
+		Where("year = ? AND is_active = ?", rateYear, true).
 		Find(&rates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch rates"})
 		return
+	}
+	if len(rates) == 0 {
+		var fallbackYears []string
+		if err := config.DB.Model(&models.PublicationRewardRate{}).
+			Select("year").
+			Where("is_active = ?", true).
+			Order("year DESC").
+			Limit(1).
+			Pluck("year", &fallbackYears).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve fallback rates"})
+			return
+		}
+
+		if len(fallbackYears) > 0 {
+			rateYear = fallbackYears[0]
+			if err := config.DB.
+				Where("year = ? AND is_active = ?", rateYear, true).
+				Find(&rates).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fallback rates"})
+				return
+			}
+		}
 	}
 
 	// Load active budgets for the category/year
@@ -119,23 +144,22 @@ func GetPublicationOptions(c *gin.Context) {
 		FundDescription string
 	}
 	var budgets []budgetRow
-	err := config.DB.Table("fund_subcategories fs").
+	if err := config.DB.Table("fund_subcategories fs").
 		Select("fs.subcategory_id, sb.subcategory_budget_id AS budget_id, sb.fund_description").
 		Joins(`
-			JOIN subcategory_budgets sb
-			  ON sb.subcategory_id = fs.subcategory_id
-			 AND sb.status = 'active'
-			 AND sb.delete_at IS NULL
-		`).
+                        JOIN subcategory_budgets sb
+                          ON sb.subcategory_id = fs.subcategory_id
+                         AND sb.status = 'active'
+                         AND sb.delete_at IS NULL
+                `).
 		Where(`
-			fs.delete_at IS NULL
-			AND fs.status = 'active'
-			AND fs.category_id = ?
-			AND fs.year_id = ?
-			AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
-		`, categoryID, yearID).
-		Find(&budgets).Error
-	if err != nil {
+                        fs.delete_at IS NULL
+                        AND fs.status = 'active'
+                        AND fs.category_id = ?
+                        AND fs.year_id = ?
+                        AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
+                `, categoryID, yearID).
+		Find(&budgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch budgets"})
 		return
 	}
@@ -190,13 +214,29 @@ func ResolvePublicationBudget(c *gin.Context) {
 		return
 	}
 
-	// Find the active rate row for (year, authorStatus, quartile)
+	// Find the active rate row for (year, authorStatus, quartile) with fallback to the latest available year
 	var rate models.PublicationRewardRate
-	if err := config.DB.
+	err := config.DB.
 		Where("year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?", year.Year, authorStatus, quartile, true).
-		First(&rate).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "rate not found"})
-		return
+		First(&rate).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch rate"})
+			return
+		}
+
+		// Fall back to the latest available active rate for the requested author status and quartile
+		if err := config.DB.
+			Where("author_status = ? AND journal_quartile = ? AND is_active = ?", authorStatus, quartile, true).
+			Order("year DESC").
+			First(&rate).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "rate not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch fallback rate"})
+			return
+		}
 	}
 
 	// Load budgets for the category/year
@@ -211,7 +251,7 @@ func ResolvePublicationBudget(c *gin.Context) {
 		MaxGrants         sql.NullInt64
 	}
 	var budgets []budgetRow
-	err := config.DB.Table("fund_subcategories fs").
+	if err := config.DB.Table("fund_subcategories fs").
 		Select(`
                         fs.subcategory_id,
                         sb.subcategory_budget_id AS budget_id,
@@ -235,8 +275,7 @@ func ResolvePublicationBudget(c *gin.Context) {
                         AND fs.year_id = ?
                         AND (fs.form_type = 'publication_reward' OR fs.form_type IS NULL)
                 `, categoryID, yearID).
-		Find(&budgets).Error
-	if err != nil {
+		Find(&budgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch budgets"})
 		return
 	}
