@@ -446,7 +446,6 @@ func DeleteAnnouncement(c *gin.Context) {
 // DownloadAnnouncementFile - ดาวน์โหลดไฟล์ประกาศ
 func DownloadAnnouncementFile(c *gin.Context) {
 	id := c.Param("id")
-	userID, _ := c.Get("userID")
 
 	// Find announcement
 	var announcement models.Announcement
@@ -475,8 +474,9 @@ func DownloadAnnouncementFile(c *gin.Context) {
 			ViewedAt:       time.Now(),
 		}
 
-		if userID != nil {
-			view.UserID = userID.(*int)
+		if userID, ok := getUserIDFromContext(c); ok {
+			uid := int(userID)
+			view.UserID = &uid
 		}
 
 		config.DB.Create(&view)
@@ -491,7 +491,6 @@ func DownloadAnnouncementFile(c *gin.Context) {
 // ViewAnnouncementFile - ดูไฟล์ประกาศ (inline)
 func ViewAnnouncementFile(c *gin.Context) {
 	id := c.Param("id")
-	userID, _ := c.Get("userID")
 
 	// Find announcement
 	var announcement models.Announcement
@@ -519,8 +518,9 @@ func ViewAnnouncementFile(c *gin.Context) {
 			ViewedAt:       time.Now(),
 		}
 
-		if userID != nil {
-			view.UserID = userID.(*int)
+		if userID, ok := getUserIDFromContext(c); ok {
+			uid := int(userID)
+			view.UserID = &uid
 		}
 
 		config.DB.Create(&view)
