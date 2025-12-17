@@ -14,6 +14,10 @@ import (
 // GetFundInstallmentPeriods returns installment periods ordered by cutoff date.
 func GetFundInstallmentPeriods(c *gin.Context) {
 	yearParam := strings.TrimSpace(c.Query("year_id"))
+	fundTypeParam := strings.TrimSpace(c.Query("fund_type"))
+	fundLevelParam := strings.TrimSpace(c.Query("fund_level"))
+	fundKeywordParam := strings.TrimSpace(c.Query("fund_keyword"))
+	fundParentKeywordParam := strings.TrimSpace(c.Query("fund_parent_keyword"))
 
 	query := config.DB.Model(&models.FundInstallmentPeriod{}).
 		Where("deleted_at IS NULL")
@@ -28,6 +32,27 @@ func GetFundInstallmentPeriods(c *gin.Context) {
 			return
 		}
 		query = query.Where("year_id = ?", yearID)
+	}
+
+	hasFundFilter := fundTypeParam != "" || fundLevelParam != "" || fundKeywordParam != "" || fundParentKeywordParam != ""
+	if hasFundFilter {
+		selection, fundErr := normalizeFundSelection(
+			stringPtrIfNotEmpty(fundTypeParam),
+			stringPtrIfNotEmpty(fundLevelParam),
+			stringPtrIfNotEmpty(fundKeywordParam),
+			stringPtrIfNotEmpty(fundParentKeywordParam),
+		)
+		if fundErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fundErr.Error(),
+			})
+			return
+		}
+
+		if selection != nil {
+			query = query.Where("fund_level = ? AND fund_keyword = ?", selection.Level, selection.Keyword)
+		}
 	}
 
 	var periods []models.FundInstallmentPeriod
@@ -53,6 +78,10 @@ func GetFundInstallmentPeriods(c *gin.Context) {
 
 type fundInstallmentPeriodResponse struct {
 	InstallmentPeriodID int     `json:"installment_period_id"`
+	FundLevel           *string `json:"fund_level,omitempty"`
+	FundKeyword         *string `json:"fund_keyword,omitempty"`
+	FundParentKeyword   *string `json:"fund_parent_keyword,omitempty"`
+	FundType            *string `json:"fund_type,omitempty"`
 	YearID              int     `json:"year_id"`
 	InstallmentNumber   int     `json:"installment_number"`
 	CutoffDate          string  `json:"cutoff_date"`
@@ -67,8 +96,15 @@ func newFundInstallmentPeriodResponse(period models.FundInstallmentPeriod) fundI
 		cutoff = period.CutoffDate.Format("2006-01-02")
 	}
 
+	selection := selectionFromPeriod(period)
+	legacyType := legacyFundType(selection)
+
 	return fundInstallmentPeriodResponse{
 		InstallmentPeriodID: period.InstallmentPeriodID,
+		FundLevel:           ptrString(selection.Level),
+		FundKeyword:         ptrString(selection.Keyword),
+		FundParentKeyword:   selection.ParentKeyword,
+		FundType:            legacyType,
 		YearID:              period.YearID,
 		InstallmentNumber:   period.InstallmentNumber,
 		CutoffDate:          cutoff,

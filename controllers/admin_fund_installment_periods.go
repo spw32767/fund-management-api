@@ -17,8 +17,39 @@ import (
 
 var activeInstallmentStatuses = []string{"active", "enabled", "open", "current"}
 
+type fundSelection struct {
+	Level         string
+	Keyword       string
+	ParentKeyword *string
+}
+
+var allowedFundLevels = map[string]struct{}{
+	"category":    {},
+	"subcategory": {},
+}
+
+var legacyFundSelections = map[string]fundSelection{
+	"main_support": {
+		Level:   "category",
+		Keyword: "main_support",
+	},
+	"main_promotion": {
+		Level:   "category",
+		Keyword: "main_promotion",
+	},
+	"international_presentation": {
+		Level:         "subcategory",
+		Keyword:       "international_presentation",
+		ParentKeyword: ptrString("main_promotion"),
+	},
+}
+
 type adminFundInstallmentPeriodResponse struct {
 	InstallmentPeriodID int     `json:"installment_period_id"`
+	FundLevel           *string `json:"fund_level,omitempty"`
+	FundKeyword         *string `json:"fund_keyword,omitempty"`
+	FundParentKeyword   *string `json:"fund_parent_keyword,omitempty"`
+	FundType            *string `json:"fund_type,omitempty"`
 	YearID              int     `json:"year_id"`
 	InstallmentNumber   int     `json:"installment_number"`
 	CutoffDate          string  `json:"cutoff_date"`
@@ -44,6 +75,10 @@ type adminFundInstallmentPeriodListResponse struct {
 }
 
 type adminFundInstallmentPeriodRequest struct {
+	FundType          *string `json:"fund_type"`
+	FundLevel         *string `json:"fund_level"`
+	FundKeyword       *string `json:"fund_keyword"`
+	FundParentKeyword *string `json:"fund_parent_keyword"`
 	YearID            *int    `json:"year_id"`
 	InstallmentNumber *int    `json:"installment_number"`
 	CutoffDate        *string `json:"cutoff_date"`
@@ -58,6 +93,31 @@ func AdminListFundInstallmentPeriods(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   "year_id is required",
+		})
+		return
+	}
+
+	fundTypeQuery := strings.TrimSpace(c.Query("fund_type"))
+	fundLevelQuery := strings.TrimSpace(c.Query("fund_level"))
+	fundKeywordQuery := strings.TrimSpace(c.Query("fund_keyword"))
+	fundParentKeywordQuery := strings.TrimSpace(c.Query("fund_parent_keyword"))
+	selection, fundErr := normalizeFundSelection(
+		stringPtrIfNotEmpty(fundTypeQuery),
+		stringPtrIfNotEmpty(fundLevelQuery),
+		stringPtrIfNotEmpty(fundKeywordQuery),
+		stringPtrIfNotEmpty(fundParentKeywordQuery),
+	)
+	if fundErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   fundErr.Error(),
+		})
+		return
+	}
+	if selection == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "fund_level and fund_keyword are required",
 		})
 		return
 	}
@@ -79,6 +139,10 @@ func AdminListFundInstallmentPeriods(c *gin.Context) {
 
 	baseQuery := config.DB.Model(&models.FundInstallmentPeriod{}).
 		Where("year_id = ?", yearID)
+
+	if selection != nil {
+		baseQuery = baseQuery.Where("fund_level = ? AND fund_keyword = ?", selection.Level, selection.Keyword)
+	}
 
 	if !includeDeleted {
 		baseQuery = baseQuery.Where("deleted_at IS NULL")
@@ -147,6 +211,16 @@ func AdminCreateFundInstallmentPeriod(c *gin.Context) {
 		return
 	}
 
+	selection, fundErr := normalizeFundSelection(req.FundType, req.FundLevel, req.FundKeyword, req.FundParentKeyword)
+	if fundErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fundErr.Error()})
+		return
+	}
+	if selection == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "fund_level and fund_keyword are required"})
+		return
+	}
+
 	if req.YearID == nil || *req.YearID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_id is required"})
 		return
@@ -179,17 +253,20 @@ func AdminCreateFundInstallmentPeriod(c *gin.Context) {
 		return
 	}
 
-	if err := purgeSoftDeletedInstallmentPeriods(config.DB, *req.YearID, *req.InstallmentNumber); err != nil {
+	if err := purgeSoftDeletedInstallmentPeriods(config.DB, *selection, *req.YearID, *req.InstallmentNumber); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to clear deleted installment periods"})
 		return
 	}
 
-	if conflictErr := checkInstallmentConflicts(0, *req.YearID, *req.InstallmentNumber, cutoffDate); conflictErr != nil {
+	if conflictErr := checkInstallmentConflicts(0, *selection, *req.YearID, *req.InstallmentNumber, cutoffDate); conflictErr != nil {
 		respondConflictError(c, conflictErr)
 		return
 	}
 
 	period := models.FundInstallmentPeriod{
+		FundLevel:         &selection.Level,
+		FundKeyword:       &selection.Keyword,
+		FundParentKeyword: selection.ParentKeyword,
 		YearID:            *req.YearID,
 		InstallmentNumber: *req.InstallmentNumber,
 		CutoffDate:        cutoffDate,
@@ -254,6 +331,27 @@ func AdminUpdateFundInstallmentPeriod(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{}
+	currentSelection := selectionFromPeriod(period)
+
+	if req.FundType != nil || req.FundLevel != nil || req.FundKeyword != nil || req.FundParentKeyword != nil {
+		selection, fundErr := normalizeFundSelection(req.FundType, req.FundLevel, req.FundKeyword, req.FundParentKeyword)
+		if fundErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fundErr.Error()})
+			return
+		}
+		if selection == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "fund_level and fund_keyword are required"})
+			return
+		}
+
+		currentSelection = *selection
+		updates["fund_level"] = selection.Level
+		updates["fund_keyword"] = selection.Keyword
+		updates["fund_parent_keyword"] = selection.ParentKeyword
+		period.FundLevel = &selection.Level
+		period.FundKeyword = &selection.Keyword
+		period.FundParentKeyword = selection.ParentKeyword
+	}
 
 	if req.YearID != nil && *req.YearID != period.YearID {
 		if *req.YearID <= 0 {
@@ -338,12 +436,12 @@ func AdminUpdateFundInstallmentPeriod(c *gin.Context) {
 		return
 	}
 
-	if err := purgeSoftDeletedInstallmentPeriods(config.DB, period.YearID, period.InstallmentNumber); err != nil {
+	if err := purgeSoftDeletedInstallmentPeriods(config.DB, currentSelection, period.YearID, period.InstallmentNumber); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to clear deleted installment periods"})
 		return
 	}
 
-	if conflictErr := checkInstallmentConflicts(period.InstallmentPeriodID, period.YearID, period.InstallmentNumber, period.CutoffDate); conflictErr != nil {
+	if conflictErr := checkInstallmentConflicts(period.InstallmentPeriodID, currentSelection, period.YearID, period.InstallmentNumber, period.CutoffDate); conflictErr != nil {
 		respondConflictError(c, conflictErr)
 		return
 	}
@@ -456,6 +554,10 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 		SourceYearID int    `json:"source_year_id" binding:"required"`
 		TargetYear   string `json:"target_year"`
 		TargetYearID *int   `json:"target_year_id"`
+		FundType     string `json:"fund_type"`
+		FundLevel    string `json:"fund_level"`
+		FundKeyword  string `json:"fund_keyword"`
+		FundParent   string `json:"fund_parent_keyword"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -465,6 +567,21 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 
 	if req.SourceYearID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "source_year_id must be greater than 0"})
+		return
+	}
+
+	selection, fundErr := normalizeFundSelection(
+		stringPtrIfNotEmpty(req.FundType),
+		stringPtrIfNotEmpty(req.FundLevel),
+		stringPtrIfNotEmpty(req.FundKeyword),
+		stringPtrIfNotEmpty(req.FundParent),
+	)
+	if fundErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fundErr.Error()})
+		return
+	}
+	if selection == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "fund_level and fund_keyword are required"})
 		return
 	}
 
@@ -560,23 +677,25 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 	}
 
 	var sourcePeriods []models.FundInstallmentPeriod
-	if err := tx.Where("year_id = ? AND deleted_at IS NULL", req.SourceYearID).
+	if err := tx.Where("year_id = ? AND fund_level = ? AND fund_keyword = ? AND deleted_at IS NULL", req.SourceYearID, selection.Level, selection.Keyword).
 		Order("installment_number ASC, cutoff_date ASC").
 		Find(&sourcePeriods).Error; err != nil {
 		rollbackWithError(http.StatusInternalServerError, "failed to load source installments", err.Error())
 		return
 	}
 
-	existingNumbers := make(map[int]struct{})
+	existingNumbers := make(map[string]struct{})
 	if usingExistingTarget {
 		var targetPeriods []models.FundInstallmentPeriod
-		if err := tx.Where("year_id = ? AND deleted_at IS NULL", targetYear.YearID).
+		if err := tx.Where("year_id = ? AND fund_level = ? AND fund_keyword = ? AND deleted_at IS NULL", targetYear.YearID, selection.Level, selection.Keyword).
 			Find(&targetPeriods).Error; err != nil {
 			rollbackWithError(http.StatusInternalServerError, "failed to load target installments", err.Error())
 			return
 		}
 		for _, period := range targetPeriods {
-			existingNumbers[period.InstallmentNumber] = struct{}{}
+			periodSelection := selectionFromPeriod(period)
+			key := fmt.Sprintf("%s-%s-%d", periodSelection.Level, periodSelection.Keyword, period.InstallmentNumber)
+			existingNumbers[key] = struct{}{}
 		}
 	}
 
@@ -591,12 +710,14 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 	skippedCount := 0
 
 	for _, period := range sourcePeriods {
-		if _, exists := existingNumbers[period.InstallmentNumber]; exists {
+		periodSelection := selectionFromPeriod(period)
+		key := fmt.Sprintf("%s-%s-%d", periodSelection.Level, periodSelection.Keyword, period.InstallmentNumber)
+		if _, exists := existingNumbers[key]; exists {
 			skippedCount++
 			continue
 		}
 
-		if err := purgeSoftDeletedInstallmentPeriods(tx, targetYear.YearID, period.InstallmentNumber); err != nil {
+		if err := purgeSoftDeletedInstallmentPeriods(tx, periodSelection, targetYear.YearID, period.InstallmentNumber); err != nil {
 			rollbackWithError(http.StatusInternalServerError, "failed to clear deleted installment periods", err.Error())
 			return
 		}
@@ -608,6 +729,9 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 		}
 
 		newPeriod := models.FundInstallmentPeriod{
+			FundLevel:         &periodSelection.Level,
+			FundKeyword:       &periodSelection.Keyword,
+			FundParentKeyword: periodSelection.ParentKeyword,
 			YearID:            targetYear.YearID,
 			InstallmentNumber: period.InstallmentNumber,
 			CutoffDate:        cutoff,
@@ -648,7 +772,7 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 			return
 		}
 
-		existingNumbers[period.InstallmentNumber] = struct{}{}
+		existingNumbers[key] = struct{}{}
 		createdCount++
 	}
 
@@ -690,6 +814,9 @@ func newAdminFundInstallmentPeriodResponse(period models.FundInstallmentPeriod) 
 		cutoff = period.CutoffDate.Format("2006-01-02")
 	}
 
+	selection := selectionFromPeriod(period)
+	legacyType := legacyFundType(selection)
+
 	status := ""
 	if period.Status != nil {
 		status = strings.TrimSpace(*period.Status)
@@ -709,6 +836,10 @@ func newAdminFundInstallmentPeriodResponse(period models.FundInstallmentPeriod) 
 
 	return adminFundInstallmentPeriodResponse{
 		InstallmentPeriodID: period.InstallmentPeriodID,
+		FundLevel:           ptrString(selection.Level),
+		FundKeyword:         ptrString(selection.Keyword),
+		FundParentKeyword:   selection.ParentKeyword,
+		FundType:            legacyType,
 		YearID:              period.YearID,
 		InstallmentNumber:   period.InstallmentNumber,
 		CutoffDate:          cutoff,
@@ -729,9 +860,15 @@ func ensureYearExists(yearID int) error {
 	return nil
 }
 
-func checkInstallmentConflicts(currentID, yearID, installmentNumber int, cutoffDate time.Time) error {
+func checkInstallmentConflicts(currentID int, selection fundSelection, yearID, installmentNumber int, cutoffDate time.Time) error {
 	var existing models.FundInstallmentPeriod
-	numberQuery := config.DB.Where("year_id = ? AND installment_number = ? AND deleted_at IS NULL", yearID, installmentNumber)
+	numberQuery := config.DB.Where(
+		"year_id = ? AND installment_number = ? AND fund_level = ? AND fund_keyword = ? AND deleted_at IS NULL",
+		yearID,
+		installmentNumber,
+		selection.Level,
+		selection.Keyword,
+	)
 	if currentID > 0 {
 		numberQuery = numberQuery.Where("installment_period_id <> ?", currentID)
 	}
@@ -741,7 +878,13 @@ func checkInstallmentConflicts(currentID, yearID, installmentNumber int, cutoffD
 		return err
 	}
 
-	cutoffQuery := config.DB.Where("year_id = ? AND cutoff_date = ? AND deleted_at IS NULL", yearID, cutoffDate)
+	cutoffQuery := config.DB.Where(
+		"year_id = ? AND cutoff_date = ? AND fund_level = ? AND fund_keyword = ? AND deleted_at IS NULL",
+		yearID,
+		cutoffDate,
+		selection.Level,
+		selection.Keyword,
+	)
 	if currentID > 0 {
 		cutoffQuery = cutoffQuery.Where("installment_period_id <> ?", currentID)
 	}
@@ -752,6 +895,152 @@ func checkInstallmentConflicts(currentID, yearID, installmentNumber int, cutoffD
 	}
 
 	return nil
+}
+
+func normalizeFundSelection(fundType *string, fundLevel *string, fundKeyword *string, fundParentKeyword *string) (*fundSelection, error) {
+	legacyValue, legacyErr := normalizeFundTypeKeyword(fundType)
+	if legacyErr != nil {
+		return nil, legacyErr
+	}
+	if legacyValue != nil {
+		return legacyValue, nil
+	}
+
+	normalizedLevel, levelErr := normalizeFundLevel(fundLevel)
+	if levelErr != nil {
+		return nil, levelErr
+	}
+
+	normalizedKeyword, keywordErr := normalizeFundKeyword(fundKeyword)
+	if keywordErr != nil {
+		return nil, keywordErr
+	}
+
+	if normalizedLevel == nil || normalizedKeyword == nil {
+		return nil, fmt.Errorf("fund_level and fund_keyword are required")
+	}
+
+	normalizedParent, parentErr := normalizeFundKeyword(fundParentKeyword)
+	if parentErr != nil {
+		return nil, parentErr
+	}
+
+	return &fundSelection{
+		Level:         *normalizedLevel,
+		Keyword:       *normalizedKeyword,
+		ParentKeyword: normalizedParent,
+	}, nil
+}
+
+func normalizeFundTypeKeyword(input *string) (*fundSelection, error) {
+	if input == nil {
+		return nil, nil
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(*input))
+	if normalized == "" {
+		return nil, nil
+	}
+
+	if selection, ok := legacyFundSelections[normalized]; ok {
+		copy := selection
+		return &copy, nil
+	}
+
+	keys := make([]string, 0, len(legacyFundSelections))
+	for key := range legacyFundSelections {
+		keys = append(keys, key)
+	}
+	return nil, fmt.Errorf("fund_type must be one of %s or specify fund_level and fund_keyword", strings.Join(keys, ", "))
+}
+
+func normalizeFundLevel(input *string) (*string, error) {
+	if input == nil {
+		return nil, nil
+	}
+
+	level := strings.ToLower(strings.TrimSpace(*input))
+	if level == "" {
+		return nil, nil
+	}
+
+	if _, ok := allowedFundLevels[level]; !ok {
+		return nil, fmt.Errorf("fund_level must be either 'category' or 'subcategory'")
+	}
+
+	return &level, nil
+}
+
+func normalizeFundKeyword(input *string) (*string, error) {
+	if input == nil {
+		return nil, nil
+	}
+
+	keyword := strings.ToLower(strings.TrimSpace(*input))
+	keyword = strings.ReplaceAll(keyword, " ", "_")
+	if keyword == "" {
+		return nil, nil
+	}
+
+	return &keyword, nil
+}
+
+func selectionFromPeriod(period models.FundInstallmentPeriod) fundSelection {
+	level := strings.ToLower(strings.TrimSpace(ptrValue(period.FundLevel)))
+	if level == "" {
+		level = "category"
+	}
+
+	keyword := strings.ToLower(strings.TrimSpace(ptrValue(period.FundKeyword)))
+	keyword = strings.ReplaceAll(keyword, " ", "_")
+	if keyword == "" {
+		keyword = "main_support"
+	}
+
+	parent := normalizeStoredKeyword(period.FundParentKeyword)
+
+	return fundSelection{
+		Level:         level,
+		Keyword:       keyword,
+		ParentKeyword: parent,
+	}
+}
+
+func legacyFundType(selection fundSelection) *string {
+	for key, value := range legacyFundSelections {
+		if value.Level == selection.Level && value.Keyword == selection.Keyword {
+			if (value.ParentKeyword == nil && selection.ParentKeyword == nil) || (value.ParentKeyword != nil && selection.ParentKeyword != nil && *value.ParentKeyword == *selection.ParentKeyword) {
+				return ptrString(key)
+			}
+		}
+	}
+	return nil
+}
+
+func ptrString(value string) *string {
+	return &value
+}
+
+func stringPtrIfNotEmpty(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return ptrString(value)
+}
+
+func ptrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func normalizeStoredKeyword(value *string) *string {
+	normalized, err := normalizeFundKeyword(value)
+	if err != nil {
+		return nil
+	}
+	return normalized
 }
 
 func normalizeInstallmentStatus(input *string) (*string, error) {
@@ -841,10 +1130,12 @@ func parseCalendarYearValue(value string) (int, bool) {
 	return numeric, true
 }
 
-func purgeSoftDeletedInstallmentPeriods(db *gorm.DB, yearID int, installmentNumber int) error {
+func purgeSoftDeletedInstallmentPeriods(db *gorm.DB, selection fundSelection, yearID int, installmentNumber int) error {
 	return db.Unscoped().Where(
-		"year_id = ? AND installment_number = ? AND deleted_at IS NOT NULL",
+		"year_id = ? AND installment_number = ? AND fund_level = ? AND fund_keyword = ? AND deleted_at IS NOT NULL",
 		yearID,
 		installmentNumber,
+		selection.Level,
+		selection.Keyword,
 	).Delete(&models.FundInstallmentPeriod{}).Error
 }

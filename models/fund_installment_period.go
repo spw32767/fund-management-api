@@ -5,6 +5,9 @@ import "time"
 // FundInstallmentPeriod represents fund_installment_periods records.
 type FundInstallmentPeriod struct {
 	InstallmentPeriodID int        `gorm:"column:installment_period_id;primaryKey" json:"installment_period_id"`
+	FundLevel           *string    `gorm:"column:fund_level" json:"fund_level,omitempty"`
+	FundKeyword         *string    `gorm:"column:fund_keyword" json:"fund_keyword,omitempty"`
+	FundParentKeyword   *string    `gorm:"column:fund_parent_keyword" json:"fund_parent_keyword,omitempty"`
 	YearID              int        `gorm:"column:year_id" json:"year_id"`
 	InstallmentNumber   int        `gorm:"column:installment_number" json:"installment_number"`
 	CutoffDate          time.Time  `gorm:"column:cutoff_date" json:"cutoff_date"`
