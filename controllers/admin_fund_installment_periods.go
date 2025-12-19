@@ -31,16 +31,16 @@ var allowedFundLevels = map[string]struct{}{
 var legacyFundSelections = map[string]fundSelection{
 	"main_support": {
 		Level:   "category",
-		Keyword: "main_support",
+		Keyword: "ทุนอุดหนุนกิจกรรม",
 	},
 	"main_promotion": {
 		Level:   "category",
-		Keyword: "main_promotion",
+		Keyword: "ทุนส่งเสริมการวิจัย",
 	},
 	"international_presentation": {
 		Level:         "subcategory",
-		Keyword:       "international_presentation",
-		ParentKeyword: ptrString("main_promotion"),
+		Keyword:       "ทุนนำเสนอต่างประเทศ",
+		ParentKeyword: ptrString("ทุนส่งเสริมการวิจัย"),
 	},
 }
 
@@ -976,8 +976,7 @@ func normalizeFundKeyword(input *string) (*string, error) {
 		return nil, nil
 	}
 
-	keyword := strings.ToLower(strings.TrimSpace(*input))
-	keyword = strings.ReplaceAll(keyword, " ", "_")
+	keyword := strings.TrimSpace(*input)
 	if keyword == "" {
 		return nil, nil
 	}
@@ -986,16 +985,12 @@ func normalizeFundKeyword(input *string) (*string, error) {
 }
 
 func selectionFromPeriod(period models.FundInstallmentPeriod) fundSelection {
-	level := strings.ToLower(strings.TrimSpace(ptrValue(period.FundLevel)))
+	level := strings.TrimSpace(ptrValue(period.FundLevel))
 	if level == "" {
 		level = "category"
 	}
 
-	keyword := strings.ToLower(strings.TrimSpace(ptrValue(period.FundKeyword)))
-	keyword = strings.ReplaceAll(keyword, " ", "_")
-	if keyword == "" {
-		keyword = "main_support"
-	}
+	keyword := strings.TrimSpace(ptrValue(period.FundKeyword))
 
 	parent := normalizeStoredKeyword(period.FundParentKeyword)
 
