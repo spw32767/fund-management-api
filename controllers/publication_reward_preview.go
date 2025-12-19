@@ -1099,7 +1099,12 @@ func determineSubmissionInstallmentPlaceholder(submission *models.Submission, sy
 	}
 
 	submissionTime := selectSubmissionTimestamp(submission)
-	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, submissionTime)
+	selection, err := resolveSubmissionFundSelection(nil, submission)
+	if err != nil {
+		return "", err
+	}
+
+	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, submissionTime, selection)
 	if err != nil {
 		return "", err
 	}
@@ -1121,7 +1126,7 @@ func determineFormInstallmentPlaceholder(payload *PublicationRewardPreviewFormPa
 		return "", nil
 	}
 
-	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, time.Now())
+	number, err := resolveInstallmentNumberFromPeriods(nil, yearID, time.Now(), nil)
 	if err != nil {
 		return "", err
 	}

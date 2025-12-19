@@ -612,7 +612,7 @@ func SubmitSubmission(c *gin.Context) {
 	now := time.Now()
 
 	if err := config.DB.Transaction(func(tx *gorm.DB) error {
-		resolvedInstallment, resolveErr := determineSubmissionInstallmentNumber(tx, submission.YearID, now)
+		resolvedInstallment, resolveErr := determineSubmissionInstallmentNumber(tx, submission, now)
 		if resolveErr != nil {
 			log.Printf("failed to resolve installment number for submission %d: %v", submission.SubmissionID, resolveErr)
 		}
@@ -850,15 +850,86 @@ func SubmitSubmission(c *gin.Context) {
 	})
 }
 
-func determineSubmissionInstallmentNumber(db *gorm.DB, yearID int, submissionTime time.Time) (*int, error) {
-	number, err := resolveInstallmentNumberFromPeriods(db, yearID, submissionTime)
+type installmentFundSelection struct {
+	Level   string
+	Keyword string
+}
+
+func determineSubmissionInstallmentNumber(db *gorm.DB, submission models.Submission, submissionTime time.Time) (*int, error) {
+	selection, err := resolveSubmissionFundSelection(db, &submission)
+	if err != nil {
+		return nil, err
+	}
+
+	number, err := resolveInstallmentNumberFromPeriods(db, submission.YearID, submissionTime, selection)
 	if err != nil {
 		return nil, err
 	}
 	return number, nil
 }
 
-func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime time.Time) (*int, error) {
+func resolveSubmissionFundSelection(db *gorm.DB, submission *models.Submission) (*installmentFundSelection, error) {
+	if submission == nil {
+		return nil, nil
+	}
+
+	if db == nil {
+		db = config.DB
+	}
+
+	if submission.SubcategoryID != nil && *submission.SubcategoryID > 0 {
+		var subcategory models.FundSubcategory
+		query := db.Where("subcategory_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", *submission.SubcategoryID).
+			Preload("Category")
+		if err := query.First(&subcategory).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		name := strings.TrimSpace(subcategory.SubcategoryName)
+		if name == "" && submission.SubcategoryName != nil {
+			name = strings.TrimSpace(*submission.SubcategoryName)
+		}
+		if name == "" {
+			return nil, nil
+		}
+		return &installmentFundSelection{Level: "subcategory", Keyword: name}, nil
+	}
+
+	if submission.CategoryID != nil && *submission.CategoryID > 0 {
+		var category models.FundCategory
+		query := db.Where("category_id = ? AND (delete_at IS NULL OR delete_at = '0000-00-00 00:00:00')", *submission.CategoryID)
+		if err := query.First(&category).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		name := strings.TrimSpace(category.CategoryName)
+		if name == "" && submission.CategoryName != nil {
+			name = strings.TrimSpace(*submission.CategoryName)
+		}
+		if name == "" {
+			return nil, nil
+		}
+		return &installmentFundSelection{Level: "category", Keyword: name}, nil
+	}
+
+	if submission.SubcategoryName != nil {
+		name := strings.TrimSpace(*submission.SubcategoryName)
+		if name != "" {
+			return &installmentFundSelection{Level: "subcategory", Keyword: name}, nil
+		}
+	}
+
+	if submission.CategoryName != nil {
+		name := strings.TrimSpace(*submission.CategoryName)
+		if name != "" {
+			return &installmentFundSelection{Level: "category", Keyword: name}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime time.Time, selection *installmentFundSelection) (*int, error) {
 	if db == nil {
 		db = config.DB
 	}
@@ -870,6 +941,10 @@ func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime
 
 	if yearID > 0 {
 		query = query.Where("year_id = ?", yearID)
+	}
+
+	if selection != nil && selection.Level != "" && selection.Keyword != "" {
+		query = query.Where("fund_level = ? AND fund_keyword = ?", selection.Level, selection.Keyword)
 	}
 
 	if err := query.Find(&periods).Error; err != nil {
