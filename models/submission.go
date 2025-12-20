@@ -27,6 +27,7 @@ type Submission struct {
 	ApprovedAt                   *time.Time `gorm:"column:approved_at" json:"approved_at"`
 	SubmittedAt                  *time.Time `gorm:"column:submitted_at" json:"submitted_at"`
 	InstallmentNumberAtSubmit    *int       `gorm:"column:installment_number_at_submit" json:"installment_number_at_submit,omitempty"`
+	InstallmentFundNameAtSubmit  *string    `gorm:"column:installment_fund_name_at_submit" json:"installment_fund_name_at_submit,omitempty"`
 	CreatedAt                    time.Time  `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt                    time.Time  `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt                    *time.Time `gorm:"column:deleted_at" json:"deleted_at"`

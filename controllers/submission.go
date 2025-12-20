@@ -368,14 +368,15 @@ func UpdateSubmission(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	type UpdateSubmissionRequest struct {
-		CategoryID                *int    `json:"category_id"`
-		SubcategoryID             *int    `json:"subcategory_id"`
-		SubcategoryBudgetID       *int    `json:"subcategory_budget_id"`
-		InstallmentNumberAtSubmit *int    `json:"installment_number_at_submit"`
-		ContactPhone              *string `json:"contact_phone"`
-		BankAccount               *string `json:"bank_account"`
-		BankName                  *string `json:"bank_name"`
-		BankAccountName           *string `json:"bank_account_name"`
+		CategoryID                  *int    `json:"category_id"`
+		SubcategoryID               *int    `json:"subcategory_id"`
+		SubcategoryBudgetID         *int    `json:"subcategory_budget_id"`
+		InstallmentNumberAtSubmit   *int    `json:"installment_number_at_submit"`
+		InstallmentFundNameAtSubmit *string `json:"installment_fund_name_at_submit"`
+		ContactPhone                *string `json:"contact_phone"`
+		BankAccount                 *string `json:"bank_account"`
+		BankName                    *string `json:"bank_name"`
+		BankAccountName             *string `json:"bank_account_name"`
 		// อนาคตจะมีฟิลด์อื่นก็ใส่เพิ่มได้
 	}
 
@@ -419,6 +420,14 @@ func UpdateSubmission(c *gin.Context) {
 	}
 	if req.InstallmentNumberAtSubmit != nil {
 		updates["installment_number_at_submit"] = *req.InstallmentNumberAtSubmit
+	}
+	if req.InstallmentFundNameAtSubmit != nil {
+		trimmed := strings.TrimSpace(*req.InstallmentFundNameAtSubmit)
+		if trimmed == "" {
+			updates["installment_fund_name_at_submit"] = nil
+		} else {
+			updates["installment_fund_name_at_submit"] = trimmed
+		}
 	}
 
 	if phone := normalizeOptionalString(req.ContactPhone); phone != nil {
@@ -617,6 +626,12 @@ func SubmitSubmission(c *gin.Context) {
 			log.Printf("failed to resolve installment number for submission %d: %v", submission.SubmissionID, resolveErr)
 		}
 
+		var installmentFundName *string
+		if selection, selectionErr := resolveSubmissionFundSelection(tx, &submission); selectionErr == nil && selection != nil && strings.TrimSpace(selection.Keyword) != "" {
+			name := strings.TrimSpace(selection.Keyword)
+			installmentFundName = &name
+		}
+
 		updates := map[string]interface{}{
 			"status_id":              targetStatusID,
 			"submitted_at":           &now,
@@ -641,6 +656,9 @@ func SubmitSubmission(c *gin.Context) {
 		if resolvedInstallment != nil {
 			updates["installment_number_at_submit"] = *resolvedInstallment
 		}
+		if installmentFundName != nil {
+			updates["installment_fund_name_at_submit"] = *installmentFundName
+		}
 
 		if err := tx.Model(&models.Submission{}).
 			Where("submission_id = ?", submission.SubmissionID).
@@ -653,6 +671,9 @@ func SubmitSubmission(c *gin.Context) {
 		submission.StatusID = targetStatusID
 		if resolvedInstallment != nil {
 			submission.InstallmentNumberAtSubmit = resolvedInstallment
+		}
+		if installmentFundName != nil {
+			submission.InstallmentFundNameAtSubmit = installmentFundName
 		}
 
 		if submission.SubmissionType != "publication_reward" {
