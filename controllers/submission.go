@@ -983,6 +983,17 @@ func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime
 			return nil, err
 		}
 	}
+	if len(periods) == 0 && selection != nil {
+		fallbackQuery := db.Model(&models.FundInstallmentPeriod{}).
+			Where("deleted_at IS NULL").
+			Order("cutoff_date ASC, installment_number ASC")
+		if yearID > 0 {
+			fallbackQuery = fallbackQuery.Where("year_id = ?", yearID)
+		}
+		if err := fallbackQuery.Find(&periods).Error; err != nil {
+			return nil, err
+		}
+	}
 	if len(periods) == 0 {
 		return nil, nil
 	}
