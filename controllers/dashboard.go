@@ -1968,10 +1968,11 @@ func buildAdminUpcomingInstallments(filter dashboardFilter) []map[string]interfa
 		Name              string
 		CutoffDate        time.Time
 		Year              string
+		FundKeyword       string
 	}
 
 	query := config.DB.Table("fund_installment_periods fip").
-		Select("fip.installment_number, fip.name, fip.cutoff_date, y.year").
+		Select("fip.installment_number, fip.name, fip.cutoff_date, y.year, fip.fund_keyword").
 		Joins("JOIN years y ON fip.year_id = y.year_id").
 		Where("fip.deleted_at IS NULL")
 
@@ -2026,6 +2027,7 @@ func buildAdminUpcomingInstallments(filter dashboardFilter) []map[string]interfa
 			"name":            periodLabel,
 			"cutoff_date":     row.CutoffDate.Format("2006-01-02"),
 			"year":            row.Year,
+			"fund_keyword":    row.FundKeyword,
 			"days_remaining":  remainingDays,
 			"status":          status,
 			"cutoff_datetime": row.CutoffDate.Format(time.RFC3339),

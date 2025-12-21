@@ -39,7 +39,7 @@ var legacyFundSelections = map[string]fundSelection{
 	},
 	"international_presentation": {
 		Level:         "subcategory",
-		Keyword:       "ทุนนำเสนอต่างประเทศ",
+		Keyword:       "ทุนสนับสนุนผู้เชี่ยวชาญต่างประเทศ",
 		ParentKeyword: ptrString("ทุนส่งเสริมการวิจัย"),
 	},
 }
