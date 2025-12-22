@@ -876,6 +876,24 @@ type installmentFundSelection struct {
 	Keyword string
 }
 
+func normalizeFundName(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	normalized := strings.TrimLeft(trimmed, " \t\n\r")
+	for {
+		changed := strings.TrimLeft(normalized, "0123456789.")
+		if changed == normalized {
+			break
+		}
+		normalized = strings.TrimSpace(changed)
+	}
+
+	return normalized
+}
+
 func determineSubmissionInstallmentNumber(db *gorm.DB, submission models.Submission, submissionTime time.Time) (*int, error) {
 	selection, err := resolveSubmissionFundSelection(db, &submission)
 	if err != nil {
@@ -906,9 +924,9 @@ func resolveSubmissionFundSelection(db *gorm.DB, submission *models.Submission) 
 			return nil, err
 		}
 
-		name := strings.TrimSpace(subcategory.SubcategoryName)
+		name := normalizeFundName(subcategory.SubcategoryName)
 		if name == "" && submission.SubcategoryName != nil {
-			name = strings.TrimSpace(*submission.SubcategoryName)
+			name = normalizeFundName(*submission.SubcategoryName)
 		}
 		if name == "" {
 			return nil, nil
@@ -923,9 +941,9 @@ func resolveSubmissionFundSelection(db *gorm.DB, submission *models.Submission) 
 			return nil, err
 		}
 
-		name := strings.TrimSpace(category.CategoryName)
+		name := normalizeFundName(category.CategoryName)
 		if name == "" && submission.CategoryName != nil {
-			name = strings.TrimSpace(*submission.CategoryName)
+			name = normalizeFundName(*submission.CategoryName)
 		}
 		if name == "" {
 			return nil, nil
@@ -934,20 +952,32 @@ func resolveSubmissionFundSelection(db *gorm.DB, submission *models.Submission) 
 	}
 
 	if submission.SubcategoryName != nil {
-		name := strings.TrimSpace(*submission.SubcategoryName)
+		name := normalizeFundName(*submission.SubcategoryName)
 		if name != "" {
 			return &installmentFundSelection{Level: "subcategory", Keyword: name}, nil
 		}
 	}
 
 	if submission.CategoryName != nil {
-		name := strings.TrimSpace(*submission.CategoryName)
+		name := normalizeFundName(*submission.CategoryName)
 		if name != "" {
 			return &installmentFundSelection{Level: "category", Keyword: name}, nil
 		}
 	}
 
 	return nil, nil
+}
+
+func matchesFundKeyword(periodKeyword string, selectionKeyword string) bool {
+	periodNormalized := normalizeFundName(periodKeyword)
+	selectionNormalized := normalizeFundName(selectionKeyword)
+	if periodNormalized == "" || selectionNormalized == "" {
+		return false
+	}
+	if strings.EqualFold(periodNormalized, selectionNormalized) {
+		return true
+	}
+	return strings.Contains(periodNormalized, selectionNormalized) || strings.Contains(selectionNormalized, periodNormalized)
 }
 
 func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime time.Time, selection *installmentFundSelection) (*int, error) {
@@ -978,9 +1008,29 @@ func resolveInstallmentNumberFromPeriods(db *gorm.DB, yearID int, submissionTime
 		if yearID > 0 {
 			fallbackQuery = fallbackQuery.Where("year_id = ?", yearID)
 		}
-		fallbackQuery = fallbackQuery.Where("fund_level = ? AND fund_keyword LIKE ?", selection.Level, "%"+selection.Keyword+"%")
+		selectionName := normalizeFundName(selection.Keyword)
+		fallbackQuery = fallbackQuery.Where("fund_level = ? AND fund_keyword LIKE ?", selection.Level, "%"+selectionName+"%")
 		if err := fallbackQuery.Find(&periods).Error; err != nil {
 			return nil, err
+		}
+	}
+	if len(periods) == 0 && selection != nil && selection.Level != "" && selection.Keyword != "" {
+		fallbackQuery := db.Model(&models.FundInstallmentPeriod{}).
+			Where("deleted_at IS NULL").
+			Order("cutoff_date ASC, installment_number ASC").
+			Where("fund_level = ?", selection.Level)
+		if yearID > 0 {
+			fallbackQuery = fallbackQuery.Where("year_id = ?", yearID)
+		}
+		var rawPeriods []models.FundInstallmentPeriod
+		if err := fallbackQuery.Find(&rawPeriods).Error; err != nil {
+			return nil, err
+		}
+		periods = rawPeriods[:0]
+		for _, period := range rawPeriods {
+			if matchesFundKeyword(ptrValue(period.FundKeyword), selection.Keyword) {
+				periods = append(periods, period)
+			}
 		}
 	}
 	if len(periods) == 0 && selection != nil {
