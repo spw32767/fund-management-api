@@ -90,6 +90,8 @@ func GetSubmissionDetails(c *gin.Context) {
 		return
 	}
 
+	populateInstallmentFallback(config.DB, &s)
+
 	// 2) fallback: ถ้า User ไม่ถูก preload แต่มี user_id ให้ดึงซ้ำแบบตรงๆ
 	if s.UserID > 0 && (s.User == nil || s.User.UserID == 0) {
 		var owner models.User

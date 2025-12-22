@@ -141,6 +141,8 @@ func GetSubmission(c *gin.Context) {
 		return
 	}
 
+	populateInstallmentFallback(config.DB, &submission)
+
 	// Ensure applicant user data is loaded
 	if submission.User == nil && submission.UserID != 0 {
 		var applicant models.User
@@ -905,6 +907,45 @@ func determineSubmissionInstallmentNumber(db *gorm.DB, submission models.Submiss
 		return nil, err
 	}
 	return number, nil
+}
+
+func populateInstallmentFallback(db *gorm.DB, submission *models.Submission) {
+	if submission == nil {
+		return
+	}
+
+	if submission.InstallmentNumberAtSubmit != nil {
+		return
+	}
+
+	submissionTime := submission.CreatedAt
+	if submission.SubmittedAt != nil && !submission.SubmittedAt.IsZero() {
+		submissionTime = *submission.SubmittedAt
+	}
+
+	resolved, err := determineSubmissionInstallmentNumber(db, *submission, submissionTime)
+	if err != nil {
+		log.Printf("[populateInstallmentFallback] resolve installment error for submission %d: %v", submission.SubmissionID, err)
+		return
+	}
+
+	selection, selectionErr := resolveSubmissionFundSelection(db, submission)
+	if selectionErr != nil {
+		log.Printf("[populateInstallmentFallback] resolve selection error for submission %d: %v", submission.SubmissionID, selectionErr)
+	}
+
+	if resolved != nil {
+		submission.InstallmentNumberAtSubmit = resolved
+	}
+
+	if selection != nil && selection.Keyword != "" {
+		name := strings.TrimSpace(selection.Keyword)
+		if name != "" {
+			submission.InstallmentFundNameAtSubmit = &name
+		}
+	}
+
+	log.Printf("[populateInstallmentFallback] submission %d installment=%v selection=%v", submission.SubmissionID, submission.InstallmentNumberAtSubmit, selection)
 }
 
 func resolveSubmissionFundSelection(db *gorm.DB, submission *models.Submission) (*installmentFundSelection, error) {

@@ -552,6 +552,8 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		return nil, err
 	}
 
+	populateInstallmentFallback(config.DB, &submission)
+
 	// ---- applicant (เหมือนเดิม) ----
 	var applicant map[string]any
 	if submission.User != nil && submission.User.UserID > 0 {
@@ -663,6 +665,9 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"updated_at":   submission.UpdatedAt,
 		"submitted_at": submission.SubmittedAt,
 		"reviewed_at":  submission.ReviewedAt,
+
+		"installment_number_at_submit":    submission.InstallmentNumberAtSubmit,
+		"installment_fund_name_at_submit": submission.InstallmentFundNameAtSubmit,
 
 		"head_approved_by":       submission.HeadApprovedBy,
 		"head_approved_at":       submission.HeadApprovedAt,
