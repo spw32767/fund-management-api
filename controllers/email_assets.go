@@ -14,7 +14,7 @@ var (
 
 var defaultEmailLogoURLs = []string{
 	"https://api.computing.kku.ac.th//storage/images/1663735797-CPlogo-final-01.png",
-	"http://147.50.230.213:8080/uploads/email_assets/fund_cpkku_logo.png",
+	// "http://147.50.230.213:8080/uploads/email_assets/fund_cpkku_logo.png",
 }
 
 func getEmailLogoHTML() string {

@@ -331,7 +331,7 @@ func sendPasswordResetEmail(user models.User, rawToken string) error {
 		fullName = "ผู้ใช้งาน"
 	}
 
-	subject := "Password Reset Instructions"
+	subject := "คำแนะนำการรีเซ็ตรหัสผ่าน"
 	expiresIn := "10 นาที"
 	paragraphs := []string{
 		fmt.Sprintf("เรียนคุณ %s", fullName),

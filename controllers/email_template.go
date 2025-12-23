@@ -46,10 +46,9 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 		}
 		if len(rows) > 0 {
 			var metaBuilder strings.Builder
-			metaBuilder.WriteString(`<tr><td style="padding:0 32px 24px 32px;">
+			metaBuilder.WriteString(`<div style="margin:0 0 24px 0;">
 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #e5e7eb;border-radius:12px;background-color:#f9fafb;">
-<tbody>
-`)
+<tbody>`)
 			for i, row := range rows {
 				border := "border-bottom:1px solid #e5e7eb;"
 				if i == len(rows)-1 {
@@ -63,35 +62,27 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 			}
 			metaBuilder.WriteString(`</tbody>
 </table>
-</td></tr>
-`)
+</div>`)
 			metaSection = metaBuilder.String()
 		}
 	}
 
 	buttonSection := ""
 	if strings.TrimSpace(buttonText) != "" && strings.TrimSpace(buttonURL) != "" {
-		buttonSection = fmt.Sprintf(`<tr>
-<td align="center" style="padding: 12px 32px 36px 32px;">
+		buttonSection = fmt.Sprintf(`<div style="text-align:center;margin:12px 0 24px 0;">
 <a href="%s" style="display:inline-block;padding:12px 28px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:999px;font-weight:600;word-break:break-word;">%s</a>
-</td>
-</tr>`, template.HTMLEscapeString(buttonURL), template.HTMLEscapeString(buttonText))
+</div>`, template.HTMLEscapeString(buttonURL), template.HTMLEscapeString(buttonText))
 	}
 
 	footerSection := ""
 	if strings.TrimSpace(footerHTML) != "" {
-		footerSection = fmt.Sprintf(`<tr>
-<td style="padding: 0 32px 32px 32px; color:#6b7280; font-size:13px; line-height:1.7;">%s</td>
-</tr>`, footerHTML)
+		footerSection = fmt.Sprintf(`<div style="color:#6b7280;font-size:13px;line-height:1.7;">%s</div>`, footerHTML)
 	}
 
 	logoHTML := strings.TrimSpace(getEmailLogoHTML())
 	logoSection := ""
-	headerPadding := "36px 32px 0 32px"
 	if logoHTML != "" {
 		logoSection = logoHTML
-	} else {
-		headerPadding = "32px 32px 0 32px"
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
@@ -101,31 +92,21 @@ func buildEmailTemplate(subject string, paragraphs []string, meta []emailMetaIte
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%s</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6fb;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f6fb;">
-<tr>
-<td align="center" style="padding:32px 16px;">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;background-color:#ffffff;border-radius:16px;border:1px solid #e5e7eb;">
-<tbody>
-<tr>
-<td style="padding:%s;text-align:center;border-bottom:1px solid #f3f4f6;">
+<body style="margin:0;padding:0;background-color:#f9fafb;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+<div style="max-width:640px;margin:0 auto;padding:24px 20px;">
+<div style="background-color:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 24px 28px 24px;">
+<div style="text-align:center;">
 %s
 <h1 style="margin:18px 0 0 0;font-size:22px;font-weight:700;color:#111827;line-height:1.35;word-break:break-word;">%s</h1>
-</td>
-</tr>
-<tr>
-<td style="padding:24px 32px 8px 32px;color:#1f2937;font-size:16px;line-height:1.75;word-break:break-word;">
+</div>
+<div style="margin-top:20px;color:#1f2937;font-size:16px;line-height:1.75;word-break:break-word;">
 %s
-</td>
-</tr>
+</div>
 %s
 %s
 %s
-</tbody>
-</table>
-</td>
-</tr>
-</table>
+</div>
+</div>
 </body>
-</html>`, template.HTMLEscapeString(subject), headerPadding, logoSection, template.HTMLEscapeString(subject), contentBuilder.String(), metaSection, buttonSection, footerSection)
+</html>`, template.HTMLEscapeString(subject), logoSection, template.HTMLEscapeString(subject), contentBuilder.String(), metaSection, buttonSection, footerSection)
 }
