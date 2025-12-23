@@ -31,11 +31,29 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Create logs directory if not exists
+	logPath := filepath.Dir(config.LogFilePath())
+	if err := os.MkdirAll(logPath, os.ModePerm); err != nil {
+		log.Printf("Warning: Failed to create logs directory: %v", err)
+	}
+
+	logWriter := io.Writer(os.Stdout)
+	logFile, err := os.OpenFile(config.LogFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Printf("Warning: Failed to open log file: %v", err)
+	} else {
+		defer logFile.Close()
+		logWriter = io.MultiWriter(os.Stdout, logFile)
+	}
+	log.SetOutput(logWriter)
+	gin.DefaultWriter = logWriter
+	gin.DefaultErrorWriter = logWriter
+
 	// Create Gin router
 	router := gin.New()
 
 	// Add logging middleware
-	router.Use(gin.Logger())
+	router.Use(gin.LoggerWithWriter(logWriter))
 
 	// Add recovery middleware
 	router.Use(gin.Recovery())
@@ -73,23 +91,6 @@ func main() {
 	}
 	if err := os.MkdirAll(uploadPath, os.ModePerm); err != nil {
 		log.Printf("Warning: Failed to create upload directory: %v", err)
-	}
-
-	// Create logs directory if not exists
-	logPath := filepath.Dir(config.LogFilePath())
-	if err := os.MkdirAll(logPath, os.ModePerm); err != nil {
-		log.Printf("Warning: Failed to create logs directory: %v", err)
-	}
-
-	logFile, err := os.OpenFile(config.LogFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Printf("Warning: Failed to open log file: %v", err)
-	} else {
-		defer logFile.Close()
-		multiWriter := io.MultiWriter(os.Stdout, logFile)
-		log.SetOutput(multiWriter)
-		gin.DefaultWriter = multiWriter
-		gin.DefaultErrorWriter = multiWriter
 	}
 
 	// Start server
