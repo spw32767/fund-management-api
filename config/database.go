@@ -33,7 +33,10 @@ func InitDB() {
 
 	// Configure GORM
 	config := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.New(
+			log.New(LogWriter, "\r\n", log.LstdFlags),
+			logger.Config{LogLevel: logger.Info},
+		),
 	}
 
 	// Connect to database
