@@ -483,6 +483,9 @@ func DownloadAnnouncementFile(c *gin.Context) {
 	}()
 
 	// Set headers for download
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", announcement.FileName))
 	c.Header("Content-Type", "application/octet-stream")
 	c.File(announcement.FilePath)
@@ -527,6 +530,9 @@ func ViewAnnouncementFile(c *gin.Context) {
 	}()
 
 	// Set headers for inline viewing
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	if announcement.MimeType != nil {
 		c.Header("Content-Type", *announcement.MimeType)
 	}
