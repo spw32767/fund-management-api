@@ -5,10 +5,8 @@ import (
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
 	"fund-management-api/routes"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -22,6 +20,13 @@ func main() {
 
 	config.ReloadMailerConfig()
 
+	logFile, logWriter := config.InitLogging()
+	if logFile != nil {
+		defer logFile.Close()
+	}
+	gin.DefaultWriter = logWriter
+	gin.DefaultErrorWriter = logWriter
+
 	// Initialize database
 	config.InitDB()
 
@@ -30,24 +35,6 @@ func main() {
 	if ginMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-
-	// Create logs directory if not exists
-	logPath := filepath.Dir(config.LogFilePath())
-	if err := os.MkdirAll(logPath, os.ModePerm); err != nil {
-		log.Printf("Warning: Failed to create logs directory: %v", err)
-	}
-
-	logWriter := io.Writer(os.Stdout)
-	logFile, err := os.OpenFile(config.LogFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		log.Printf("Warning: Failed to open log file: %v", err)
-	} else {
-		defer logFile.Close()
-		logWriter = io.MultiWriter(os.Stdout, logFile)
-	}
-	log.SetOutput(logWriter)
-	gin.DefaultWriter = logWriter
-	gin.DefaultErrorWriter = logWriter
 
 	// Create Gin router
 	router := gin.New()
