@@ -2,6 +2,7 @@ package routes
 
 import (
 	"fmt"
+	"fund-management-api/config"
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
@@ -664,7 +665,7 @@ func RegisterLogRoute(r *gin.Engine) {
 		}
 
 		// Path to your log file
-		logData, err := os.ReadFile("fund-api.log")
+		logData, err := os.ReadFile(config.LogFilePath())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read log"})
 			return

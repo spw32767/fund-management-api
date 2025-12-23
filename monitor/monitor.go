@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"bufio"
+	"fund-management-api/config"
 	"os"
 	"strconv"
 	"strings"
@@ -559,7 +560,7 @@ func RegisterLogsRoute(router *gin.Engine) {
 		searchTerm := c.Query("search")
 
 		// Read log file
-		file, err := os.Open("fund-api.log")
+		file, err := os.Open(config.LogFilePath())
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Unable to read log"})
 			return
@@ -651,7 +652,7 @@ func RegisterLogsRoute(router *gin.Engine) {
 		}
 
 		// Clear the log file by truncating it
-		err := os.Truncate("fund-api.log", 0)
+		err := os.Truncate(config.LogFilePath(), 0)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Unable to clear log file"})
 			return
