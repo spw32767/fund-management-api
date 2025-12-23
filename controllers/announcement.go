@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -64,6 +65,18 @@ func canonicalMime(rawCT, filename string, allowed map[string]string, extMap map
 	}
 
 	return "", false
+}
+
+var (
+	announcementViewsOnce     sync.Once
+	hasAnnouncementViewsTable bool
+)
+
+func announcementViewsAvailable() bool {
+	announcementViewsOnce.Do(func() {
+		hasAnnouncementViewsTable = config.DB.Migrator().HasTable(&models.AnnouncementView{})
+	})
+	return hasAnnouncementViewsTable
 }
 
 // ===== ANNOUNCEMENT CONTROLLERS =====
@@ -462,25 +475,27 @@ func DownloadAnnouncementFile(c *gin.Context) {
 	}
 
 	// Track download (optional)
-	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
+	if announcementViewsAvailable() {
+		go func() {
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
 
-		// Record download in tracking table (if enabled)
-		view := models.AnnouncementView{
-			AnnouncementID: announcement.AnnouncementID,
-			IPAddress:      &ipAddress,
-			UserAgent:      &userAgent,
-			ViewedAt:       time.Now(),
-		}
+			// Record download in tracking table (if enabled)
+			view := models.AnnouncementView{
+				AnnouncementID: announcement.AnnouncementID,
+				IPAddress:      &ipAddress,
+				UserAgent:      &userAgent,
+				ViewedAt:       time.Now(),
+			}
 
-		if userID, ok := getUserIDFromContext(c); ok {
-			uid := int(userID)
-			view.UserID = &uid
-		}
+			if userID, ok := getUserIDFromContext(c); ok {
+				uid := int(userID)
+				view.UserID = &uid
+			}
 
-		config.DB.Create(&view)
-	}()
+			config.DB.Create(&view)
+		}()
+	}
 
 	// Set headers for download
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -510,24 +525,26 @@ func ViewAnnouncementFile(c *gin.Context) {
 	}
 
 	// Track view (optional)
-	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
+	if announcementViewsAvailable() {
+		go func() {
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
 
-		view := models.AnnouncementView{
-			AnnouncementID: announcement.AnnouncementID,
-			IPAddress:      &ipAddress,
-			UserAgent:      &userAgent,
-			ViewedAt:       time.Now(),
-		}
+			view := models.AnnouncementView{
+				AnnouncementID: announcement.AnnouncementID,
+				IPAddress:      &ipAddress,
+				UserAgent:      &userAgent,
+				ViewedAt:       time.Now(),
+			}
 
-		if userID, ok := getUserIDFromContext(c); ok {
-			uid := int(userID)
-			view.UserID = &uid
-		}
+			if userID, ok := getUserIDFromContext(c); ok {
+				uid := int(userID)
+				view.UserID = &uid
+			}
 
-		config.DB.Create(&view)
-	}()
+			config.DB.Create(&view)
+		}()
+	}
 
 	// Set headers for inline viewing
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
