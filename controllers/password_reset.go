@@ -331,11 +331,11 @@ func sendPasswordResetEmail(user models.User, rawToken string) error {
 		fullName = "ผู้ใช้งาน"
 	}
 
-	subject := "คำแนะนำการรีเซ็ตรหัสผ่าน"
+	subject := "ตั้งค่ารหัสผ่านใหม่"
 	expiresIn := "10 นาที"
 	paragraphs := []string{
 		fmt.Sprintf("เรียนคุณ %s", fullName),
-		"เราได้รับคำขอให้รีเซ็ตรหัสผ่านสำหรับระบบบริหารจัดการทุนวิจัย",
+		"เราได้รับคำขอให้ตั้งค่ารหัสผ่านใหม่สำหรับระบบบริหารจัดการทุนวิจัย",
 	}
 
 	paragraphs = append(paragraphs,
@@ -355,7 +355,7 @@ func sendPasswordResetEmail(user models.User, rawToken string) error {
 		escapedResetURL,
 	)
 
-	html := buildEmailTemplate(subject, paragraphs, meta, "รีเซ็ตรหัสผ่าน", resetURL, footerHTML)
+	html := buildEmailTemplate(subject, paragraphs, meta, "ตั้งค่ารหัสผ่านใหม่", resetURL, footerHTML)
 	return sendMailFunc([]string{user.Email}, subject, html)
 }
 
