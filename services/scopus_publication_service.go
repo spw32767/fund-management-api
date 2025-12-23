@@ -315,8 +315,9 @@ func latestCiteScoreMetricsSubquery(db *gorm.DB) *gorm.DB {
 	return db.Table("scopus_source_metrics AS ssm").
 		Select("ssm.source_id, ssm.cite_score_percentile, ssm.cite_score_quartile, ssm.cite_score_status, ssm.cite_score_rank").
 		Where("ssm.doc_type = ?", "all").
+		Where("LOWER(ssm.cite_score_status) = ?", "complete").
 		Where(
-			"ssm.metric_year = (SELECT MAX(metric_year) FROM scopus_source_metrics WHERE source_id = ssm.source_id AND doc_type = ssm.doc_type)",
+			"ssm.metric_year = (SELECT MAX(metric_year) FROM scopus_source_metrics WHERE source_id = ssm.source_id AND doc_type = ssm.doc_type AND LOWER(cite_score_status) = 'complete')",
 		)
 }
 
