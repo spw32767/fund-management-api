@@ -3,7 +3,6 @@ package controllers
 
 import (
 	"database/sql"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -12,7 +11,6 @@ import (
 	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // matchesFund determines if a fund description matches a given quartile bucket.
@@ -52,6 +50,93 @@ func matchesFund(desc, authorStatus, quartile string) bool {
 	default:
 		return false
 	}
+}
+
+type ratePriority int
+
+const (
+	rateLatest ratePriority = iota
+	rateLatestActive
+	rateYear
+	rateYearActive
+)
+
+// rateRank assigns a priority for comparing reward rates when resolving budgets across years.
+// Higher values are preferred.
+func rateRank(rate models.PublicationRewardRate, targetYear string) ratePriority {
+	if rate.Year == targetYear {
+		if rate.IsActive {
+			return rateYearActive
+		}
+		return rateYear
+	}
+
+	if rate.IsActive {
+		return rateLatestActive
+	}
+
+	return rateLatest
+}
+
+// pickBestRate chooses the most suitable rate for a given author status and quartile with the
+// following precedence:
+// 1) Active record for the requested year
+// 2) Any record for the requested year
+// 3) Latest active record across years
+// 4) Latest record across years
+func pickBestRate(all []models.PublicationRewardRate, authorStatus, quartile, targetYear string) *models.PublicationRewardRate {
+	var best *models.PublicationRewardRate
+	for i := range all {
+		r := all[i]
+		if r.AuthorStatus != authorStatus || r.JournalQuartile != quartile {
+			continue
+		}
+
+		if best == nil {
+			best = &r
+			continue
+		}
+
+		currentRank := rateRank(*best, targetYear)
+		candidateRank := rateRank(r, targetYear)
+		if candidateRank > currentRank {
+			best = &r
+			continue
+		}
+
+		if candidateRank == currentRank && r.Year > best.Year {
+			best = &r
+		}
+	}
+
+	return best
+}
+
+// collectBestRates builds a map of the best rates per author_status/quartile for a target year
+// using the pickBestRate precedence rules.
+func collectBestRates(targetYear string) (map[string]models.PublicationRewardRate, error) {
+	var allRates []models.PublicationRewardRate
+	if err := config.DB.Order("year DESC").Find(&allRates).Error; err != nil {
+		return nil, err
+	}
+
+	byKey := make(map[string]models.PublicationRewardRate)
+	for _, rate := range allRates {
+		key := rate.AuthorStatus + "|" + rate.JournalQuartile
+		best, ok := byKey[key]
+		if !ok {
+			byKey[key] = rate
+			continue
+		}
+
+		currentRank := rateRank(best, targetYear)
+		candidateRank := rateRank(rate, targetYear)
+		if candidateRank > currentRank || (candidateRank == currentRank && rate.Year > best.Year) {
+			byKey[key] = rate
+		}
+	}
+
+	return byKey, nil
 }
 
 // GetEnabledYearsForCategory returns years that have budgets for a category
@@ -105,47 +190,11 @@ func GetPublicationOptions(c *gin.Context) {
 		return
 	}
 
-	// Load active rates for the given year, fallback to non-active rows for that year, then the latest available year when missing
-	var rates []models.PublicationRewardRate
 	rateYear := year.Year
-	if err := config.DB.
-		Where("year = ? AND is_active = ?", rateYear, true).
-		Find(&rates).Error; err != nil {
+	bestRates, err := collectBestRates(rateYear)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch rates"})
 		return
-	}
-	if len(rates) == 0 {
-		// Try any (including inactive) rates for the requested year
-		if err := config.DB.
-			Where("year = ?", rateYear).
-			Find(&rates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fallback rates"})
-			return
-		}
-
-		// If still empty, fall back to the latest available active year
-		if len(rates) == 0 {
-			var fallbackYears []string
-			if err := config.DB.Model(&models.PublicationRewardRate{}).
-				Select("year").
-				Where("is_active = ?", true).
-				Order("year DESC").
-				Limit(1).
-				Pluck("year", &fallbackYears).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve fallback rates"})
-				return
-			}
-
-			if len(fallbackYears) > 0 {
-				rateYear = fallbackYears[0]
-				if err := config.DB.
-					Where("year = ? AND is_active = ?", rateYear, true).
-					Find(&rates).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fallback rates"})
-					return
-				}
-			}
-		}
 	}
 
 	// Load active budgets for the category/year
@@ -178,7 +227,7 @@ func GetPublicationOptions(c *gin.Context) {
 	// Match budgets to rate rows by fund_description bucket
 	options := []gin.H{}
 	matchedKeys := make(map[string]bool)
-	for _, rate := range rates {
+	for _, rate := range bestRates {
 		for _, b := range budgets {
 			if matchesFund(b.FundDescription, rate.AuthorStatus, rate.JournalQuartile) {
 				key := rate.AuthorStatus + "|" + rate.JournalQuartile
@@ -199,7 +248,7 @@ func GetPublicationOptions(c *gin.Context) {
 	// Fallback: ถ้าไม่พบ budget ที่ match กับ quartile ให้ใช้ budget แรกที่ active
 	if len(budgets) > 0 {
 		defaultBudget := budgets[0]
-		for _, rate := range rates {
+		for _, rate := range bestRates {
 			key := rate.AuthorStatus + "|" + rate.JournalQuartile
 			if matchedKeys[key] {
 				continue
@@ -249,40 +298,16 @@ func ResolvePublicationBudget(c *gin.Context) {
 		return
 	}
 
-	// Find the active rate row for (year, authorStatus, quartile) with fallback to inactive rows for the year and then the latest available year
-	var rate models.PublicationRewardRate
-	err := config.DB.
-		Where("year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?", year.Year, authorStatus, quartile, true).
-		First(&rate).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch rate"})
-			return
-		}
+	var allRates []models.PublicationRewardRate
+	if err := config.DB.Order("year DESC").Find(&allRates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch rates"})
+		return
+	}
 
-		// Fall back to any (including inactive) rate for the requested year
-		if err := config.DB.
-			Where("year = ? AND author_status = ? AND journal_quartile = ?", year.Year, authorStatus, quartile).
-			Order("is_active DESC, year DESC").
-			First(&rate).Error; err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch fallback rate"})
-				return
-			}
-
-			// Fall back to the latest available active rate for the requested author status and quartile
-			if err := config.DB.
-				Where("author_status = ? AND journal_quartile = ? AND is_active = ?", authorStatus, quartile, true).
-				Order("year DESC").
-				First(&rate).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					c.JSON(http.StatusNotFound, gin.H{"error": "rate not found"})
-					return
-				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch fallback rate"})
-				return
-			}
-		}
+	rate := pickBestRate(allRates, authorStatus, quartile, year.Year)
+	if rate == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "rate not found"})
+		return
 	}
 
 	// Load budgets for the category/year
