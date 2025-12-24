@@ -166,9 +166,12 @@ func GetPublicationOptions(c *gin.Context) {
 
 	// Match budgets to rate rows by fund_description bucket
 	options := []gin.H{}
+	matchedKeys := make(map[string]bool)
 	for _, rate := range rates {
 		for _, b := range budgets {
 			if matchesFund(b.FundDescription, rate.AuthorStatus, rate.JournalQuartile) {
+				key := rate.AuthorStatus + "|" + rate.JournalQuartile
+				matchedKeys[key] = true
 				options = append(options, gin.H{
 					"author_status":         rate.AuthorStatus,
 					"journal_quartile":      rate.JournalQuartile,
@@ -179,6 +182,27 @@ func GetPublicationOptions(c *gin.Context) {
 				})
 				break
 			}
+		}
+	}
+
+	// Fallback: ถ้าไม่พบ budget ที่ match กับ quartile ให้ใช้ budget แรกที่ active
+	if len(budgets) > 0 {
+		defaultBudget := budgets[0]
+		for _, rate := range rates {
+			key := rate.AuthorStatus + "|" + rate.JournalQuartile
+			if matchedKeys[key] {
+				continue
+			}
+
+			options = append(options, gin.H{
+				"author_status":         rate.AuthorStatus,
+				"journal_quartile":      rate.JournalQuartile,
+				"reward_amount":         rate.RewardAmount,
+				"subcategory_id":        defaultBudget.SubcategoryID,
+				"subcategory_budget_id": defaultBudget.BudgetID,
+				"fund_description":      defaultBudget.FundDescription,
+			})
+			matchedKeys[key] = true
 		}
 	}
 
