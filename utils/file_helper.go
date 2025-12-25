@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // CreateUserFolderIfNotExists สร้างโฟลเดอร์ user ถ้ายังไม่มี
@@ -83,35 +82,39 @@ func CreateAdminEventFolder(submissionFolderPath string, eventID int) (string, e
 
 // SanitizeForFilename ทำความสะอาดชื่อไฟล์
 func SanitizeForFilename(filename string) string {
-	// แทนที่อักขระพิเศษที่ไม่ปลอดภัย
+	// Remove characters that are invalid on Windows filesystems.
 	reg := regexp.MustCompile(`[<>:"/\\|?*]`)
-	filename = reg.ReplaceAllString(filename, "_")
+	cleaned := reg.ReplaceAllString(filename, "_")
+	cleaned = strings.TrimSpace(cleaned)
 
-	// แทนที่ช่องว่างที่ต่อเนื่องด้วย underscore
-	reg = regexp.MustCompile(`\s+`)
-	filename = reg.ReplaceAllString(filename, "_")
+	// Replace any whitespace (including tabs and newlines) with underscores before truncation.
+	whitespace := regexp.MustCompile(`\s+`)
+	cleaned = whitespace.ReplaceAllString(cleaned, "_")
 
-	// ลบอักขระที่ไม่ปลอดภัยสำหรับ filesystem
-	var result strings.Builder
-	for _, r := range filename {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' ||
-			unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r) {
-			result.WriteRune(r)
-		} else if unicode.IsSpace(r) {
-			result.WriteRune('_')
+	// Truncate by runes (to avoid corrupting multi-byte characters) while preserving the extension.
+	const maxLength = 100
+	runes := []rune(cleaned)
+	if len(runes) > maxLength {
+		extRunes := []rune(filepath.Ext(cleaned))
+		baseLength := len(runes) - len(extRunes)
+		if baseLength < 0 {
+			baseLength = len(runes)
 		}
+		nameRunes := runes[:baseLength]
+
+		allowedBaseLength := maxLength - len(extRunes)
+		if allowedBaseLength < 1 {
+			allowedBaseLength = 1
+		}
+		if len(nameRunes) > allowedBaseLength {
+			nameRunes = nameRunes[:allowedBaseLength]
+		}
+
+		cleaned = string(append(nameRunes, extRunes...))
 	}
 
-	cleanName := strings.TrimSpace(result.String())
-
-	// จำกัดความยาว
-	if len(cleanName) > 100 {
-		ext := filepath.Ext(cleanName)
-		nameWithoutExt := cleanName[:len(cleanName)-len(ext)]
-		cleanName = nameWithoutExt[:100-len(ext)] + ext
-	}
-
-	return cleanName
+	// Ensure the returned string is valid UTF-8 (string from runes guarantees this).
+	return cleaned
 }
 
 // GenerateUniqueFilename สร้างชื่อไฟล์ที่ไม่ซ้ำในโฟลเดอร์
