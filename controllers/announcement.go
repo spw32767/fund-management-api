@@ -88,6 +88,8 @@ func GetAnnouncements(c *gin.Context) {
 	status := c.Query("status")
 	priority := c.Query("priority")
 	activeOnly := c.Query("active_only") == "true"
+	search := strings.TrimSpace(c.Query("q"))
+	yearID := strings.TrimSpace(c.Query("year_id"))
 
 	// Build query
 	query := config.DB.Model(&models.Announcement{}).
@@ -107,6 +109,20 @@ func GetAnnouncements(c *gin.Context) {
 	}
 	if activeOnly {
 		query = query.Where("status = ?", "active")
+	}
+	if yearID != "" {
+		if parsedYear, err := strconv.Atoi(yearID); err == nil {
+			query = query.Where("year_id = ?", parsedYear)
+		}
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where(
+			"title LIKE ? OR file_name LIKE ? OR description LIKE ?",
+			like,
+			like,
+			like,
+		)
 	}
 
 	// Order by display_order (NULL ไปท้าย) แล้วค่อย fallback ที่เวลาอัปเดต/เผยแพร่
@@ -562,11 +578,19 @@ func ViewAnnouncementFile(c *gin.Context) {
 // GetFundForms - ดึงแบบฟอร์มทั้งหมด
 func GetFundForms(c *gin.Context) {
 	// Query parameters
-	formType := c.Query("type")
-	fundCategory := c.Query("category")
+	formType := strings.TrimSpace(c.Query("form_type"))
+	if formType == "" {
+		formType = c.Query("type")
+	}
+	fundCategory := strings.TrimSpace(c.Query("fund_category"))
+	if fundCategory == "" {
+		fundCategory = c.Query("category")
+	}
 	status := c.Query("status")
 	activeOnly := c.Query("active_only") == "true"
 	requiredOnly := c.Query("required_only") == "true"
+	search := strings.TrimSpace(c.Query("q"))
+	yearID := strings.TrimSpace(c.Query("year_id"))
 
 	// Build query
 	query := config.DB.Model(&models.FundForm{}).
@@ -589,6 +613,20 @@ func GetFundForms(c *gin.Context) {
 	}
 	if requiredOnly {
 		query = query.Where("is_required = ?", true)
+	}
+	if yearID != "" {
+		if parsedYear, err := strconv.Atoi(yearID); err == nil {
+			query = query.Where("year_id = ?", parsedYear)
+		}
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		query = query.Where(
+			"title LIKE ? OR file_name LIKE ? OR description LIKE ?",
+			like,
+			like,
+			like,
+		)
 	}
 
 	// Order by creation time (newest first)
