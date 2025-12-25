@@ -661,6 +661,12 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"year_id":           submission.YearID,
 		"status_id":         submission.StatusID,
 
+		// Contact & bank info (shared across submission types)
+		"contact_phone":     submission.ContactPhone,
+		"bank_account":      submission.BankAccount,
+		"bank_name":         submission.BankName,
+		"bank_account_name": submission.BankAccountName,
+
 		"created_at":   submission.CreatedAt,
 		"updated_at":   submission.UpdatedAt,
 		"submitted_at": submission.SubmittedAt,
