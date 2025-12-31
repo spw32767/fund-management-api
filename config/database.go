@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -32,10 +33,20 @@ func InitDB() {
 	)
 
 	// Configure GORM
+	environment := strings.ToLower(os.Getenv("ENVIRONMENT"))
+	debugSQL := strings.ToLower(os.Getenv("DEBUG_SQL"))
+
+	// In production, suppress SQL logs unless explicitly re-enabled via DEBUG_SQL=true.
+	// Switch the level back to logger.Info to print SQL statements again.
+	logLevel := logger.Info
+	if environment == "production" && debugSQL != "true" {
+		logLevel = logger.Warn
+	}
+
 	config := &gorm.Config{
 		Logger: logger.New(
 			log.New(LogWriter, "\r\n", log.LstdFlags),
-			logger.Config{LogLevel: logger.Info},
+			logger.Config{LogLevel: logLevel},
 		),
 	}
 
