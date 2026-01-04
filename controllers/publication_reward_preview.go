@@ -181,7 +181,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(detail.TotalAmount),
 		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
-		"{{author_name_list}}":   strings.TrimSpace(detail.AuthorNameList),
+		"{{author_name_list}}":   sanitizeInlineText(detail.AuthorNameList),
 		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
 		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
 		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
@@ -317,7 +317,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		"{{installment}}":        installmentText,
 		"{{total_amount}}":       formatAmount(totalAmount),
 		"{{total_amount_text}}":  utils.BahtText(totalAmount),
-		"{{author_name_list}}":   strings.TrimSpace(payload.FormData.AuthorNameList),
+		"{{author_name_list}}":   sanitizeInlineText(payload.FormData.AuthorNameList),
 		"{{paper_title}}":        strings.TrimSpace(payload.FormData.ArticleTitle),
 		"{{journal_name}}":       strings.TrimSpace(payload.FormData.JournalName),
 		"{{publication_year}}":   publicationYearText,
@@ -435,6 +435,17 @@ func sanitizeEndOfContractContent(value string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// sanitizeInlineText collapses whitespace and removes line breaks to keep inline fields stable in generated PDFs.
+func sanitizeInlineText(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	parts := strings.Fields(trimmed)
+	return strings.Join(parts, " ")
 }
 
 func parseFormFloat(raw string) float64 {
