@@ -17,6 +17,21 @@ import (
 	"gorm.io/gorm"
 )
 
+func updateSubmissionAnnounceReference(tx *gorm.DB, submissionType string, submissionID int, announceRef string) error {
+	switch submissionType {
+	case "fund_application":
+		return tx.Model(&models.FundApplicationDetail{}).
+			Where("submission_id = ?", submissionID).
+			Update("announce_reference_number", announceRef).Error
+	case "publication_reward":
+		return tx.Model(&models.PublicationRewardDetail{}).
+			Where("submission_id = ?", submissionID).
+			Update("announce_reference_number", announceRef).Error
+	default:
+		return nil
+	}
+}
+
 func GetDeptHeadSubmissions(c *gin.Context) {
 	statusCode := c.DefaultQuery("status_code", utils.StatusCodeDeptHeadPending)
 
@@ -129,9 +144,11 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 
 	// รองรับทั้ง head_comment (ใหม่) และ comment (เผื่อหน้าเก่าส่งมา)
 	var req struct {
-		HeadComment   *string `json:"head_comment"`
-		Comment       *string `json:"comment"`
-		HeadSignature string  `json:"head_signature"`
+		HeadComment             *string `json:"head_comment"`
+		Comment                 *string `json:"comment"`
+		HeadSignature           string  `json:"head_signature"`
+		AnnounceReferenceNumber *string `json:"announce_reference_number"`
+		AnnounceReference       *string `json:"announce_reference"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
@@ -182,6 +199,7 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		return ""
 	}
 	headComment := pick(req.HeadComment, req.Comment)
+	announceRef := pick(req.AnnounceReferenceNumber, req.AnnounceReference)
 
 	now := time.Now()
 	updates := map[string]interface{}{
@@ -223,6 +241,14 @@ func DeptHeadRecommendSubmission(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
 		return
+	}
+
+	if announceRef != "" {
+		if err := updateSubmissionAnnounceReference(tx, submission.SubmissionType, submissionID, announceRef); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update announcement reference"})
+			return
+		}
 	}
 
 	// (optional) บันทึก audit log แบบเดิม
@@ -269,11 +295,13 @@ func DeptHeadRejectSubmission(c *gin.Context) {
 	}
 
 	var req struct {
-		HeadRejectionReason string  `json:"head_rejection_reason"`
-		RejectionReason     string  `json:"rejection_reason"` // fallback from legacy clients
-		HeadComment         *string `json:"head_comment"`
-		Comment             *string `json:"comment"` // เผื่อของเก่าส่งมา
-		HeadSignature       string  `json:"head_signature"`
+		HeadRejectionReason     string  `json:"head_rejection_reason"`
+		RejectionReason         string  `json:"rejection_reason"` // fallback from legacy clients
+		HeadComment             *string `json:"head_comment"`
+		Comment                 *string `json:"comment"` // เผื่อของเก่าส่งมา
+		HeadSignature           string  `json:"head_signature"`
+		AnnounceReferenceNumber *string `json:"announce_reference_number"`
+		AnnounceReference       *string `json:"announce_reference"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -407,9 +435,11 @@ func DeptHeadRequestRevision(c *gin.Context) {
 	}
 
 	var req struct {
-		Comment       *string `json:"comment"`
-		HeadComment   *string `json:"head_comment"`
-		HeadSignature string  `json:"head_signature"`
+		Comment                 *string `json:"comment"`
+		HeadComment             *string `json:"head_comment"`
+		HeadSignature           string  `json:"head_signature"`
+		AnnounceReferenceNumber *string `json:"announce_reference_number"`
+		AnnounceReference       *string `json:"announce_reference"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(err.Error(), "EOF") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
@@ -429,6 +459,7 @@ func DeptHeadRequestRevision(c *gin.Context) {
 	}
 
 	message := pick(req.HeadComment, req.Comment)
+	announceRef := pick(req.AnnounceReferenceNumber, req.AnnounceReference)
 	if message == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Revision comment is required"})
 		return
@@ -498,6 +529,14 @@ func DeptHeadRequestRevision(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update submission"})
 		return
+	}
+
+	if announceRef != "" {
+		if err := updateSubmissionAnnounceReference(tx, submission.SubmissionType, submissionID, announceRef); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update announcement reference"})
+			return
+		}
 	}
 
 	desc := fmt.Sprintf("Department head requested revision: %s", message)
