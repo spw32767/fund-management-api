@@ -654,6 +654,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	}
 
 	// ---- details (ใส่ประกาศสำหรับ fund_application ให้แน่ใจว่ามี) ----
+	announceRef := ""
 	var detailsData any = nil
 	switch submission.SubmissionType {
 	case "publication_reward":
@@ -661,6 +662,9 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 			mapped := map[string]any{}
 			if raw, err := json.Marshal(submission.PublicationRewardDetail); err == nil {
 				_ = json.Unmarshal(raw, &mapped)
+			}
+			if strings.TrimSpace(submission.PublicationRewardDetail.AnnounceReferenceNumber) != "" {
+				announceRef = strings.TrimSpace(submission.PublicationRewardDetail.AnnounceReferenceNumber)
 			}
 			mapped["contact_phone"] = contactPhone
 			mapped["bank_account"] = bankAccount
@@ -712,6 +716,9 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 				"bank_account_name": bankAccountName,
 				"bank_name":         bankName,
 			}
+			if strings.TrimSpace(fad.AnnounceReferenceNumber) != "" {
+				announceRef = strings.TrimSpace(fad.AnnounceReferenceNumber)
+			}
 		} else {
 			// กันเคสไม่ preload detail ด้วย
 			detailsData = gin.H{
@@ -726,6 +733,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 	}
 
 	details := gin.H{"type": submission.SubmissionType, "data": detailsData}
+
+	if announceRef == "" && strings.TrimSpace(submission.AnnounceReferenceNumber) != "" {
+		announceRef = strings.TrimSpace(submission.AnnounceReferenceNumber)
+	}
 
 	// ---- submission_users (เหมือนเดิม) ----
 	submissionUsers := make([]gin.H, 0, len(submission.SubmissionUsers))
@@ -755,12 +766,13 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 
 	// ---- payload หลัก (เหมือนเดิม) ----
 	submissionPayload := gin.H{
-		"submission_id":     submission.SubmissionID,
-		"submission_number": submission.SubmissionNumber,
-		"submission_type":   submission.SubmissionType,
-		"user_id":           submission.UserID,
-		"year_id":           submission.YearID,
-		"status_id":         submission.StatusID,
+		"submission_id":             submission.SubmissionID,
+		"submission_number":         submission.SubmissionNumber,
+		"submission_type":           submission.SubmissionType,
+		"user_id":                   submission.UserID,
+		"year_id":                   submission.YearID,
+		"status_id":                 submission.StatusID,
+		"announce_reference_number": announceRef,
 
 		// Contact & bank info (shared across submission types)
 		"contact_phone":     submission.ContactPhone,
