@@ -573,7 +573,9 @@ func ApproveSubmission(c *gin.Context) {
 		} else {
 			d.TotalApproveAmount = d.RewardApproveAmount + d.RevisionFeeApproveAmount + d.PublicationFeeApproveAmount
 		}
-		d.AnnounceReferenceNumber = strings.TrimSpace(req.AnnounceReferenceNumber)
+		if trimmed := strings.TrimSpace(req.AnnounceReferenceNumber); trimmed != "" {
+			d.AnnounceReferenceNumber = trimmed
+		}
 
 		if d.DetailID == 0 {
 			if err := tx.Create(&d).Error; err != nil {
@@ -595,13 +597,14 @@ func ApproveSubmission(c *gin.Context) {
 		}
 
 		announceRef := strings.TrimSpace(req.AnnounceReferenceNumber)
+		updates := map[string]interface{}{"approved_amount": approvedAmount}
+		if announceRef != "" {
+			updates["announce_reference_number"] = announceRef
+		}
 
 		if err := tx.Model(&models.FundApplicationDetail{}).
 			Where("submission_id = ?", submissionID).
-			Updates(map[string]interface{}{
-				"approved_amount":           approvedAmount,
-				"announce_reference_number": announceRef,
-			}).Error; err != nil {
+			Updates(updates).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fund application detail"})
 			return
