@@ -581,10 +581,31 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 			}
 			trimmed := strings.TrimSpace(*v)
 			if trimmed != "" {
-				return &trimmed
+				return v
 			}
 		}
 		return nil
+	}
+
+	firstNonEmptyRaw := func(values ...*string) (string, bool) {
+		for _, v := range values {
+			if v == nil {
+				continue
+			}
+			if strings.TrimSpace(*v) != "" {
+				return *v, true
+			}
+		}
+		return "", false
+	}
+
+	firstAvailableInt := func(values ...*int) (int, bool) {
+		for _, v := range values {
+			if v != nil {
+				return *v, true
+			}
+		}
+		return 0, false
 	}
 
 	// โหลด submission พร้อมความสัมพันธ์ที่จำเป็น (ตามของเดิม)
@@ -692,19 +713,66 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 			Where("submission_id = ?", submissionID).
 			Take(&extra).Error // ถ้าไม่เจอ / nil ก็ปล่อยให้เป็น nil
 
+		announcementRefs := map[int]string{}
+		announcementIDs := make([]int, 0, 2)
+		if extra.MainAnnoucement != nil {
+			announcementIDs = append(announcementIDs, *extra.MainAnnoucement)
+		}
+		if extra.ActivitySupportAnnouncement != nil {
+			announcementIDs = append(announcementIDs, *extra.ActivitySupportAnnouncement)
+		}
+		if len(announcementIDs) > 0 {
+			var anns []models.Announcement
+			if err := config.DB.
+				Table("announcements").
+				Select("announcement_id, announcement_reference_number").
+				Where("announcement_id IN ?", announcementIDs).
+				Find(&anns).Error; err == nil {
+				for _, ann := range anns {
+					if ann.AnnouncementReferenceNumber != nil && strings.TrimSpace(*ann.AnnouncementReferenceNumber) != "" {
+						announcementRefs[ann.AnnouncementID] = *ann.AnnouncementReferenceNumber
+					}
+				}
+			}
+		}
+
 		if submission.FundApplicationDetail != nil {
 			fad := submission.FundApplicationDetail
+			deducedAnnounceRef, hasAnnounce := firstNonEmptyRaw(
+				&fad.AnnounceReferenceNumber,
+				func() *string {
+					if extra.MainAnnoucement != nil {
+						if ref, ok := announcementRefs[*extra.MainAnnoucement]; ok {
+							return &ref
+						}
+					}
+					return nil
+				}(),
+				func() *string {
+					if extra.ActivitySupportAnnouncement != nil {
+						if ref, ok := announcementRefs[*extra.ActivitySupportAnnouncement]; ok {
+							return &ref
+						}
+					}
+					return nil
+				}(),
+			)
 			// สร้าง map ตอบกลับพร้อมประกาศ 2 ตัว
 			detailsData = gin.H{
-				"detail_id":                 fad.DetailID,
-				"submission_id":             fad.SubmissionID,
-				"subcategory_id":            fad.SubcategoryID,
-				"project_title":             fad.ProjectTitle,
-				"project_description":       fad.ProjectDescription,
-				"requested_amount":          fad.RequestedAmount,
-				"approved_amount":           fad.ApprovedAmount,
-				"announce_reference_number": fad.AnnounceReferenceNumber,
-				"subcategory":               fad.Subcategory,
+				"detail_id":           fad.DetailID,
+				"submission_id":       fad.SubmissionID,
+				"subcategory_id":      fad.SubcategoryID,
+				"project_title":       fad.ProjectTitle,
+				"project_description": fad.ProjectDescription,
+				"requested_amount":    fad.RequestedAmount,
+				"approved_amount":     fad.ApprovedAmount,
+				"announce_reference_number": func() string {
+					if hasAnnounce {
+						return deducedAnnounceRef
+					}
+					return fad.AnnounceReferenceNumber
+				}(),
+				"subcategory": fad.Subcategory,
 
 				// >>> ประกาศที่ต้องการ <<<
 				"main_annoucement":              extra.MainAnnoucement,
@@ -716,8 +784,10 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 				"bank_account_name": bankAccountName,
 				"bank_name":         bankName,
 			}
-			if strings.TrimSpace(fad.AnnounceReferenceNumber) != "" {
-				announceRef = strings.TrimSpace(fad.AnnounceReferenceNumber)
+			if hasAnnounce {
+				announceRef = deducedAnnounceRef
+			} else if strings.TrimSpace(fad.AnnounceReferenceNumber) != "" {
+				announceRef = fad.AnnounceReferenceNumber
 			}
 		} else {
 			// กันเคสไม่ preload detail ด้วย
@@ -728,6 +798,12 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 				"bank_account":                  bankAccount,
 				"bank_account_name":             bankAccountName,
 				"bank_name":                     bankName,
+			}
+
+			if firstID, ok := firstAvailableInt(extra.MainAnnoucement, extra.ActivitySupportAnnouncement); ok {
+				if ref, found := announcementRefs[firstID]; found {
+					announceRef = ref
+				}
 			}
 		}
 	}
