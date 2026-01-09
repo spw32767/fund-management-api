@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"fund-management-api/config"
+	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -77,6 +79,28 @@ func computeOpen(start, end *time.Time, now time.Time) (bool, bool) {
 		isOpen = true
 	}
 	return isOpen, isOpen
+}
+
+func getCurrentBEYearStrFromConfig() string {
+	type row struct {
+		CurrentYear *string
+	}
+	var r row
+	_ = config.DB.Raw(`
+		SELECT current_year
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&r).Error
+
+	if r.CurrentYear != nil {
+		only := onlyDigits(*r.CurrentYear)
+		if len(only) >= 4 {
+			return only[:4]
+		}
+	}
+
+	return fmt.Sprintf("%04d", time.Now().Year()+543)
 }
 
 // getUserIDAny: ดึง user id จากหลายแหล่ง (context -> header -> JWT -> cookies)
@@ -298,6 +322,97 @@ func GetSystemConfigCurrentYear(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"current_year": cur})
 }
 
+// GET /api/v1/system-config/submission-usage
+func GetSubmissionUsageLimit(c *gin.Context) {
+	userIDValue, _ := c.Get("userID")
+	userID, ok := userIDValue.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user context"})
+		return
+	}
+
+	type row struct {
+		MaxSubmissionsPerYear sql.NullInt64
+		CurrentYear           sql.NullString
+	}
+	var cfg row
+	if err := config.DB.Raw(`
+		SELECT max_submissions_per_year, current_year
+		FROM system_config
+		ORDER BY config_id DESC
+		LIMIT 1
+	`).Scan(&cfg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch system_config"})
+		return
+	}
+
+	maxAllowed := 5
+	if cfg.MaxSubmissionsPerYear.Valid && cfg.MaxSubmissionsPerYear.Int64 > 0 {
+		maxAllowed = int(cfg.MaxSubmissionsPerYear.Int64)
+	}
+
+	yearStr := getCurrentBEYearStrFromConfig()
+	if cfg.CurrentYear.Valid {
+		if only := onlyDigits(cfg.CurrentYear.String); len(only) >= 4 {
+			yearStr = only[:4]
+		}
+	}
+
+	var yearID sql.NullInt64
+	if err := config.DB.Raw(`
+		SELECT year_id
+		FROM years
+		WHERE year = ? AND delete_at IS NULL
+		ORDER BY year_id DESC
+		LIMIT 1
+	`, yearStr).Scan(&yearID).Error; err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve year"})
+		return
+	}
+
+	used := 0
+	if yearID.Valid {
+		var usedCount sql.NullInt64
+		if err := config.DB.Raw(`
+			SELECT COUNT(*)
+			FROM submissions s
+			JOIN application_status st ON st.application_status_id = s.status_id
+			WHERE s.deleted_at IS NULL
+			  AND s.user_id = ?
+			  AND s.year_id = ?
+			  AND s.submission_type IN ('fund_application', 'publication_reward')
+			  AND st.status_code NOT IN (?, ?)
+		`, userID, yearID.Int64, utils.StatusCodeRejected, utils.StatusCodeDraft).Scan(&usedCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count submissions"})
+			return
+		}
+		if usedCount.Valid {
+			used = int(usedCount.Int64)
+		}
+	}
+
+	overLimit := used >= maxAllowed
+	remaining := maxAllowed - used
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"year": yearStr,
+		"year_id": func() *int {
+			if yearID.Valid {
+				v := int(yearID.Int64)
+				return &v
+			}
+			return nil
+		}(),
+		"max_submissions_per_year": maxAllowed,
+		"used_submissions":         used,
+		"remaining_submissions":    remaining,
+		"over_limit":               overLimit,
+	})
+}
+
 // GET /api/v1/system-config/window
 func GetSystemConfigWindow(c *gin.Context) {
 	now := time.Now().UTC()
@@ -319,13 +434,14 @@ func GetSystemConfigWindow(c *gin.Context) {
 		ServiceAnnouncement         sql.NullInt64
 		KkuReportYear               sql.NullString
 		Installment                 sql.NullInt64
+		MaxSubmissionsPerYear       sql.NullInt64
 	}
 
 	if err := config.DB.Raw(`
 		SELECT
                   config_id, system_version, current_year, start_date, end_date, last_updated, updated_by, contact_info,
                   main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-                  kku_report_year, installment
+                  kku_report_year, installment, max_submissions_per_year
 		FROM system_config
 		ORDER BY config_id DESC
 		LIMIT 1
@@ -432,6 +548,12 @@ func GetSystemConfigWindow(c *gin.Context) {
 			}
 			return nil
 		}(),
+		"max_submissions_per_year": func() interface{} {
+			if row.MaxSubmissionsPerYear.Valid {
+				return int(row.MaxSubmissionsPerYear.Int64)
+			}
+			return nil
+		}(),
 
 		"is_open_raw":       isOpenRaw,
 		"is_open_effective": isOpenEff,
@@ -460,17 +582,18 @@ func GetSystemConfigAdmin(c *gin.Context) {
 		ServiceAnnouncement         sql.NullInt64  `json:"service_announcement"`
 		KkuReportYear               sql.NullString `json:"kku_report_year"`
 		Installment                 sql.NullInt64  `json:"installment"`
+		MaxSubmissionsPerYear       sql.NullInt64  `json:"max_submissions_per_year"`
 	}
 
 	if err := config.DB.Raw(`
-		SELECT
+	SELECT
                   config_id, system_version, current_year, start_date, end_date, last_updated, updated_by, contact_info,
                   main_annoucement, reward_announcement, activity_support_announcement, conference_announcement, service_announcement,
-                  kku_report_year, installment
-		FROM system_config
-		ORDER BY config_id DESC
-		LIMIT 1
-	`).Scan(&row).Error; err != nil {
+                  kku_report_year, installment, max_submissions_per_year
+	FROM system_config
+	ORDER BY config_id DESC
+	LIMIT 1
+`).Scan(&row).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to fetch system_config"})
 		return
 	}
@@ -571,6 +694,12 @@ func GetSystemConfigAdmin(c *gin.Context) {
 			}
 			return nil
 		}(),
+		"max_submissions_per_year": func() interface{} {
+			if row.MaxSubmissionsPerYear.Valid {
+				return int(row.MaxSubmissionsPerYear.Int64)
+			}
+			return nil
+		}(),
 
 		"is_open_raw":       isOpenRaw,
 		"is_open_effective": isOpenEff,
@@ -585,10 +714,11 @@ func GetSystemConfigAdmin(c *gin.Context) {
 
 // PUT /api/v1/admin/system-config
 type updateWindowPayload struct {
-	CurrentYear *string `json:"current_year"`
-	StartDate   *string `json:"start_date"`
-	EndDate     *string `json:"end_date"`
-	ContactInfo *string `json:"contact_info"`
+	CurrentYear           *string `json:"current_year"`
+	StartDate             *string `json:"start_date"`
+	EndDate               *string `json:"end_date"`
+	ContactInfo           *string `json:"contact_info"`
+	MaxSubmissionsPerYear *int    `json:"max_submissions_per_year"`
 }
 
 func UpdateSystemConfigWindow(c *gin.Context) {
@@ -622,9 +752,9 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	if !cfgID.Valid {
 		// insert
 		if err := config.DB.Exec(`
-                        INSERT INTO system_config (current_year, start_date, end_date, contact_info, last_updated, updated_by)
-                        VALUES (?, ?, ?, ?, NOW(), ?)
-                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, updatedBy).Error; err != nil {
+                        INSERT INTO system_config (current_year, start_date, end_date, contact_info, max_submissions_per_year, last_updated, updated_by)
+                        VALUES (?, ?, ?, ?, ?, NOW(), ?)
+                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, p.MaxSubmissionsPerYear, updatedBy).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
 			return
 		}
@@ -635,9 +765,9 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	// update
 	if err := config.DB.Exec(`
                 UPDATE system_config
-                SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, last_updated = NOW(), updated_by = ?
+                SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, max_submissions_per_year = ?, last_updated = NOW(), updated_by = ?
                 WHERE config_id = ?
-        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, updatedBy, int(cfgID.Int64)).Error; err != nil {
+        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, p.MaxSubmissionsPerYear, updatedBy, int(cfgID.Int64)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
 		return
 	}

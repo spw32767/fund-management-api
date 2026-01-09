@@ -134,6 +134,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/subcategories", controllers.GetSubcategories)
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
 			protected.GET("/system-config/current-year", controllers.GetSystemConfigCurrentYear)
+			protected.GET("/system-config/submission-usage", controllers.GetSubmissionUsageLimit)
 			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
 			protected.GET("/system-config/dept-head/eligible-roles", controllers.GetDeptHeadEligibleRoles)
 
