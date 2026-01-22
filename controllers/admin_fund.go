@@ -599,6 +599,7 @@ func CreateSubcategory(c *gin.Context) {
 
 	subcategory := models.FundSubcategory{
 		CategoryID:      req.CategoryID,
+		YearID:          category.YearID,
 		SubcategoryName: req.SubcategoryName,
 		SubcategoryCode: subcategoryCode,
 		FundCondition:   fundCondition,
@@ -657,6 +658,7 @@ func UpdateSubcategory(c *gin.Context) {
 	}
 
 	// Validate category exists if changed
+	var updatedCategoryYearID int
 	if req.CategoryID != 0 && req.CategoryID != subcategory.CategoryID {
 		var category models.FundCategory
 		if err := config.DB.Where("category_id = ? AND delete_at IS NULL", req.CategoryID).
@@ -664,6 +666,7 @@ func UpdateSubcategory(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category_id"})
 			return
 		}
+		updatedCategoryYearID = category.YearID
 	}
 
 	// Check name conflict if name changed
@@ -691,6 +694,9 @@ func UpdateSubcategory(c *gin.Context) {
 
 	if req.CategoryID != 0 {
 		updates["category_id"] = req.CategoryID
+		if updatedCategoryYearID != 0 {
+			updates["year_id"] = updatedCategoryYearID
+		}
 	}
 	if req.SubcategoryName != "" {
 		updates["subcategory_name"] = req.SubcategoryName
@@ -2203,6 +2209,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			currentTime := time.Now()
 			newSubcategory := models.FundSubcategory{
 				CategoryID:      mappedCategoryID,
+				YearID:          targetYear.YearID,
 				SubcategoryName: subcategory.SubcategoryName,
 				FundCondition:   subcategory.FundCondition,
 				TargetRoles:     subcategory.TargetRoles,
