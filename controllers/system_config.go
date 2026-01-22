@@ -750,11 +750,16 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 	}
 
 	if !cfgID.Valid {
+		maxSubmissions := p.MaxSubmissionsPerYear
+		if maxSubmissions == nil {
+			zero := 0
+			maxSubmissions = &zero
+		}
 		// insert
 		if err := config.DB.Exec(`
                         INSERT INTO system_config (current_year, start_date, end_date, contact_info, max_submissions_per_year, last_updated, updated_by)
                         VALUES (?, ?, ?, ?, ?, NOW(), ?)
-                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, p.MaxSubmissionsPerYear, updatedBy).Error; err != nil {
+                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, maxSubmissions, updatedBy).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
 			return
 		}
@@ -762,12 +767,28 @@ func UpdateSystemConfigWindow(c *gin.Context) {
 		return
 	}
 
+	maxSubmissions := p.MaxSubmissionsPerYear
+	if maxSubmissions == nil {
+		var currentMax sql.NullInt64
+		if err := config.DB.Raw(`
+			SELECT max_submissions_per_year
+			FROM system_config
+			WHERE config_id = ?
+		`, int(cfgID.Int64)).Row().Scan(&currentMax); err == nil && currentMax.Valid {
+			val := int(currentMax.Int64)
+			maxSubmissions = &val
+		} else {
+			zero := 0
+			maxSubmissions = &zero
+		}
+	}
+
 	// update
 	if err := config.DB.Exec(`
                 UPDATE system_config
                 SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, max_submissions_per_year = ?, last_updated = NOW(), updated_by = ?
                 WHERE config_id = ?
-        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, p.MaxSubmissionsPerYear, updatedBy, int(cfgID.Int64)).Error; err != nil {
+        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, maxSubmissions, updatedBy, int(cfgID.Int64)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
 		return
 	}
