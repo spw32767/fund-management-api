@@ -379,6 +379,17 @@ func SetupRoutes(router *gin.Engine) {
 				fundForms.DELETE("/:id", middleware.RequireRole(3), controllers.DeleteFundForm)
 			}
 
+			// Executive read-only routes (dashboard + export source data)
+			executive := protected.Group("/executive")
+			executive.Use(middleware.RequireRole(5))
+			{
+				executive.GET("/dashboard/stats", controllers.GetDashboardStats)
+				executive.GET("/submissions", controllers.GetAdminSubmissions)
+				executive.GET("/submissions/:id/details", controllers.GetSubmissionDetails)
+				executive.GET("/categories", controllers.GetAllCategories)
+				executive.GET("/subcategories", controllers.GetAllSubcategories)
+			}
+
 			// เพิ่มส่วนนี้ใน admin group หลังจาก middleware.RequireRole(3)
 			admin := protected.Group("/admin")
 			admin.Use(middleware.RequireRole(3)) // Require admin role

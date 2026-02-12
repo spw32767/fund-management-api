@@ -288,7 +288,7 @@ func GetStaffSubmissions(c *gin.Context) {
 // GetAdminSubmissions returns admin list + stats with consistent filters
 func GetAdminSubmissions(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+	if roleID.(int) != 3 && roleID.(int) != 5 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

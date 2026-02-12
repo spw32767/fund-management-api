@@ -40,7 +40,7 @@ func GetDashboardStats(c *gin.Context) {
 	}
 
 	var stats map[string]interface{}
-	if roleID == 3 || roleID == 4 { // Admin dashboard (includes dept heads)
+	if roleID == 3 || roleID == 4 || roleID == 5 { // Admin-style dashboard (includes dept heads + executive)
 		scopeParam := c.Query("scope")
 		yearParam := c.Query("year")
 		installmentParam := c.Query("installment")
