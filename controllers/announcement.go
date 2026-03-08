@@ -6,6 +6,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/utils"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -492,19 +493,27 @@ func DownloadAnnouncementFile(c *gin.Context) {
 
 	// Track download (optional)
 	if announcementViewsAvailable() {
+		announcementID := announcement.AnnouncementID
+		ipAddress := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
+		userID, hasUserID := getUserIDFromContext(c)
+
 		go func() {
-			ipAddress := c.ClientIP()
-			userAgent := c.GetHeader("User-Agent")
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("panic recovered in DownloadAnnouncementFile tracking: announcement_id=%d panic=%v", announcementID, r)
+				}
+			}()
 
 			// Record download in tracking table (if enabled)
 			view := models.AnnouncementView{
-				AnnouncementID: announcement.AnnouncementID,
+				AnnouncementID: announcementID,
 				IPAddress:      &ipAddress,
 				UserAgent:      &userAgent,
 				ViewedAt:       time.Now(),
 			}
 
-			if userID, ok := getUserIDFromContext(c); ok {
+			if hasUserID {
 				uid := int(userID)
 				view.UserID = &uid
 			}
@@ -542,18 +551,26 @@ func ViewAnnouncementFile(c *gin.Context) {
 
 	// Track view (optional)
 	if announcementViewsAvailable() {
+		announcementID := announcement.AnnouncementID
+		ipAddress := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
+		userID, hasUserID := getUserIDFromContext(c)
+
 		go func() {
-			ipAddress := c.ClientIP()
-			userAgent := c.GetHeader("User-Agent")
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("panic recovered in ViewAnnouncementFile tracking: announcement_id=%d panic=%v", announcementID, r)
+				}
+			}()
 
 			view := models.AnnouncementView{
-				AnnouncementID: announcement.AnnouncementID,
+				AnnouncementID: announcementID,
 				IPAddress:      &ipAddress,
 				UserAgent:      &userAgent,
 				ViewedAt:       time.Now(),
 			}
 
-			if userID, ok := getUserIDFromContext(c); ok {
+			if hasUserID {
 				uid := int(userID)
 				view.UserID = &uid
 			}
@@ -981,7 +998,6 @@ func DeleteFundForm(c *gin.Context) {
 // DownloadFundForm - ดาวน์โหลดแบบฟอร์ม
 func DownloadFundForm(c *gin.Context) {
 	id := c.Param("id")
-	userID, _ := c.Get("userID")
 
 	// Find form
 	var form models.FundForm
@@ -996,21 +1012,29 @@ func DownloadFundForm(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 		return
 	}
+	formID := form.FormID
+	ipAddress := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	userID, hasUserID := getUserIDFromContext(c)
 
 	// Track download (optional)
 	go func() {
-		ipAddress := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic recovered in DownloadFundForm tracking: form_id=%d panic=%v", formID, r)
+			}
+		}()
 
 		download := models.FormDownload{
-			FormID:       form.FormID,
+			FormID:       formID,
 			IPAddress:    &ipAddress,
 			UserAgent:    &userAgent,
 			DownloadedAt: time.Now(),
 		}
 
-		if userID != nil {
-			download.UserID = userID.(*int)
+		if hasUserID {
+			uid := int(userID)
+			download.UserID = &uid
 		}
 
 		config.DB.Create(&download)
