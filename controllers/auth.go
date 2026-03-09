@@ -26,6 +26,11 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+const (
+	AuthMethodLocal = "local"
+	AuthMethodSSO   = "kku_sso"
+)
+
 type LoginResponse struct {
 	AccessToken  string      `json:"access_token"`
 	RefreshToken string      `json:"refresh_token"`
@@ -185,7 +190,7 @@ func Login(c *gin.Context) {
 	jti := uuid.New().String()
 
 	// Generate access token with JTI
-	accessToken, expiresIn, err := generateAccessToken(user, jti)
+	accessToken, expiresIn, err := generateAccessTokenWithMethod(user, jti, AuthMethodLocal)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -482,7 +487,7 @@ func RefreshToken(c *gin.Context) {
 
 	// Generate new JTI and access token
 	newJTI := uuid.New().String()
-	newAccessToken, expiresIn, err := generateAccessToken(user, newJTI)
+	newAccessToken, expiresIn, err := generateAccessTokenWithMethod(user, newJTI, AuthMethodLocal)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -724,7 +729,7 @@ func RefreshTokenWithRefreshToken(c *gin.Context) {
 
 	// Generate new JTI and access token
 	newJTI := uuid.New().String()
-	newAccessToken, expiresIn, err := generateAccessToken(user, newJTI)
+	newAccessToken, expiresIn, err := generateAccessTokenWithMethod(user, newJTI, AuthMethodLocal)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -830,6 +835,10 @@ func containsAny(s string, substrings []string) bool {
 
 // generateAccessToken creates JWT access token with JTI
 func generateAccessToken(user models.User, jti string) (string, int, error) {
+	return generateAccessTokenWithMethod(user, jti, AuthMethodLocal)
+}
+
+func generateAccessTokenWithMethod(user models.User, jti string, authMethod string) (string, int, error) {
 	// Get expiration hours from env
 	expireHours, err := strconv.Atoi(os.Getenv("JWT_EXPIRE_HOURS"))
 	if err != nil {
@@ -843,6 +852,13 @@ func generateAccessToken(user models.User, jti string) (string, int, error) {
 		UserID: user.UserID,
 		Email:  user.Email,
 		RoleID: user.RoleID,
+		AuthMethod: func() string {
+			m := strings.ToLower(strings.TrimSpace(authMethod))
+			if m == AuthMethodSSO {
+				return AuthMethodSSO
+			}
+			return AuthMethodLocal
+		}(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti, // JWT ID for tracking
 			ExpiresAt: jwt.NewNumericDate(expirationTime),

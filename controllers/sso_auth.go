@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fund-management-api/config"
+	"fund-management-api/middleware"
 	"fund-management-api/models"
 	"fund-management-api/services"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )
 
@@ -154,7 +156,7 @@ func SSOCallback(c *gin.Context) {
 	user.LastLoginAt = &now
 	user.UpdateAt = &now
 
-	token, expiresIn, err := generateAccessToken(user, "")
+	token, expiresIn, err := generateAccessTokenWithMethod(user, "", AuthMethodSSO)
 	if err != nil {
 		c.Redirect(http.StatusFound, "/login?error=sso_failed")
 		return
@@ -167,17 +169,66 @@ func SSOCallback(c *gin.Context) {
 func LogoutWithSSORedirect(c *gin.Context) {
 	clearAuthTokenCookie(c)
 	logoutRedirect := strings.TrimSpace(os.Getenv("SSO_LOGOUT_REDIRECT_URL"))
+	authMethod := resolveAuthMethodForLogout(c)
+	if logoutRedirect == "" {
+		logoutRedirect = "/login"
+	}
+
+	if authMethod != AuthMethodSSO {
+		c.Redirect(http.StatusFound, logoutRedirect)
+		return
+	}
 
 	if strings.TrimSpace(os.Getenv("SSO_APP_ID")) == "" {
-		if logoutRedirect != "" {
-			c.Redirect(http.StatusFound, logoutRedirect)
-			return
-		}
-		c.Redirect(http.StatusFound, "/login")
+		c.Redirect(http.StatusFound, logoutRedirect)
 		return
 	}
 
 	c.Redirect(http.StatusFound, services.BuildSSOLogoutURLFromEnv())
+}
+
+func resolveAuthMethodForLogout(c *gin.Context) string {
+	tokenString := ""
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if authHeader != "" {
+		tokenString = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+
+	if tokenString == "" {
+		if cookieToken, err := c.Cookie(getAuthCookieName()); err == nil {
+			tokenString = strings.TrimSpace(cookieToken)
+		}
+	}
+
+	if tokenString == "" {
+		return AuthMethodLocal
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default-secret-change-this-in-production"
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return AuthMethodLocal
+	}
+
+	claims, ok := token.Claims.(*middleware.Claims)
+	if !ok {
+		return AuthMethodLocal
+	}
+
+	if strings.ToLower(strings.TrimSpace(claims.AuthMethod)) == AuthMethodSSO {
+		return AuthMethodSSO
+	}
+
+	return AuthMethodLocal
 }
 
 func upsertSSOIdentity(tx *gorm.DB, userID int, email string, providerSubject string, rawClaims []byte, now time.Time) error {

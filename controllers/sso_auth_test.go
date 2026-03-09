@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"fund-management-api/config"
+	"fund-management-api/models"
 	"fund-management-api/services"
 
 	"github.com/gin-gonic/gin"
@@ -219,6 +220,13 @@ func setupSSOCallbackRoute() *gin.Engine {
 	return r
 }
 
+func setupLogoutRoute() *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/auth/logout", LogoutWithSSORedirect)
+	return r
+}
+
 func TestSSOCallbackMissingCodeRedirects(t *testing.T) {
 	r := setupSSOCallbackRoute()
 
@@ -380,5 +388,56 @@ func TestSSOCallbackMergesExistingUserByEmail(t *testing.T) {
 
 	if err := state.verifyComplete(); err != nil {
 		t.Fatalf("unmet db expectations: %v", err)
+	}
+}
+
+func TestLogoutWithSSORedirect_LocalTokenGoesToLogin(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("AUTH_COOKIE_NAME", "auth_token")
+	t.Setenv("SSO_APP_ID", "my-app")
+	t.Setenv("SSO_LOGOUT_REDIRECT_URL", "/login")
+
+	token, _, err := generateAccessTokenWithMethod(models.User{UserID: 1, Email: "local@example.com", RoleID: 1}, "", AuthMethodLocal)
+	if err != nil {
+		t.Fatalf("failed to generate local token: %v", err)
+	}
+
+	r := setupLogoutRoute()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Path: "/"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/login" {
+		t.Fatalf("unexpected redirect location: %s", got)
+	}
+}
+
+func TestLogoutWithSSORedirect_SSOTokenGoesToProvider(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("AUTH_COOKIE_NAME", "auth_token")
+	t.Setenv("SSO_ENV", "uat")
+	t.Setenv("SSO_APP_ID", "my-app")
+	t.Setenv("SSO_LOGOUT_REDIRECT_URL", "/login")
+
+	token, _, err := generateAccessTokenWithMethod(models.User{UserID: 1, Email: "sso@example.com", RoleID: 1}, "", AuthMethodSSO)
+	if err != nil {
+		t.Fatalf("failed to generate sso token: %v", err)
+	}
+
+	r := setupLogoutRoute()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Path: "/"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "https://sso-uat-web.kku.ac.th/logout?app=my-app" {
+		t.Fatalf("unexpected redirect location: %s", got)
 	}
 }
