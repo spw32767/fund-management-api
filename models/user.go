@@ -12,10 +12,11 @@ type User struct {
 	Email             string     `gorm:"column:email;unique" json:"email"`
 	EmailNotification *string    `gorm:"column:email_notification" json:"email_notification,omitempty"`
 	ScholarAuthorID   *string    `gorm:"column:scholar_author_id" json:"scholar_author_id,omitempty"`
-	Password          string     `gorm:"column:password" json:"-"`
+	Password          *string    `gorm:"column:password" json:"-"`
 	RoleID            int        `gorm:"column:role_id" json:"role_id"`
 	PositionID        int        `gorm:"column:position_id" json:"position_id"`
 	DateOfEmployment  *time.Time `gorm:"column:date_of_employment" json:"date_of_employment,omitempty"`
+	LastLoginAt       *time.Time `gorm:"column:last_login_at" json:"last_login_at,omitempty"`
 	CreateAt          *time.Time `gorm:"column:create_at" json:"create_at"`
 	UpdateAt          *time.Time `gorm:"column:update_at" json:"update_at"`
 	DeleteAt          *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`

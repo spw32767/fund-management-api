@@ -31,6 +31,11 @@ func SetupRoutes(router *gin.Engine) {
 
 	monitor.RegisterDeployPage(router)
 
+	// SSO routes (outside /api/v1 for fixed callback path compatibility)
+	router.GET("/api/auth/sso/login", controllers.SSOLoginRedirect)
+	router.GET("/api/auth/sso/callback", controllers.SSOCallback)
+	router.GET("/api/auth/logout", controllers.LogoutWithSSORedirect)
+
 	// API v1 group
 	v1 := router.Group("/api/v1")
 	{

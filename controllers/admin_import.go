@@ -113,7 +113,7 @@ func AdminImportUsers(c *gin.Context) {
 			ScholarAuthorID:  optionalString(rowData["scholar_author_id"]),
 			RoleID:           roleVal,
 			PositionID:       positionVal,
-			Password:         hashedPassword,
+			Password:         &hashedPassword,
 			Prefix:           optionalString(rowData["prefix"]),
 			ManagePosition:   optionalString(rowData["manage_position"]),
 			PositionTitle:    optionalString(rowData["position_title"]),

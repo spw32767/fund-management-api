@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,6 +39,8 @@ type scriptedDB struct {
 	mu    sync.Mutex
 	steps []*queryStep
 }
+
+var scriptedDriverCounter uint64
 
 func (db *scriptedDB) next(kind stepKind, query string, args []driver.NamedValue) (*queryStep, error) {
 	db.mu.Lock()
@@ -186,7 +189,7 @@ func (r *scriptedRows) Next(dest []driver.Value) error {
 func newScriptedGormDB(t *testing.T, steps []*queryStep) (*gorm.DB, *scriptedDB, func()) {
 	t.Helper()
 	state := &scriptedDB{steps: steps}
-	driverName := fmt.Sprintf("scripted_%d", time.Now().UnixNano())
+	driverName := fmt.Sprintf("scripted_%d_%d", time.Now().UnixNano(), atomic.AddUint64(&scriptedDriverCounter, 1))
 	sql.Register(driverName, &scriptedDriver{db: state})
 
 	sqlDB, err := sql.Open(driverName, "")

@@ -23,25 +23,37 @@ type Claims struct {
 // AuthMiddleware validates JWT token and session (updated version)
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get token from header
+		// Get token from Authorization header first, then fallback to httpOnly cookie
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "Authorization header is required",
-				"code":    "MISSING_AUTH_HEADER",
-			})
-			c.Abort()
-			return
+		tokenString := ""
+		if authHeader != "" {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString == authHeader {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   "Invalid authorization header format. Use 'Bearer <token>'",
+					"code":    "INVALID_AUTH_FORMAT",
+				})
+				c.Abort()
+				return
+			}
 		}
 
-		// Check Bearer prefix
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
+		if tokenString == "" {
+			cookieName := strings.TrimSpace(os.Getenv("AUTH_COOKIE_NAME"))
+			if cookieName == "" {
+				cookieName = "auth_token"
+			}
+			if cookieToken, err := c.Cookie(cookieName); err == nil {
+				tokenString = strings.TrimSpace(cookieToken)
+			}
+		}
+
+		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"error":   "Invalid authorization header format. Use 'Bearer <token>'",
-				"code":    "INVALID_AUTH_FORMAT",
+				"error":   "Authentication token is required",
+				"code":    "MISSING_AUTH_TOKEN",
 			})
 			c.Abort()
 			return

@@ -96,15 +96,21 @@ func hashExistingPasswords() error {
 	errorCount := 0
 
 	for _, user := range users {
+		if user.Password == nil || strings.TrimSpace(*user.Password) == "" {
+			log.Printf("✓ User %s (ID: %d) has no local password, skipping", user.Email, user.UserID)
+			skipCount++
+			continue
+		}
+
 		// Skip if already hashed (bcrypt hashes start with $2)
-		if strings.HasPrefix(user.Password, "$2") {
+		if strings.HasPrefix(*user.Password, "$2") {
 			log.Printf("✓ User %s (ID: %d) already has hashed password, skipping", user.Email, user.UserID)
 			skipCount++
 			continue
 		}
 
 		// Hash password
-		hashedPassword, err := utils.HashPassword(user.Password)
+		hashedPassword, err := utils.HashPassword(*user.Password)
 		if err != nil {
 			log.Printf("❌ Failed to hash password for user %s (ID: %d): %v", user.Email, user.UserID, err)
 			errorCount++
@@ -217,7 +223,7 @@ func addSampleUsers() error {
 			UserLname:  userData.LastName,
 			Gender:     userData.Gender,
 			Email:      userData.Email,
-			Password:   hashedPassword,
+			Password:   &hashedPassword,
 			RoleID:     userData.RoleID,
 			PositionID: userData.PositionID,
 			CreateAt:   &now,

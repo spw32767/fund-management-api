@@ -57,6 +57,7 @@ Set at minimum the following variables (see `.env.example` for the full list):
 - `JWT_SECRET`, `JWT_EXPIRE_HOURS`, `REFRESH_TOKEN_EXPIRE_HOURS`
 - `UPLOAD_PATH` (directory for uploaded files)
 - Email/notification settings if used (`SMTP_*`, `APP_BASE_URL`)
+- KKU SSONext settings: `SSO_ENV`, `SSO_APP_ID`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET`, `SSO_REDIRECT_URL`, `SSO_LOGOUT_REDIRECT_URL`
 
 Ensure the directories referenced by `UPLOAD_PATH` and `LOG_FILE` exist and are writable by the service user.
 
@@ -148,3 +149,21 @@ The frontend can trigger the password reset flow through the following public en
   The backend verifies the token, enforces the existing password rules, and updates the user password. All password-reset tokens for the account are revoked after a successful change.
 
 Both endpoints always return a success message for unknown emails to avoid leaking account existence.
+
+## KKU SSONext (UAT) Test Flow
+
+After SSO credentials are issued, verify end-to-end login/logout with these steps:
+
+1. Set environment values in `.env`:
+
+   - `SSO_ENV=uat`
+   - `SSO_APP_ID=<issued-app-id>`
+   - `SSO_CLIENT_ID=<issued-client-id>`
+   - `SSO_CLIENT_SECRET=<issued-client-secret>`
+   - `SSO_REDIRECT_URL=https://fs.computing.kku.ac.th/api/auth/sso/callback`
+   - `SSO_LOGOUT_REDIRECT_URL=https://fs.computing.kku.ac.th/login`
+
+2. Run backend and frontend normally.
+3. Open `/login`, click **Login with KKU SSO**, complete SSO sign-in, and confirm you are redirected to `/`.
+4. Confirm authentication works (JWT cookie is set as httpOnly).
+5. Trigger logout, verify cookie is cleared, browser is redirected to SSO logout URL, and returns to `/login`.

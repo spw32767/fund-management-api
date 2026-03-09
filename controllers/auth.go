@@ -169,7 +169,7 @@ func Login(c *gin.Context) {
 	}
 
 	// Check password using bcrypt
-	if !utils.CheckPasswordHash(req.Password, user.Password) {
+	if user.Password == nil || !utils.CheckPasswordHash(req.Password, *user.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"error":   "Invalid email or password",
@@ -420,7 +420,7 @@ func ChangePassword(c *gin.Context) {
 	}
 
 	// Verify current password
-	if !utils.CheckPasswordHash(req.CurrentPassword, user.Password) {
+	if user.Password == nil || !utils.CheckPasswordHash(req.CurrentPassword, *user.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
 			"error":   "Current password is incorrect",
@@ -440,7 +440,7 @@ func ChangePassword(c *gin.Context) {
 
 	// Update password
 	now := time.Now()
-	user.Password = hashedPassword
+	user.Password = &hashedPassword
 	user.UpdateAt = &now
 
 	if err := config.DB.Save(&user).Error; err != nil {
