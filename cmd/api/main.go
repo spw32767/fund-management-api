@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
@@ -85,8 +86,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	httpAddr := fmt.Sprintf(":%s", port)
 
-	log.Printf("🚀 Server starting on port %s", port)
+	log.Printf("Server starting on port %s (HTTP)", port)
 	log.Printf("📊 Database connected successfully")
 	log.Printf("🔒 Security middlewares enabled")
 	log.Printf("🌐 CORS configured for allowed origins")
@@ -98,7 +100,30 @@ func main() {
 		log.Printf("📝 API documentation available at http://localhost:%s/api/v1/info", port)
 	}
 
-	if err := router.Run(":" + port); err != nil {
-		log.Fatal("❌ Failed to start server:", err)
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	httpsPort := os.Getenv("SERVER_HTTPS_PORT")
+	if httpsPort == "" {
+		httpsPort = "8443"
+	}
+
+	if certFile == "" || keyFile == "" {
+		log.Printf("TLS_CERT_FILE or TLS_KEY_FILE not set. HTTPS disabled; running HTTP only.")
+		if err := router.Run(httpAddr); err != nil {
+			log.Fatal("Failed to start HTTP server:", err)
+		}
+		return
+	}
+
+	httpsAddr := fmt.Sprintf(":%s", httpsPort)
+	go func() {
+		if err := router.Run(httpAddr); err != nil {
+			log.Printf("HTTP server stopped: %v", err)
+		}
+	}()
+
+	log.Printf("HTTPS API starting on port %s", httpsPort)
+	if err := router.RunTLS(httpsAddr, certFile, keyFile); err != nil {
+		log.Fatal("Failed to start HTTPS server:", err)
 	}
 }
