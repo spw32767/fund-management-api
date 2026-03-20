@@ -149,6 +149,10 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/projects", controllers.GetProjectsForMembers)
 			protected.GET("/projects/:projectId/attachments/:fileId", controllers.DownloadProjectAttachment)
 
+			// Permission-based Scopus publication access (new authorization layer)
+			protected.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read"), controllers.AdminListScopusPublications)
+			protected.GET("/publications/scopus/by-user", middleware.RequirePermission("scopus.publications.export_by_user"), controllers.AdminListScopusPublicationsByUser)
+
 			// Publication reward agreements / conditions
 			protected.GET("/end-of-contract", controllers.GetEndOfContractTerms)
 
@@ -425,8 +429,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
 				admin.POST("/user-publications/import/scopus", controllers.AdminImportScopusPublications)
 				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
-				admin.GET("/publications/scopus", controllers.AdminListScopusPublications)
-				admin.GET("/publications/scopus/by-user", controllers.AdminListScopusPublicationsByUser)
+				admin.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read"), controllers.AdminListScopusPublications)
+				admin.GET("/publications/scopus/by-user", middleware.RequirePermission("scopus.publications.export_by_user"), controllers.AdminListScopusPublicationsByUser)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
 				admin.GET("/scopus/metrics/runs", controllers.AdminListCiteScoreMetricRuns)

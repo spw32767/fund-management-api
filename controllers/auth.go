@@ -7,6 +7,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/middleware"
 	"fund-management-api/models"
+	"fund-management-api/services"
 	"fund-management-api/utils"
 	"log"
 	"net/http"
@@ -45,31 +46,32 @@ type LoginResponse struct {
 }
 
 type UserProfile struct {
-	UserID           int    `json:"user_id"`
-	UserFname        string `json:"user_fname"`
-	UserLname        string `json:"user_lname"`
-	Email            string `json:"email"`
-	RoleID           int    `json:"role_id"`
-	PositionID       int    `json:"position_id"`
-	Role             string `json:"role"`
-	PositionName     string `json:"position_name"`
-	Prefix           string `json:"prefix,omitempty"`
-	ManagePosition   string `json:"manage_position,omitempty"`
-	PositionTitle    string `json:"position_title,omitempty"`
-	PositionEn       string `json:"position_en,omitempty"`
-	PrefixPositionEn string `json:"prefix_position_en,omitempty"`
-	NameEn           string `json:"name_en,omitempty"`
-	SuffixEn         string `json:"suffix_en,omitempty"`
-	Tel              string `json:"tel,omitempty"`
-	TelFormat        string `json:"tel_format,omitempty"`
-	TelEng           string `json:"tel_eng,omitempty"`
-	ManagePositionEn string `json:"manage_position_en,omitempty"`
-	LabName          string `json:"lab_name,omitempty"`
-	Room             string `json:"room,omitempty"`
-	CPWebID          string `json:"cp_web_id,omitempty"`
-	ScopusID         string `json:"scopus_id,omitempty"`
-	IsActive         string `json:"is_active,omitempty"`
-	PhotoURL         string `json:"photo_url,omitempty"`
+	UserID           int      `json:"user_id"`
+	UserFname        string   `json:"user_fname"`
+	UserLname        string   `json:"user_lname"`
+	Email            string   `json:"email"`
+	RoleID           int      `json:"role_id"`
+	PositionID       int      `json:"position_id"`
+	Role             string   `json:"role"`
+	PositionName     string   `json:"position_name"`
+	Prefix           string   `json:"prefix,omitempty"`
+	ManagePosition   string   `json:"manage_position,omitempty"`
+	PositionTitle    string   `json:"position_title,omitempty"`
+	PositionEn       string   `json:"position_en,omitempty"`
+	PrefixPositionEn string   `json:"prefix_position_en,omitempty"`
+	NameEn           string   `json:"name_en,omitempty"`
+	SuffixEn         string   `json:"suffix_en,omitempty"`
+	Tel              string   `json:"tel,omitempty"`
+	TelFormat        string   `json:"tel_format,omitempty"`
+	TelEng           string   `json:"tel_eng,omitempty"`
+	ManagePositionEn string   `json:"manage_position_en,omitempty"`
+	LabName          string   `json:"lab_name,omitempty"`
+	Room             string   `json:"room,omitempty"`
+	CPWebID          string   `json:"cp_web_id,omitempty"`
+	ScopusID         string   `json:"scopus_id,omitempty"`
+	IsActive         string   `json:"is_active,omitempty"`
+	PhotoURL         string   `json:"photo_url,omitempty"`
+	Permissions      []string `json:"permissions,omitempty"`
 }
 
 func stringValue(ptr *string) string {
@@ -265,6 +267,9 @@ func Login(c *gin.Context) {
 	}
 
 	// Create user profile response
+	authz := services.GetAuthorizationService()
+	permissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+
 	userProfile := UserProfile{
 		UserID:           user.UserID,
 		UserFname:        user.UserFname,
@@ -291,6 +296,7 @@ func Login(c *gin.Context) {
 		ScopusID:         stringValue(user.ScopusID),
 		IsActive:         stringValue(user.AccountStatus),
 		PhotoURL:         getUserPhotoURL(user.UserID),
+		Permissions:      permissions,
 	}
 
 	// Response with backward compatibility
@@ -343,6 +349,8 @@ func GetProfile(c *gin.Context) {
 	updateSessionActivity(c)
 
 	photoURL := getUserPhotoURL(user.UserID)
+	authz := services.GetAuthorizationService()
+	permissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -372,6 +380,7 @@ func GetProfile(c *gin.Context) {
 			"scopus_id":          stringValue(user.ScopusID),
 			"is_active":          stringValue(user.AccountStatus),
 			"photo_url":          photoURL,
+			"permissions":        permissions,
 		},
 	})
 }

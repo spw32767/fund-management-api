@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/services"
 	"net/http"
 	"os"
 	"strings"
@@ -214,13 +215,21 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		effectiveRoleID := user.RoleID
+
 		// Set user info in context for use in handlers
 		c.Set("userID", claims.UserID)
 		c.Set("email", claims.Email)
-		c.Set("roleID", claims.RoleID)
+		c.Set("roleID", effectiveRoleID)
 		c.Set("authMethod", claims.AuthMethod)
 		c.Set("user", user)     // Set full user object for convenience
 		c.Set("jti", claims.ID) // Add JTI to context
+
+		authz := services.GetAuthorizationService()
+		permissionCodes, err := authz.ResolvePermissionCodes(claims.UserID, effectiveRoleID)
+		if err == nil {
+			c.Set("permissions", permissionCodes)
+		}
 
 		// Add token expiry warning header if token expires soon (within 30 minutes)
 		if time.Until(claims.ExpiresAt.Time) < 30*time.Minute {
@@ -229,6 +238,58 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// RequirePermission checks whether the authenticated user has at least one
+// required permission code.
+func RequirePermission(permissionCodes ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if len(permissionCodes) == 0 {
+			c.Next()
+			return
+		}
+
+		userIDVal, userExists := c.Get("userID")
+		roleIDVal, roleExists := c.Get("roleID")
+		if !userExists || !roleExists {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Authorization context not found",
+				"code":    "AUTH_CONTEXT_MISSING",
+			})
+			c.Abort()
+			return
+		}
+
+		userID, okUser := userIDVal.(int)
+		roleID, okRole := roleIDVal.(int)
+		if !okUser || !okRole {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Invalid authorization context",
+				"code":    "AUTH_CONTEXT_INVALID",
+			})
+			c.Abort()
+			return
+		}
+
+		authz := services.GetAuthorizationService()
+
+		for _, required := range permissionCodes {
+			if authz.HasPermission(userID, roleID, required) {
+				c.Next()
+				return
+			}
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Insufficient permissions for this resource",
+			"code":    "INSUFFICIENT_PERMISSIONS",
+			"detail":  services.FormatMissingPermissions(permissionCodes),
+		})
+		c.Abort()
 	}
 }
 
