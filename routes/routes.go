@@ -426,6 +426,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/user-publications/import/scopus", controllers.AdminImportScopusPublications)
 				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
 				admin.GET("/publications/scopus", controllers.AdminListScopusPublications)
+				admin.GET("/publications/scopus/by-user", controllers.AdminListScopusPublicationsByUser)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
 				admin.GET("/scopus/metrics/runs", controllers.AdminListCiteScoreMetricRuns)

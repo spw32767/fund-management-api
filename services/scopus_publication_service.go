@@ -49,6 +49,29 @@ type ScopusPublication struct {
 	Source              string     `json:"source"`
 }
 
+// ScopusPublicationByUser represents a publication associated with a specific user.
+type ScopusPublicationByUser struct {
+	UserID              uint       `json:"user_id"`
+	UserName            string     `json:"user_name"`
+	UserEmail           string     `json:"user_email"`
+	UserScopusID        *string    `json:"user_scopus_id,omitempty"`
+	DocumentID          uint       `json:"document_id"`
+	Title               string     `json:"title"`
+	PublicationName     *string    `json:"publication_name,omitempty"`
+	SourceID            *string    `json:"source_id,omitempty"`
+	PublicationYear     *int       `json:"publication_year,omitempty"`
+	CoverDate           *time.Time `json:"cover_date,omitempty"`
+	CitedBy             *int       `json:"cited_by,omitempty"`
+	DOI                 *string    `json:"doi,omitempty"`
+	EID                 string     `json:"eid"`
+	ScopusID            *string    `json:"scopus_id,omitempty"`
+	ScopusURL           *string    `json:"scopus_url,omitempty"`
+	CiteScorePercentile *float64   `json:"cite_score_percentile,omitempty"`
+	CiteScoreQuartile   *string    `json:"cite_score_quartile,omitempty"`
+	CiteScoreStatus     *string    `json:"cite_score_status,omitempty"`
+	CiteScoreRank       *int       `json:"cite_score_rank,omitempty"`
+}
+
 // ScopusPublicationTrendPoint represents per-year document/citation aggregates.
 type ScopusPublicationTrendPoint struct {
 	Year      int `json:"year"`
@@ -102,6 +125,28 @@ type scopusPublicationRow struct {
 	CiteScoreRank       *int     `gorm:"column:cite_score_rank"`
 	AuthKeywords        []byte   `gorm:"column:authkeywords"`
 	FundSponsor         *string  `gorm:"column:fund_sponsor"`
+}
+
+type scopusPublicationByUserRow struct {
+	UserID              uint
+	UserName            string  `gorm:"column:user_name"`
+	UserEmail           *string `gorm:"column:user_email"`
+	UserScopusID        *string `gorm:"column:user_scopus_id"`
+	DocumentID          uint    `gorm:"column:document_id"`
+	Title               *string
+	PublicationName     *string
+	SourceID            *string
+	CoverDate           *time.Time
+	CoverDisplayDate    *string `gorm:"column:cover_display_date"`
+	CitedByCount        *int    `gorm:"column:citedby_count"`
+	DOI                 *string
+	EID                 string
+	ScopusID            *string `gorm:"column:scopus_id"`
+	ScopusLink          *string `gorm:"column:scopus_link"`
+	CiteScorePercentile *float64
+	CiteScoreQuartile   *string
+	CiteScoreStatus     *string
+	CiteScoreRank       *int
 }
 
 // NewScopusPublicationService instantiates the service.
@@ -237,6 +282,59 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 	return mapScopusRows(rows), total, nil
 }
 
+// ListByUserOwnership returns paginated Scopus publications mapped to users in this system.
+func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortField, sortDirection, search string) ([]ScopusPublicationByUser, int64, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	pairQuery := s.db.Table("users AS u").
+		Select("u.user_id, sd.id AS document_id").
+		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
+		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
+		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''")
+
+	if search = strings.TrimSpace(search); search != "" {
+		like := fmt.Sprintf("%%%s%%", search)
+		pairQuery = pairQuery.Where(
+			"u.user_fname LIKE ? OR u.user_lname LIKE ? OR u.email LIKE ? OR u.Scopus_id LIKE ? OR sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.publication_name LIKE ?",
+			like, like, like, like, like, like, like, like,
+		)
+	}
+
+	pairQuery = pairQuery.Group("u.user_id, sd.id")
+
+	var total int64
+	if err := s.db.Table("(?) AS user_doc_pairs", pairQuery.Session(&gorm.Session{NewDB: true})).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []ScopusPublicationByUser{}, 0, nil
+	}
+
+	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
+	base := s.db.Table("(?) AS pairs", pairQuery.Session(&gorm.Session{NewDB: true})).
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
+		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
+
+	orderClause := orderForScopusByUser(sortField, sortDirection)
+	var rows []scopusPublicationByUserRow
+	if err := base.Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRowsByUser(rows), total, nil
+}
+
 func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 	publications := make([]ScopusPublication, 0, len(rows))
 	for _, row := range rows {
@@ -309,6 +407,54 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 	}
 
 	return publications
+}
+
+func mapScopusRowsByUser(rows []scopusPublicationByUserRow) []ScopusPublicationByUser {
+	items := make([]ScopusPublicationByUser, 0, len(rows))
+	for _, row := range rows {
+		title := strings.TrimSpace(stringOrEmpty(row.Title))
+		pub := ScopusPublicationByUser{
+			UserID:              row.UserID,
+			UserName:            strings.TrimSpace(row.UserName),
+			UserEmail:           strings.TrimSpace(stringOrEmpty(row.UserEmail)),
+			UserScopusID:        normalizeNullable(row.UserScopusID),
+			DocumentID:          row.DocumentID,
+			Title:               title,
+			PublicationName:     normalizeNullable(row.PublicationName),
+			SourceID:            normalizeNullable(row.SourceID),
+			CoverDate:           row.CoverDate,
+			CitedBy:             row.CitedByCount,
+			DOI:                 normalizeNullable(row.DOI),
+			EID:                 row.EID,
+			ScopusID:            normalizeNullable(row.ScopusID),
+			ScopusURL:           normalizeNullable(row.ScopusLink),
+			CiteScorePercentile: row.CiteScorePercentile,
+			CiteScoreQuartile:   normalizeNullable(row.CiteScoreQuartile),
+			CiteScoreStatus:     normalizeNullable(row.CiteScoreStatus),
+			CiteScoreRank:       row.CiteScoreRank,
+		}
+
+		if row.CoverDate != nil {
+			year := row.CoverDate.Year()
+			if year > 0 {
+				pub.PublicationYear = &year
+			}
+		} else if row.CoverDisplayDate != nil {
+			if year := parseYearFromDisplayDate(*row.CoverDisplayDate); year > 0 {
+				pub.PublicationYear = &year
+			}
+		}
+
+		if pub.ScopusURL == nil {
+			if link := buildScopusURL(row.EID); link != nil {
+				pub.ScopusURL = link
+			}
+		}
+
+		items = append(items, pub)
+	}
+
+	return items
 }
 
 func latestCiteScoreMetricsSubquery(db *gorm.DB) *gorm.DB {
@@ -476,6 +622,46 @@ func orderForScopus(field, direction string) string {
 	default:
 		return fmt.Sprintf("sd.cover_date %s", dir)
 	}
+}
+
+func orderForScopusByUser(field, direction string) string {
+	dir := strings.ToUpper(direction)
+	if dir != "ASC" {
+		dir = "DESC"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "user_name":
+		return fmt.Sprintf("user_name %s, pairs.user_id ASC, pairs.document_id ASC", dir)
+	case "title":
+		return fmt.Sprintf("sd.title %s, user_name ASC", dir)
+	case "cited_by":
+		return fmt.Sprintf("sd.citedby_count %s, user_name ASC", dir)
+	default:
+		return fmt.Sprintf("sd.cover_date %s, user_name ASC, pairs.user_id ASC", dir)
+	}
+}
+
+func parseYearFromDisplayDate(value string) int {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) < 4 {
+		return 0
+	}
+	for i := len(trimmed) - 4; i >= 0; i-- {
+		chunk := trimmed[i : i+4]
+		year := 0
+		for _, ch := range chunk {
+			if ch < '0' || ch > '9' {
+				year = 0
+				break
+			}
+			year = year*10 + int(ch-'0')
+		}
+		if year >= 1900 && year <= 3000 {
+			return year
+		}
+	}
+	return 0
 }
 
 func buildScopusURL(eid string) *string {
