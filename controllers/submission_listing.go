@@ -287,9 +287,24 @@ func GetStaffSubmissions(c *gin.Context) {
 
 // GetAdminSubmissions returns admin list + stats with consistent filters
 func GetAdminSubmissions(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 && roleID.(int) != 5 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	hasReadAll := false
+	hasAdminPage := false
+	if permissionVals, exists := c.Get("permissions"); exists {
+		if permissionCodes, ok := permissionVals.([]string); ok {
+			for _, code := range permissionCodes {
+				normalized := strings.TrimSpace(strings.ToLower(code))
+				switch normalized {
+				case "submission.read.all":
+					hasReadAll = true
+				case "ui.page.admin.applications.view":
+					hasAdminPage = true
+				}
+			}
+		}
+	}
+
+	if !hasReadAll && !hasAdminPage {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions for this resource"})
 		return
 	}
 

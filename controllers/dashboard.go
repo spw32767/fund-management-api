@@ -30,7 +30,7 @@ func GetDashboardStats(c *gin.Context) {
 	}
 
 	userID, okUser := userIDVal.(int)
-	roleID, okRole := roleIDVal.(int)
+	_, okRole := roleIDVal.(int)
 	if !okUser || !okRole {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -39,15 +39,39 @@ func GetDashboardStats(c *gin.Context) {
 		return
 	}
 
+	hasAdminDashboardPermission := false
+	hasSelfDashboardPermission := false
+	if permissionVals, exists := c.Get("permissions"); exists {
+		if permissionCodes, ok := permissionVals.([]string); ok {
+			for _, code := range permissionCodes {
+				normalized := strings.TrimSpace(strings.ToLower(code))
+				switch normalized {
+				case "dashboard.view.admin", "ui.page.admin.dashboard.view":
+					hasAdminDashboardPermission = true
+				case "dashboard.view.self":
+					hasSelfDashboardPermission = true
+				}
+			}
+		}
+	}
+
+	if !hasAdminDashboardPermission && !hasSelfDashboardPermission {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Insufficient permissions for this resource",
+		})
+		return
+	}
+
 	var stats map[string]interface{}
-	if roleID == 3 || roleID == 4 || roleID == 5 { // Admin-style dashboard (includes dept heads + executive)
+	if hasAdminDashboardPermission {
 		scopeParam := c.Query("scope")
 		yearParam := c.Query("year")
 		installmentParam := c.Query("installment")
 
 		filter, options := resolveDashboardFilter(scopeParam, yearParam, installmentParam)
 		stats = getAdminDashboard(filter, options)
-	} else { // Teacher/Staff dashboard
+	} else {
 		stats = getUserDashboard(userID)
 	}
 

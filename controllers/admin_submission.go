@@ -246,23 +246,29 @@ func GetSubmissionDetails(c *gin.Context) {
 	// 10) response
 	resp := gin.H{
 		"submission": gin.H{
-			"submission_id":         s.SubmissionID,
-			"submission_number":     s.SubmissionNumber,
-			"submission_type":       s.SubmissionType,
-			"user_id":               s.UserID,
-			"year_id":               s.YearID,
-			"category_id":           s.CategoryID,
-			"subcategory_id":        s.SubcategoryID,
-			"subcategory_budget_id": s.SubcategoryBudgetID,
-			"status_id":             s.StatusID,
-			"submitted_at":          s.SubmittedAt,
-			"created_at":            s.CreatedAt,
-			"updated_at":            s.UpdatedAt,
-			"user":                  s.User, // owner object (อาจเป็น nil ได้)
-			"year":                  s.Year,
-			"status":                s.Status,
-			"category":              s.Category,
-			"subcategory":           s.Subcategory,
+			"submission_id":                   s.SubmissionID,
+			"submission_number":               s.SubmissionNumber,
+			"submission_type":                 s.SubmissionType,
+			"user_id":                         s.UserID,
+			"year_id":                         s.YearID,
+			"category_id":                     s.CategoryID,
+			"subcategory_id":                  s.SubcategoryID,
+			"subcategory_budget_id":           s.SubcategoryBudgetID,
+			"installment_number_at_submit":    s.InstallmentNumberAtSubmit,
+			"installment_fund_name_at_submit": s.InstallmentFundNameAtSubmit,
+			"status_id":                       s.StatusID,
+			"contact_phone":                   s.ContactPhone,
+			"bank_account":                    s.BankAccount,
+			"bank_name":                       s.BankName,
+			"bank_account_name":               s.BankAccountName,
+			"submitted_at":                    s.SubmittedAt,
+			"created_at":                      s.CreatedAt,
+			"updated_at":                      s.UpdatedAt,
+			"user":                            s.User, // owner object (อาจเป็น nil ได้)
+			"year":                            s.Year,
+			"status":                          s.Status,
+			"category":                        s.Category,
+			"subcategory":                     s.Subcategory,
 		},
 		"details":           details,   // gin.H หรือ nil
 		"submission_users":  suOut,     // []gin.H
@@ -273,6 +279,49 @@ func GetSubmissionDetails(c *gin.Context) {
 
 	if researchFundPayload != nil {
 		resp["research_fund"] = researchFundPayload
+	}
+
+	subcategoryName := ""
+	if s.FundApplicationDetail != nil && s.FundApplicationDetail.Subcategory != nil {
+		subcategoryName = strings.TrimSpace(s.FundApplicationDetail.Subcategory.SubcategoryName)
+	}
+	if subcategoryName == "" && s.Subcategory != nil {
+		subcategoryName = strings.TrimSpace(s.Subcategory.SubcategoryName)
+	}
+
+	budgetDescription := ""
+	if s.SubcategoryBudgetID != nil {
+		var budget models.SubcategoryBudget
+		if err := config.DB.Where("subcategory_budget_id = ? AND delete_at IS NULL", *s.SubcategoryBudgetID).First(&budget).Error; err == nil {
+			budgetDescription = strings.TrimSpace(budget.FundDescription)
+		}
+	}
+
+	if budgetDescription == "" && s.FundApplicationDetail != nil && s.FundApplicationDetail.Subcategory != nil {
+		budgetDescription = strings.TrimSpace(s.FundApplicationDetail.Subcategory.SubcategoryBudget.FundDescription)
+	}
+
+	if budgetDescription == "" && s.Subcategory != nil {
+		budgetDescription = strings.TrimSpace(s.Subcategory.SubcategoryBudget.FundDescription)
+	}
+
+	preferredFundName := ""
+	if subcategoryName != "" && budgetDescription != "" {
+		if strings.Contains(subcategoryName, budgetDescription) {
+			preferredFundName = subcategoryName
+		} else {
+			preferredFundName = strings.TrimSpace(subcategoryName + " " + budgetDescription)
+		}
+	} else if subcategoryName != "" {
+		preferredFundName = subcategoryName
+	} else if budgetDescription != "" {
+		preferredFundName = budgetDescription
+	}
+
+	if submissionMap, ok := resp["submission"].(gin.H); ok {
+		if preferredFundName != "" {
+			submissionMap["fund_name"] = preferredFundName
+		}
 	}
 
 	c.JSON(http.StatusOK, resp)

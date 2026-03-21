@@ -150,7 +150,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/projects/:projectId/attachments/:fileId", controllers.DownloadProjectAttachment)
 
 			// Permission-based Scopus publication access (new authorization layer)
-			protected.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read"), controllers.AdminListScopusPublications)
+			protected.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read", "ui.page.admin.scopus.view"), controllers.AdminListScopusPublications)
 			protected.GET("/publications/scopus/by-user", middleware.RequirePermission("scopus.publications.export_by_user"), controllers.AdminListScopusPublicationsByUser)
 
 			// Publication reward agreements / conditions
@@ -193,13 +193,13 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Dept head review endpoints
 			deptHead := protected.Group("/dept-head")
-			deptHead.Use(middleware.RequireRole(4))
+			deptHead.Use(middleware.RequirePermission("ui.page.member.dept_review.view", "submission.read.department"))
 			{
-				deptHead.GET("/submissions", controllers.GetDeptHeadSubmissions)
-				deptHead.GET("/submissions/:id/details", controllers.GetDeptHeadSubmissionDetails)
-				deptHead.POST("/submissions/:id/recommend", controllers.DeptHeadRecommendSubmission)
-				deptHead.POST("/submissions/:id/reject", controllers.DeptHeadRejectSubmission)
-				deptHead.POST("/submissions/:id/request-revision", controllers.DeptHeadRequestRevision)
+				deptHead.GET("/submissions", middleware.RequirePermission("submission.read.department"), controllers.GetDeptHeadSubmissions)
+				deptHead.GET("/submissions/:id/details", middleware.RequirePermission("submission.read.department"), controllers.GetDeptHeadSubmissionDetails)
+				deptHead.POST("/submissions/:id/recommend", middleware.RequirePermission("dept_head.review.recommend"), controllers.DeptHeadRecommendSubmission)
+				deptHead.POST("/submissions/:id/reject", middleware.RequirePermission("dept_head.review.reject"), controllers.DeptHeadRejectSubmission)
+				deptHead.POST("/submissions/:id/request-revision", middleware.RequirePermission("dept_head.review.request_revision"), controllers.DeptHeadRequestRevision)
 			}
 
 			// Fund Applications
@@ -210,13 +210,13 @@ func SetupRoutes(router *gin.Engine) {
 				applications.GET("/:id", controllers.GetApplication)
 
 				// Only teachers can create/update/delete applications
-				applications.POST("", middleware.RequireRole(1), controllers.CreateApplication) // 1 = teacher
-				applications.PUT("/:id", middleware.RequireRole(1), controllers.UpdateApplication)
-				applications.DELETE("/:id", middleware.RequireRole(1), controllers.DeleteApplication)
+				applications.POST("", middleware.RequirePermission("fund.request.create"), controllers.CreateApplication)
+				applications.PUT("/:id", middleware.RequirePermission("fund.request.update"), controllers.UpdateApplication)
+				applications.DELETE("/:id", middleware.RequirePermission("fund.request.delete"), controllers.DeleteApplication)
 
 				// Only admin can approve/reject
-				applications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApproveApplication) // 3 = admin
-				applications.POST("/:id/reject", middleware.RequireRole(3), controllers.RejectApplication)
+				applications.POST("/:id/approve", middleware.RequirePermission("fund.request.approve"), controllers.ApproveApplication)
+				applications.POST("/:id/reject", middleware.RequirePermission("fund.request.approve"), controllers.RejectApplication)
 			}
 
 			submissions := protected.Group("/submissions")
@@ -287,9 +287,24 @@ func SetupRoutes(router *gin.Engine) {
 			// Dashboard
 			dashboard := protected.Group("/dashboard")
 			{
-				dashboard.GET("/stats", controllers.GetDashboardStats)
+				dashboard.GET("/stats", middleware.RequirePermission("dashboard.view.self", "dashboard.view.admin", "ui.page.admin.dashboard.view"), controllers.GetDashboardStats)
 				dashboard.GET("/budget-summary", controllers.GetBudgetSummary)
 				dashboard.GET("/applications-summary", controllers.GetApplicationsSummary)
+			}
+
+			// Permission-based admin submission endpoints for mixed-role users
+			submissionsAdmin := protected.Group("/submissions-admin")
+			submissionsAdmin.Use(middleware.RequirePermission("submission.read.all", "ui.page.admin.applications.view"))
+			{
+				submissionsAdmin.GET("", controllers.GetAdminSubmissions)
+				submissionsAdmin.GET("/:id/details", controllers.GetSubmissionDetails)
+				submissionsAdmin.PATCH("/:id/publication-reward/approval-amounts", middleware.RequirePermission("fund.request.approve", "publication.reward.approve"), controllers.UpdatePublicationRewardApprovalAmounts)
+				submissionsAdmin.POST("/:id/approve", middleware.RequirePermission("fund.request.approve", "publication.reward.approve"), controllers.ApproveSubmission)
+				submissionsAdmin.POST("/:id/reject", middleware.RequirePermission("fund.request.approve", "publication.reward.approve"), controllers.RejectSubmission)
+				submissionsAdmin.POST("/:id/request-revision", middleware.RequirePermission("fund.request.approve", "publication.reward.approve"), controllers.RequestSubmissionRevision)
+				submissionsAdmin.GET("/:id/research-fund/events", controllers.ListResearchFundEvents)
+				submissionsAdmin.POST("/:id/research-fund/events", middleware.RequirePermission("fund.request.approve"), controllers.CreateResearchFundEvent)
+				submissionsAdmin.POST("/:id/research-fund/toggle-closure", middleware.RequirePermission("fund.request.approve"), controllers.ToggleResearchFundClosure)
 			}
 
 			// Publication Rewards
@@ -301,13 +316,13 @@ func SetupRoutes(router *gin.Engine) {
 				publications.POST("/preview", controllers.PreviewPublicationReward)
 
 				// Only teachers can create/update/delete
-				publications.POST("", middleware.RequireRole(1), controllers.CreatePublicationReward)
-				publications.PUT("/:id", middleware.RequireRole(1), controllers.UpdatePublicationReward)
-				publications.DELETE("/:id", middleware.RequireRole(1), controllers.DeletePublicationReward)
+				publications.POST("", middleware.RequirePermission("publication.reward.manage_own"), controllers.CreatePublicationReward)
+				publications.PUT("/:id", middleware.RequirePermission("publication.reward.manage_own"), controllers.UpdatePublicationReward)
+				publications.DELETE("/:id", middleware.RequirePermission("publication.reward.manage_own"), controllers.DeletePublicationReward)
 
 				// Only admin can approve/reject
-				publications.POST("/:id/approve", middleware.RequireRole(3), controllers.ApprovePublicationReward)
-				publications.POST("/:id/reject", middleware.RequireRole(3), controllers.RejectPublicationReward)
+				publications.POST("/:id/approve", middleware.RequirePermission("publication.reward.approve"), controllers.ApprovePublicationReward)
+				publications.POST("/:id/reject", middleware.RequirePermission("publication.reward.approve"), controllers.RejectPublicationReward)
 
 				// Documents
 				publications.POST("/:id/documents", controllers.UploadPublicationDocument)
@@ -329,13 +344,13 @@ func SetupRoutes(router *gin.Engine) {
 					rates.GET("/years", controllers.GetAvailableYears)               // GET /api/v1/publication-rewards/rates/years
 
 					// Admin only endpoints
-					rates.GET("/admin", middleware.RequireRole(3), controllers.GetPublicationRewardRatesAdmin)           // GET /api/v1/publication-rewards/rates/admin (ดูทั้งหมด ไม่ filter is_active)
-					rates.POST("", middleware.RequireRole(3), controllers.CreatePublicationRewardRate)                   // POST /api/v1/publication-rewards/rates
-					rates.PUT("/bulk", middleware.RequireRole(3), controllers.UpdatePublicationRewardRates)              // PUT /api/v1/publication-rewards/rates/bulk (existing)
-					rates.PUT("/:id", middleware.RequireRole(3), controllers.UpdatePublicationRewardRate)                // PUT /api/v1/publication-rewards/rates/:id
-					rates.DELETE("/:id", middleware.RequireRole(3), controllers.DeletePublicationRewardRate)             // DELETE /api/v1/publication-rewards/rates/:id
-					rates.PATCH("/:id/toggle", middleware.RequireRole(3), controllers.TogglePublicationRewardRateStatus) // PATCH /api/v1/publication-rewards/rates/:id/toggle
-					rates.POST("/:id/toggle", middleware.RequireRole(3), controllers.TogglePublicationRewardRateStatus)  // PATCH /api/v1/publication-rewards/rates/:id/toggle
+					rates.GET("/admin", middleware.RequirePermission("publication.reward.rate.manage"), controllers.GetPublicationRewardRatesAdmin)
+					rates.POST("", middleware.RequirePermission("publication.reward.rate.manage"), controllers.CreatePublicationRewardRate)
+					rates.PUT("/bulk", middleware.RequirePermission("publication.reward.rate.manage"), controllers.UpdatePublicationRewardRates)
+					rates.PUT("/:id", middleware.RequirePermission("publication.reward.rate.manage"), controllers.UpdatePublicationRewardRate)
+					rates.DELETE("/:id", middleware.RequirePermission("publication.reward.rate.manage"), controllers.DeletePublicationRewardRate)
+					rates.PATCH("/:id/toggle", middleware.RequirePermission("publication.reward.rate.manage"), controllers.TogglePublicationRewardRateStatus)
+					rates.POST("/:id/toggle", middleware.RequirePermission("publication.reward.rate.manage"), controllers.TogglePublicationRewardRateStatus)
 				}
 			}
 
@@ -370,9 +385,9 @@ func SetupRoutes(router *gin.Engine) {
 				announcements.GET("/:id/download", controllers.DownloadAnnouncementFile)
 
 				// Admin only routes
-				announcements.POST("", middleware.RequireRole(3), controllers.CreateAnnouncement)
-				announcements.PUT("/:id", middleware.RequireRole(3), controllers.UpdateAnnouncement)
-				announcements.DELETE("/:id", middleware.RequireRole(3), controllers.DeleteAnnouncement)
+				announcements.POST("", middleware.RequirePermission("announcement.manage"), controllers.CreateAnnouncement)
+				announcements.PUT("/:id", middleware.RequirePermission("announcement.manage"), controllers.UpdateAnnouncement)
+				announcements.DELETE("/:id", middleware.RequirePermission("announcement.manage"), controllers.DeleteAnnouncement)
 			}
 
 			fundForms := protected.Group("/fund-forms")
@@ -384,9 +399,9 @@ func SetupRoutes(router *gin.Engine) {
 				fundForms.GET("/:id/download", controllers.DownloadFundForm)
 
 				// Admin only routes
-				fundForms.POST("", middleware.RequireRole(3), controllers.CreateFundForm)
-				fundForms.PUT("/:id", middleware.RequireRole(3), controllers.UpdateFundForm)
-				fundForms.DELETE("/:id", middleware.RequireRole(3), controllers.DeleteFundForm)
+				fundForms.POST("", middleware.RequirePermission("fund.form.manage"), controllers.CreateFundForm)
+				fundForms.PUT("/:id", middleware.RequirePermission("fund.form.manage"), controllers.UpdateFundForm)
+				fundForms.DELETE("/:id", middleware.RequirePermission("fund.form.manage"), controllers.DeleteFundForm)
 			}
 
 			// Executive read-only routes (dashboard + export source data)
@@ -400,9 +415,22 @@ func SetupRoutes(router *gin.Engine) {
 				executive.GET("/subcategories", controllers.GetAllSubcategories)
 			}
 
-			// เพิ่มส่วนนี้ใน admin group หลังจาก middleware.RequireRole(3)
+			// Admin portal routes (permission-based)
 			admin := protected.Group("/admin")
-			admin.Use(middleware.RequireRole(3)) // Require admin role
+			admin.Use(middleware.RequirePermission(
+				"portal.admin.access",
+				"ui.page.admin.dashboard.view",
+				"ui.page.admin.research_fund.view",
+				"ui.page.admin.promotion_fund.view",
+				"ui.page.admin.applications.view",
+				"ui.page.admin.scopus.view",
+				"ui.page.admin.fund_settings.view",
+				"ui.page.admin.projects.view",
+				"ui.page.admin.approval_records.view",
+				"ui.page.admin.import_export.view",
+				"ui.page.admin.academic_imports.view",
+				"ui.page.admin.access_control.view",
+			))
 			{
 				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
 				admin.POST("/import-templates", controllers.CreateImportTemplateAdmin)
@@ -419,6 +447,17 @@ func SetupRoutes(router *gin.Engine) {
 					notificationMessages.POST("/:id/reset", controllers.ResetNotificationMessage)
 				}
 
+				accessControl := admin.Group("/access")
+				{
+					accessControl.GET("/roles", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminListAccessRoles)
+					accessControl.GET("/permissions", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminListAccessPermissions)
+					accessControl.GET("/roles/:id/permissions", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetRolePermissions)
+					accessControl.PUT("/roles/:id/permissions", middleware.RequirePermission("access.manage"), controllers.AdminUpdateRolePermissions)
+					accessControl.GET("/users/:id/overrides", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserPermissionOverrides)
+					accessControl.PUT("/users/:id/overrides", middleware.RequirePermission("access.manage"), controllers.AdminUpdateUserPermissionOverrides)
+					accessControl.GET("/users/:id/effective", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserEffectivePermissions)
+				}
+
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
@@ -429,7 +468,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/user-publications/import/scholar/runs", controllers.AdminListScholarImportRuns)
 				admin.POST("/user-publications/import/scopus", controllers.AdminImportScopusPublications)
 				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
-				admin.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read"), controllers.AdminListScopusPublications)
+				admin.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read", "ui.page.admin.scopus.view"), controllers.AdminListScopusPublications)
 				admin.GET("/publications/scopus/by-user", middleware.RequirePermission("scopus.publications.export_by_user"), controllers.AdminListScopusPublicationsByUser)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
