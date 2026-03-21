@@ -165,5 +165,34 @@ After SSO credentials are issued, verify end-to-end login/logout with these step
 
 2. Run backend and frontend normally.
 3. Open `/login`, click **Login with KKU SSO**, complete SSO sign-in, and confirm you are redirected to `/`.
+   - SSO allowlist rule: only emails that already exist in `users` with `delete_at IS NULL` are allowed.
+   - If email is not allowed, callback redirects to `/login?error=sso_user_not_allowed`.
 4. Confirm authentication works (JWT cookie is set as httpOnly).
 5. Trigger logout, verify cookie is cleared, browser is redirected to SSO logout URL, and returns to `/login`.
+
+## Recommended Next Step: Email Cleanup + Unique Constraint
+
+To harden SSO/email matching and prevent duplicate accounts, run this in a controlled maintenance window:
+
+1. Find duplicates by normalized email (`LOWER(TRIM(email))`) among active users (`delete_at IS NULL`).
+2. Resolve duplicates (merge/disable extra rows) based on business rules.
+3. Add a unique index on `users.email` (collation is case-insensitive in current schema).
+
+Example duplicate check:
+
+```sql
+SELECT LOWER(TRIM(email)) AS normalized_email, COUNT(*) AS total
+FROM users
+WHERE delete_at IS NULL
+  AND email IS NOT NULL
+  AND TRIM(email) <> ''
+GROUP BY LOWER(TRIM(email))
+HAVING COUNT(*) > 1;
+```
+
+Example unique constraint (run only after cleanup):
+
+```sql
+ALTER TABLE users
+  ADD CONSTRAINT uq_users_email UNIQUE (email);
+```

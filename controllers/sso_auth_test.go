@@ -243,43 +243,14 @@ func TestSSOCallbackMissingCodeRedirects(t *testing.T) {
 	}
 }
 
-func TestSSOCallbackCreatesTeacherUserAndSetsCookie(t *testing.T) {
+func TestSSOCallbackRejectsUnknownUser(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*LIMIT 1`),
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
 			args:    []driver.Value{"new.teacher@kku.ac.th"},
 			columns: []string{"user_id"},
 			rows:    [][]driver.Value{},
-		},
-		{
-			kind:    stepExec,
-			pattern: regexp.MustCompile(`INSERT INTO .*users.*`),
-			result:  scriptedResult{lastInsertID: 1, rowsAffected: 1},
-		},
-		{
-			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*LIMIT 1`),
-			args:    []driver.Value{"new.teacher@kku.ac.th"},
-			columns: []string{"user_id", "email", "role_id", "delete_at"},
-			rows:    [][]driver.Value{{int64(1), "new.teacher@kku.ac.th", int64(1), nil}},
-		},
-		{
-			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*auth_identities.*provider = \?.*provider_subject = \?.*LIMIT 1`),
-			args:    []driver.Value{services.DefaultSSOProvider, "immutable-001"},
-			columns: []string{"identity_id"},
-			rows:    [][]driver.Value{},
-		},
-		{
-			kind:    stepExec,
-			pattern: regexp.MustCompile(`INSERT INTO .*auth_identities`),
-			result:  scriptedResult{lastInsertID: 1, rowsAffected: 1},
-		},
-		{
-			kind:    stepExec,
-			pattern: regexp.MustCompile(`UPDATE .*users.*last_login_at`),
-			result:  scriptedResult{rowsAffected: 1},
 		},
 	}
 
@@ -311,16 +282,16 @@ func TestSSOCallbackCreatesTeacherUserAndSetsCookie(t *testing.T) {
 	if w.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", w.Code)
 	}
-	if got := w.Header().Get("Location"); got != "/" {
+	if got := w.Header().Get("Location"); got != "/login?error=sso_user_not_allowed" {
 		t.Fatalf("unexpected redirect location: %s", got)
 	}
 
 	setCookie := w.Header().Get("Set-Cookie")
 	if !strings.Contains(setCookie, "auth_token=") {
-		t.Fatalf("expected auth cookie in response, got: %s", setCookie)
+		t.Fatalf("expected auth cookie clear in response, got: %s", setCookie)
 	}
-	if !strings.Contains(setCookie, "HttpOnly") || !strings.Contains(setCookie, "Secure") || !strings.Contains(setCookie, "SameSite=Lax") {
-		t.Fatalf("cookie flags missing, got: %s", setCookie)
+	if !strings.Contains(strings.ToLower(setCookie), "max-age=0") {
+		t.Fatalf("expected cookie max-age reset, got: %s", setCookie)
 	}
 
 	if err := state.verifyComplete(); err != nil {
@@ -332,7 +303,7 @@ func TestSSOCallbackMergesExistingUserByEmail(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*LIMIT 1`),
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
 			args:    []driver.Value{"existing.user@kku.ac.th"},
 			columns: []string{"user_id", "email", "role_id", "delete_at"},
 			rows:    [][]driver.Value{{int64(7), "existing.user@kku.ac.th", int64(2), nil}},
@@ -384,6 +355,57 @@ func TestSSOCallbackMergesExistingUserByEmail(t *testing.T) {
 	}
 	if got := w.Header().Get("Location"); got != "/" {
 		t.Fatalf("unexpected redirect location: %s", got)
+	}
+
+	if err := state.verifyComplete(); err != nil {
+		t.Fatalf("unmet db expectations: %v", err)
+	}
+}
+
+func TestSSOCallbackRejectsSoftDeletedUser(t *testing.T) {
+	steps := []*queryStep{
+		{
+			kind:    stepQuery,
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
+			args:    []driver.Value{"soft.deleted@kku.ac.th"},
+			columns: []string{"user_id"},
+			rows:    [][]driver.Value{},
+		},
+	}
+
+	db, state, cleanup := newScriptedGormDB(t, steps)
+	defer cleanup()
+	config.DB = db
+
+	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("AUTH_COOKIE_NAME", "auth_token")
+
+	originalFactory := ssoClientFactory
+	ssoClientFactory = func() services.SSOCodeExchanger {
+		return stubSSOClient{result: &services.SSOExchangeResult{
+			OK:              true,
+			Email:           "soft.deleted@kku.ac.th",
+			ProviderSubject: "immutable-soft-deleted",
+			RawClaims:       []byte(`{"ok":true}`),
+		}}
+	}
+	defer func() { ssoClientFactory = originalFactory }()
+
+	r := setupSSOCallbackRoute()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/sso/callback?code=test-code", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", w.Code)
+	}
+	if got := w.Header().Get("Location"); got != "/login?error=sso_user_not_allowed" {
+		t.Fatalf("unexpected redirect location: %s", got)
+	}
+
+	setCookie := w.Header().Get("Set-Cookie")
+	if !strings.Contains(setCookie, "auth_token=") {
+		t.Fatalf("expected auth cookie clear in response, got: %s", setCookie)
 	}
 
 	if err := state.verifyComplete(); err != nil {

@@ -85,53 +85,18 @@ func SSOCallback(c *gin.Context) {
 	}()
 
 	var user models.User
-	err = tx.Where("email = ?", email).First(&user).Error
+	err = tx.Where("email = ? AND delete_at IS NULL", email).First(&user).Error
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			tx.Rollback()
-			c.Redirect(http.StatusFound, "/login?error=sso_failed")
+			clearAuthTokenCookie(c)
+			c.Redirect(http.StatusFound, "/login?error=sso_user_not_allowed")
 			return
 		}
 
-		insertData := map[string]any{
-			"email":     email,
-			"role_id":   1,
-			"password":  nil,
-			"create_at": now,
-		}
-		if name := strings.TrimSpace(result.FirstName); name != "" {
-			insertData["user_fname"] = name
-		} else {
-			insertData["user_fname"] = nil
-		}
-		if name := strings.TrimSpace(result.LastName); name != "" {
-			insertData["user_lname"] = name
-		} else {
-			insertData["user_lname"] = nil
-		}
-
-		if err := tx.Table("users").Create(insertData).Error; err != nil {
-			tx.Rollback()
-			c.Redirect(http.StatusFound, "/login?error=sso_failed")
-			return
-		}
-
-		if err := tx.Where("email = ?", email).First(&user).Error; err != nil {
-			tx.Rollback()
-			c.Redirect(http.StatusFound, "/login?error=sso_failed")
-			return
-		}
-	}
-
-	if user.DeleteAt != nil {
-		if err := tx.Model(&models.User{}).
-			Where("user_id = ?", user.UserID).
-			Update("delete_at", nil).Error; err != nil {
-			tx.Rollback()
-			c.Redirect(http.StatusFound, "/login?error=sso_failed")
-			return
-		}
-		user.DeleteAt = nil
+		tx.Rollback()
+		c.Redirect(http.StatusFound, "/login?error=sso_failed")
+		return
 	}
 
 	if err := upsertSSOIdentity(tx, user.UserID, email, result.ProviderSubject, result.RawClaims, now); err != nil {
