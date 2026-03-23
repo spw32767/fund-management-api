@@ -357,7 +357,7 @@ func loadOwnerDisplay(db *gorm.DB, userID uint) (displayName string, email strin
 	}
 	displayName = strings.TrimSpace(buildThaiDisplayName(owner, posName))
 	if owner.EmailNotification != nil {
-		email = *owner.EmailNotification
+		email = strings.TrimSpace(*owner.EmailNotification)
 	}
 	return
 }
@@ -564,8 +564,21 @@ func buildFormalEmailHTML(subject, recipientName, message string) string {
 }
 
 func sendMailSafe(to []string, subject, html string) {
-	if err := config.SendMail(to, subject, html); err != nil {
-		log.Printf("notification email send failed (subject=%q to=%v): %v", subject, to, err)
+	cleanTo := make([]string, 0, len(to))
+	for _, addr := range to {
+		trimmed := strings.TrimSpace(addr)
+		if trimmed == "" {
+			continue
+		}
+		cleanTo = append(cleanTo, trimmed)
+	}
+
+	if len(cleanTo) == 0 {
+		return
+	}
+
+	if err := config.SendMail(cleanTo, subject, html); err != nil {
+		log.Printf("notification email send failed (subject=%q to=%v): %v", subject, cleanTo, err)
 	}
 }
 
@@ -920,13 +933,13 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		}
 
 		for _, hm := range headMessages {
-			if hm.User.EmailNotification == nil || *hm.User.EmailNotification == "" {
+			if hm.User.EmailNotification == nil || strings.TrimSpace(*hm.User.EmailNotification) == "" {
 				continue
 			}
 			subj := hm.Msg.Title
 			name := buildThaiDisplayName(hm.User, "")
 			emailBody := buildFormalEmailHTML(subj, name, hm.Msg.Body)
-			sendMailSafe([]string{*hm.User.EmailNotification}, subj, emailBody)
+			sendMailSafe([]string{strings.TrimSpace(*hm.User.EmailNotification)}, subj, emailBody)
 		}
 	}()
 
@@ -1014,7 +1027,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			sendMailSafe([]string{ownerEmail}, subj, emailBody)
 		}
 		for _, a := range admins {
-			if a.EmailNotification == nil || *a.EmailNotification == "" {
+			if a.EmailNotification == nil || strings.TrimSpace(*a.EmailNotification) == "" {
 				continue
 			}
 
@@ -1036,7 +1049,7 @@ func NotifyDeptHeadRecommended(c *gin.Context) {
 			subj := adminMsg.Title
 			name := adminData["admin_name"]
 			emailBody := buildFormalEmailHTML(subj, name, adminMsg.Body)
-			sendMailSafe([]string{*a.EmailNotification}, subj, emailBody)
+			sendMailSafe([]string{strings.TrimSpace(*a.EmailNotification)}, subj, emailBody)
 		}
 	}()
 

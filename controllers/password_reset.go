@@ -317,6 +317,14 @@ func findActivePasswordResetToken(repo passwordResetRepository, rawToken string,
 }
 
 func sendPasswordResetEmail(user models.User, rawToken string) error {
+	notifyEmail := ""
+	if user.EmailNotification != nil {
+		notifyEmail = strings.TrimSpace(*user.EmailNotification)
+	}
+	if notifyEmail == "" {
+		return nil
+	}
+
 	baseURL := strings.TrimSpace(os.Getenv("APP_BASE_URL"))
 	if baseURL == "" {
 		baseURL = "http://localhost:3000"
@@ -356,7 +364,7 @@ func sendPasswordResetEmail(user models.User, rawToken string) error {
 	)
 
 	html := buildEmailTemplate(subject, paragraphs, meta, "ตั้งค่ารหัสผ่านใหม่", resetURL, footerHTML)
-	return sendMailFunc([]string{user.Email}, subject, html)
+	return sendMailFunc([]string{notifyEmail}, subject, html)
 }
 
 func buildResetURL(baseURL, token string) (string, error) {
