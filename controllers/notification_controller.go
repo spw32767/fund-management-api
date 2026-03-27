@@ -812,12 +812,7 @@ func MarkAllNotificationsRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "unread": unread})
 }
 
-/* ==========================
-   Event endpoints (NEW flow)
-   ========================== */
-
-// POST /api/v1/notifications/events/submissions/:submissionId/submitted
-// -> แจ้งผู้ยื่น + หัวหน้าสาขาปัจจุบัน (ไม่แจ้งแอดมิน)
+// Event-driven notification endpoints
 func NotifySubmissionSubmitted(c *gin.Context) {
 	db := getDB()
 
@@ -826,7 +821,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	roleID, _ := getCurrentRoleID(c) // อนุญาต owner หรือ admin
+	roleID, _ := getCurrentRoleID(c)
 
 	sid, err := strconv.Atoi(c.Param("submissionId"))
 	if err != nil || sid <= 0 {

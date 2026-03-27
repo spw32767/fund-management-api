@@ -301,7 +301,7 @@ func CreateSubmission(c *gin.Context) {
 	submission.BankName = normalizeOptionalString(req.BankName)
 	submission.BankAccountName = normalizeOptionalString(req.BankAccountName)
 
-	// เซ็ตฟิลด์หมวดหมู่ถ้ามีส่งมา
+	// Check Field-Level
 	if req.CategoryID != nil {
 		submission.CategoryID = req.CategoryID
 	}

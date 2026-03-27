@@ -506,11 +506,7 @@ func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
 	})
 }
 
-// ==============================
-// REPLACED: ApproveSubmission (single source of truth)
-// ==============================
-
-// ===== REPLACE WHOLE FUNCTION =====
+// ApproveSubmission updates submission status and approval amounts.
 func ApproveSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -521,15 +517,15 @@ func ApproveSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
 	var req struct {
-		// amounts (PR)
+		// Publication reward approval amounts
 		RewardApproveAmount         *float64 `json:"reward_approve_amount"`
 		RevisionFeeApproveAmount    *float64 `json:"revision_fee_approve_amount"`
 		PublicationFeeApproveAmount *float64 `json:"publication_fee_approve_amount"`
 		TotalApproveAmount          *float64 `json:"total_approve_amount"`
 		AnnounceReferenceNumber     string   `json:"announce_reference_number"`
-		// legacy fallback
+		// Legacy fallback fields
 		ApprovedAmount  *float64 `json:"approved_amount"`
-		ApprovalComment string   `json:"approval_comment"` // จะเก็บที่ admin_comment ได้ถ้าต้องการ
+		ApprovalComment string   `json:"approval_comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
@@ -543,7 +539,7 @@ func ApproveSubmission(c *gin.Context) {
 		}
 	}()
 
-	// load
+	// Load submission with detail for amount updates
 	var submission models.Submission
 	if err := tx.Preload("PublicationRewardDetail").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
@@ -572,7 +568,7 @@ func ApproveSubmission(c *gin.Context) {
 		adminID = &uid
 	}
 
-	// ✅ central truth
+	// Update core approval fields on submissions table
 	updates := map[string]interface{}{
 		"status_id":         2, // approved
 		"updated_at":        now,
@@ -583,7 +579,7 @@ func ApproveSubmission(c *gin.Context) {
 		"rejected_by":       gorm.Expr("NULL"),
 		"rejected_at":       gorm.Expr("NULL"),
 	}
-	// (ออปชัน) เก็บความเห็นของแอดมินตอนอนุมัติ
+	// Save admin comment when provided
 	if strings.TrimSpace(req.ApprovalComment) != "" {
 		updates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
 	}
@@ -596,7 +592,7 @@ func ApproveSubmission(c *gin.Context) {
 		return
 	}
 
-	// PR amounts
+	// Update type-specific approval details
 	if submission.SubmissionType == "publication_reward" {
 		var d models.PublicationRewardDetail
 		if submission.PublicationRewardDetail != nil {
@@ -677,11 +673,7 @@ func ApproveSubmission(c *gin.Context) {
 	})
 }
 
-// ==============================
-// REPLACED: RejectSubmission (single source of truth)
-// ==============================
-
-// ===== REPLACE WHOLE FUNCTION =====
+// RejectSubmission marks a submission as rejected with audit logging.
 func RejectSubmission(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
@@ -693,7 +685,7 @@ func RejectSubmission(c *gin.Context) {
 
 	var req struct {
 		RejectionReason string `json:"rejection_reason" binding:"required"`
-		Comment         string `json:"comment"` // ออปชัน
+		Comment         string `json:"comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
@@ -780,9 +772,7 @@ func RejectSubmission(c *gin.Context) {
 	})
 }
 
-// RequestSubmissionRevision allows admins to send a submission back to the applicant for
-// additional information. The submission is unlocked for editing and moved to the
-// needs-more-info status.
+// RequestSubmissionRevision allows admins to send a submission back to the applicant
 func RequestSubmissionRevision(c *gin.Context) {
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)

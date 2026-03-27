@@ -160,7 +160,8 @@ func Login(c *gin.Context) {
 		})
 		return
 	}
-	// เพิ่ม debug log
+
+	// Keep role/position loading visible during auth troubleshooting
 	log.Printf("User loaded: %+v", user)
 	log.Printf("Role loaded: %+v", user.Role)
 	log.Printf("Position loaded: %+v", user.Position)
