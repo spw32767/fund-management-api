@@ -176,7 +176,7 @@ func (s *ScholarImportJobService) processUser(ctx context.Context, userID uint, 
 	res := &ScholarImportUserSummary{PublicationsFetched: len(pubs)}
 
 	if !dryRun {
-		if err := s.updateAuthorMetrics(ctx, userID, authorID); err != nil {
+		if err := s.updateAuthorMetrics(userID, authorID); err != nil {
 			log.Printf("failed to update scholar metrics for user %d: %v", userID, err)
 		}
 	}
@@ -254,7 +254,7 @@ func (s *ScholarImportJobService) processUser(ctx context.Context, userID uint, 
 	return res, nil
 }
 
-func (s *ScholarImportJobService) updateAuthorMetrics(ctx context.Context, userID uint, authorID string) error {
+func (s *ScholarImportJobService) updateAuthorMetrics(userID uint, authorID string) error {
 	ai, err := FetchScholarAuthorIndices(authorID)
 	if err != nil || ai == nil {
 		return err
@@ -282,16 +282,7 @@ func (s *ScholarImportJobService) updateAuthorMetrics(ctx context.Context, userI
 		return err
 	}
 
-	updates := map[string]interface{}{
-		"scholar_hindex":         ai.HIndex,
-		"scholar_hindex5y":       ai.HIndex5Y,
-		"scholar_i10index":       ai.I10Index,
-		"scholar_i10index5y":     ai.I10Index5Y,
-		"scholar_citedby_total":  ai.CitedByTotal,
-		"scholar_citedby_5y":     ai.CitedBy5Y,
-		"scholar_cites_per_year": citesPerYear,
-	}
-	return s.db.WithContext(ctx).Table("users").Where("user_id = ?", userID).Updates(updates).Error
+	return nil
 }
 
 func (s *ScholarImportJobService) acquireLock(ctx context.Context, lockName string) (func() error, error) {
