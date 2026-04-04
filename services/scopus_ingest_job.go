@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -48,6 +49,12 @@ type ScopusIngestJobService struct {
 	ingest *ScopusIngestService
 }
 
+const scopusBatchImportRunLockName = "scopus_batch_import_job_lock"
+
+const scopusBatchRunFinalizeTimeout = 10 * time.Second
+
+var ErrScopusBatchImportAlreadyRunning = errors.New("scopus batch import already running")
+
 // NewScopusIngestJobService constructs a ScopusIngestJobService.
 func NewScopusIngestJobService(db *gorm.DB) *ScopusIngestJobService {
 	if db == nil {
@@ -57,6 +64,26 @@ func NewScopusIngestJobService(db *gorm.DB) *ScopusIngestJobService {
 		db:     db,
 		ingest: NewScopusIngestService(db, nil),
 	}
+}
+
+func (s *ScopusIngestJobService) GetActiveBatchRun(ctx context.Context) (*models.ScopusBatchImportRun, error) {
+	if s == nil {
+		return nil, errors.New("scopus ingest job service is nil")
+	}
+
+	var run models.ScopusBatchImportRun
+	err := s.db.WithContext(ctx).
+		Where("status = ?", "running").
+		Order("started_at DESC").
+		First(&run).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &run, nil
 }
 
 // RunForUser executes the ingest for a single user.
@@ -78,6 +105,16 @@ func (s *ScopusIngestJobService) RunForAll(ctx context.Context, input *ScopusIng
 	if input == nil {
 		input = &ScopusIngestAllInput{}
 	}
+
+	releaseLock, err := s.acquireBatchRunLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := releaseLock(); err != nil {
+			log.Printf("failed to release scopus batch import lock: %v", err)
+		}
+	}()
 
 	summary := &ScopusIngestJobSummary{}
 	run := &models.ScopusBatchImportRun{
@@ -134,7 +171,10 @@ func (s *ScopusIngestJobService) RunForAll(ctx context.Context, input *ScopusIng
 			updates["error_message"] = &errMsg
 		}
 
-		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+		finalizeCtx, cancel := context.WithTimeout(context.Background(), scopusBatchRunFinalizeTimeout)
+		defer cancel()
+
+		if err := s.db.WithContext(finalizeCtx).Model(run).Updates(updates).Error; err != nil {
 			log.Printf("failed to update scopus batch import run %d: %v", run.ID, err)
 		}
 	}()
@@ -182,4 +222,27 @@ func (s *ScopusIngestJobService) RunForAll(ctx context.Context, input *ScopusIng
 	}
 
 	return summary, nil
+}
+
+func (s *ScopusIngestJobService) acquireBatchRunLock(ctx context.Context) (func() error, error) {
+	lockCtx := persistentContext(ctx)
+
+	var ok int
+	if err := s.db.WithContext(lockCtx).Raw("SELECT GET_LOCK(?, 0)", scopusBatchImportRunLockName).Scan(&ok).Error; err != nil {
+		return nil, err
+	}
+	if ok != 1 {
+		return nil, ErrScopusBatchImportAlreadyRunning
+	}
+
+	return func() error {
+		var released int
+		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", scopusBatchImportRunLockName).Scan(&released).Error; err != nil {
+			return err
+		}
+		if released != 1 {
+			return fmt.Errorf("release lock %q returned %d", scopusBatchImportRunLockName, released)
+		}
+		return nil
+	}, nil
 }

@@ -25,6 +25,7 @@ const (
 	scopusAPIKeyConfigKey   = "X-ELS-APIKey"
 	scopusLegacyAPIKeyField = "api_key"
 	citeScoreRunTimeout     = 2 * time.Hour
+	scopusBatchRunTimeout   = 2 * time.Hour
 )
 
 // POST /api/v1/admin/user-publications/import/scopus?user_id=123&scopus_id=54683571200
@@ -75,16 +76,41 @@ func AdminImportScopusForAll(c *gin.Context) {
 	}
 
 	job := services.NewScopusIngestJobService(nil)
-	summary, err := job.RunForAll(c.Request.Context(), &services.ScopusIngestAllInput{
-		UserIDs: userIDs,
-		Limit:   limit,
-	})
+	activeRun, err := job.GetActiveBatchRun(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "scopus batch import already running",
+			"data":    activeRun,
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "summary": summary})
+	input := &services.ScopusIngestAllInput{UserIDs: userIDs, Limit: limit}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), scopusBatchRunTimeout)
+		defer cancel()
+
+		if _, err := job.RunForAll(ctx, input); err != nil {
+			if errors.Is(err, services.ErrScopusBatchImportAlreadyRunning) {
+				log.Printf("scopus batch import skipped: job already running")
+				return
+			}
+			log.Printf("scopus batch import job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "batch import started",
+		},
+	})
 }
 
 // POST /api/v1/admin/scopus/metrics/backfill

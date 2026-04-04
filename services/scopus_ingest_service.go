@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	scopusBaseURL     = "https://api.elsevier.com/content/search/scopus"
-	scopusPageSize    = 25
-	scopusAPIKeyField = "X-ELS-APIKey"
+	scopusBaseURL            = "https://api.elsevier.com/content/search/scopus"
+	scopusPageSize           = 25
+	scopusAPIKeyField        = "X-ELS-APIKey"
+	scopusJobFinalizeTimeout = 10 * time.Second
 )
 
 var scopusAPIKeyLegacyFields = []string{"api_key"}
@@ -113,7 +114,10 @@ func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, 
 			"error_message": errMsg,
 		}
 
-		if err := s.db.WithContext(ctx).Model(job).Updates(updates).Error; err != nil {
+		finalizeCtx, cancel := context.WithTimeout(context.Background(), scopusJobFinalizeTimeout)
+		defer cancel()
+
+		if err := s.db.WithContext(finalizeCtx).Model(job).Updates(updates).Error; err != nil {
 			log.Printf("failed to update scopus import job %d: %v", job.ID, err)
 		}
 	}()
