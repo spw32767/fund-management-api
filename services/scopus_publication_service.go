@@ -263,11 +263,11 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	}
 
 	orderClause := orderForScopus(sortField, sortDirection)
-	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
+	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("scopus_documents AS sd").
 		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
-		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	var rows []scopusPublicationRow
 	if err := base.Session(&gorm.Session{}).Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
@@ -294,10 +294,10 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		offset = 0
 	}
 
-	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
+	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("scopus_documents AS sd").
 		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
-		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
@@ -369,12 +369,12 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		return []ScopusPublicationByUser{}, 0, nil
 	}
 
-	metricSubquery := latestCiteScoreMetricsSubquery(s.db)
+	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("(?) AS pairs", pairQuery.Session(&gorm.Session{NewDB: true})).
 		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
-		Joins("LEFT JOIN (?) AS metrics ON metrics.source_id = sd.source_id", metricSubquery)
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	orderClause := orderForScopusByUser(sortField, sortDirection)
 	var rows []scopusPublicationByUserRow
@@ -678,14 +678,30 @@ func marshalAffiliationsJSON(entries []scopusAffiliationEntry) *string {
 	return &value
 }
 
-func latestCiteScoreMetricsSubquery(db *gorm.DB) *gorm.DB {
-	return db.Table("scopus_source_metrics AS ssm").
-		Select("ssm.source_id, ssm.cite_score_percentile, ssm.cite_score_quartile, ssm.cite_score_status, ssm.cite_score_rank").
-		Where("ssm.doc_type = ?", "all").
-		Where("LOWER(ssm.cite_score_status) = ?", "complete").
-		Where(
-			"ssm.metric_year = (SELECT MAX(metric_year) FROM scopus_source_metrics WHERE source_id = ssm.source_id AND doc_type = ssm.doc_type AND LOWER(cite_score_status) = 'complete')",
-		)
+// metricYearForDocumentExpression returns the metric year to join per document.
+// Rules: use the publication year when that year is Complete; if that year is
+// In-Progress, fall back to the latest previous Complete year; otherwise NULL.
+func metricYearForDocumentExpression(db *gorm.DB) string {
+	publicationYearExpr := yearExpression(db)
+	inProgressExistsExpr := fmt.Sprintf(
+		"EXISTS (SELECT 1 FROM scopus_source_metrics AS ssm_ip WHERE ssm_ip.source_id = sd.source_id AND ssm_ip.doc_type = 'all' AND ssm_ip.metric_year = %s AND LOWER(ssm_ip.cite_score_status) = 'in-progress')",
+		publicationYearExpr,
+	)
+	sameYearCompleteExpr := fmt.Sprintf(
+		"(SELECT ssm_complete.metric_year FROM scopus_source_metrics AS ssm_complete WHERE ssm_complete.source_id = sd.source_id AND ssm_complete.doc_type = 'all' AND ssm_complete.metric_year = %s AND LOWER(ssm_complete.cite_score_status) = 'complete' LIMIT 1)",
+		publicationYearExpr,
+	)
+	previousCompleteExpr := fmt.Sprintf(
+		"(SELECT MAX(ssm_prev.metric_year) FROM scopus_source_metrics AS ssm_prev WHERE ssm_prev.source_id = sd.source_id AND ssm_prev.doc_type = 'all' AND ssm_prev.metric_year < %s AND LOWER(ssm_prev.cite_score_status) = 'complete')",
+		publicationYearExpr,
+	)
+
+	return fmt.Sprintf(
+		"COALESCE(%s, CASE WHEN %s THEN %s ELSE NULL END)",
+		sameYearCompleteExpr,
+		inProgressExistsExpr,
+		previousCompleteExpr,
+	)
 }
 
 func yearExpression(db *gorm.DB) string {
