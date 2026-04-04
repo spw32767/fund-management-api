@@ -52,6 +52,12 @@ type CiteScoreRefreshSummary struct {
 
 const citescoreRefreshStaleness = 30 * 24 * time.Hour
 
+const citescoreRunFinalizeTimeout = 10 * time.Second
+
+const citeScoreMetricsRunLockName = "citescore_metrics_job_lock"
+
+var ErrCiteScoreMetricsAlreadyRunning = errors.New("citescore metrics job already running")
+
 // NewCiteScoreMetricsService constructs a CiteScoreMetricsService.
 func NewCiteScoreMetricsService(db *gorm.DB, client *http.Client) *CiteScoreMetricsService {
 	if db == nil {
@@ -61,6 +67,26 @@ func NewCiteScoreMetricsService(db *gorm.DB, client *http.Client) *CiteScoreMetr
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &CiteScoreMetricsService{db: db, client: client}
+}
+
+func (s *CiteScoreMetricsService) GetActiveRun(ctx context.Context) (*models.CiteScoreMetricsRun, error) {
+	if s == nil {
+		return nil, errors.New("citescore metrics service is nil")
+	}
+
+	var run models.CiteScoreMetricsRun
+	err := s.db.WithContext(ctx).
+		Where("status = ?", "running").
+		Order("started_at DESC").
+		First(&run).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &run, nil
 }
 
 // FindRefreshTargets selects journals in scopus_source_metrics that should have their metrics refreshed.
@@ -131,6 +157,16 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 		return nil, errors.New("citescore metrics service is nil")
 	}
 
+	releaseLock, err := s.acquireRunLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := releaseLock(); err != nil {
+			log.Printf("failed to release citescore metrics lock after backfill: %v", err)
+		}
+	}()
+
 	summary := &CiteScoreBackfillSummary{}
 	run := &models.CiteScoreMetricsRun{RunType: "backfill", Status: "running", StartedAt: time.Now()}
 	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
@@ -160,7 +196,10 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 			updates["error_message"] = &errMsg
 		}
 
-		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+		finalizeCtx, cancel := context.WithTimeout(context.Background(), citescoreRunFinalizeTimeout)
+		defer cancel()
+
+		if err := s.db.WithContext(finalizeCtx).Model(run).Updates(updates).Error; err != nil {
 			log.Printf("failed to update citescore backfill run %d: %v", run.ID, err)
 		}
 	}()
@@ -241,6 +280,16 @@ func (s *CiteScoreMetricsService) RefreshExistingMetrics(ctx context.Context) (*
 		return nil, errors.New("citescore metrics service is nil")
 	}
 
+	releaseLock, err := s.acquireRunLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := releaseLock(); err != nil {
+			log.Printf("failed to release citescore metrics lock after refresh: %v", err)
+		}
+	}()
+
 	summary := &CiteScoreRefreshSummary{}
 	run := &models.CiteScoreMetricsRun{RunType: "refresh", Status: "running", StartedAt: time.Now()}
 	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
@@ -270,7 +319,10 @@ func (s *CiteScoreMetricsService) RefreshExistingMetrics(ctx context.Context) (*
 			updates["error_message"] = &errMsg
 		}
 
-		if err := s.db.WithContext(ctx).Model(run).Updates(updates).Error; err != nil {
+		finalizeCtx, cancel := context.WithTimeout(context.Background(), citescoreRunFinalizeTimeout)
+		defer cancel()
+
+		if err := s.db.WithContext(finalizeCtx).Model(run).Updates(updates).Error; err != nil {
 			log.Printf("failed to update citescore refresh run %d: %v", run.ID, err)
 		}
 	}()
@@ -788,4 +840,27 @@ func optionalStringValue(val string) *string {
 		return nil
 	}
 	return &val
+}
+
+func (s *CiteScoreMetricsService) acquireRunLock(ctx context.Context) (func() error, error) {
+	lockCtx := persistentContext(ctx)
+
+	var ok int
+	if err := s.db.WithContext(lockCtx).Raw("SELECT GET_LOCK(?, 0)", citeScoreMetricsRunLockName).Scan(&ok).Error; err != nil {
+		return nil, err
+	}
+	if ok != 1 {
+		return nil, ErrCiteScoreMetricsAlreadyRunning
+	}
+
+	return func() error {
+		var released int
+		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", citeScoreMetricsRunLockName).Scan(&released).Error; err != nil {
+			return err
+		}
+		if released != 1 {
+			return fmt.Errorf("release lock %q returned %d", citeScoreMetricsRunLockName, released)
+		}
+		return nil
+	}, nil
 }

@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"context"
 	"errors"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -22,6 +24,7 @@ var scopusAuthorIDPattern = regexp.MustCompile(`^[0-9]{5,}$`)
 const (
 	scopusAPIKeyConfigKey   = "X-ELS-APIKey"
 	scopusLegacyAPIKeyField = "api_key"
+	citeScoreRunTimeout     = 2 * time.Hour
 )
 
 // POST /api/v1/admin/user-publications/import/scopus?user_id=123&scopus_id=54683571200
@@ -87,25 +90,79 @@ func AdminImportScopusForAll(c *gin.Context) {
 // POST /api/v1/admin/scopus/metrics/backfill
 func AdminBackfillCiteScoreMetrics(c *gin.Context) {
 	metrics := services.NewCiteScoreMetricsService(nil, nil)
-	summary, err := metrics.BackfillMissingMetrics(c.Request.Context())
+	activeRun, err := metrics.GetActiveRun(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "citescore metrics job already running",
+			"data":    activeRun,
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "summary": summary})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), citeScoreRunTimeout)
+		defer cancel()
+
+		if _, err := metrics.BackfillMissingMetrics(ctx); err != nil {
+			if errors.Is(err, services.ErrCiteScoreMetricsAlreadyRunning) {
+				log.Printf("citescore backfill skipped: job already running")
+				return
+			}
+			log.Printf("citescore backfill job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "backfill started",
+		},
+	})
 }
 
 // POST /api/v1/admin/scopus/metrics/refresh
 func AdminRefreshCiteScoreMetrics(c *gin.Context) {
 	metrics := services.NewCiteScoreMetricsService(nil, nil)
-	summary, err := metrics.RefreshExistingMetrics(c.Request.Context())
+	activeRun, err := metrics.GetActiveRun(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "citescore metrics job already running",
+			"data":    activeRun,
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "summary": summary})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), citeScoreRunTimeout)
+		defer cancel()
+
+		if _, err := metrics.RefreshExistingMetrics(ctx); err != nil {
+			if errors.Is(err, services.ErrCiteScoreMetricsAlreadyRunning) {
+				log.Printf("citescore refresh skipped: job already running")
+				return
+			}
+			log.Printf("citescore refresh job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "refresh started",
+		},
+	})
 }
 
 type setScopusAuthorIDRequest struct {
