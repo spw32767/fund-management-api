@@ -58,31 +58,36 @@ type ScopusPublication struct {
 
 // ScopusPublicationByUser represents a publication associated with a specific user.
 type ScopusPublicationByUser struct {
-	UserID              uint       `json:"user_id"`
-	UserName            string     `json:"user_name"`
-	UserEmail           string     `json:"user_email"`
-	UserScopusID        *string    `json:"user_scopus_id,omitempty"`
-	DocumentID          uint       `json:"document_id"`
-	Title               string     `json:"title"`
-	PublicationName     *string    `json:"publication_name,omitempty"`
-	AffiliationAFID     *string    `json:"affiliation_afid,omitempty"`
-	AffiliationName     *string    `json:"affiliation_name,omitempty"`
-	AffiliationCity     *string    `json:"affiliation_city,omitempty"`
-	AffiliationCountry  *string    `json:"affiliation_country,omitempty"`
-	AffiliationURL      *string    `json:"affiliation_url,omitempty"`
-	AffiliationsJSON    *string    `json:"affiliations_json,omitempty"`
-	SourceID            *string    `json:"source_id,omitempty"`
-	PublicationYear     *int       `json:"publication_year,omitempty"`
-	CoverDate           *time.Time `json:"cover_date,omitempty"`
-	CitedBy             *int       `json:"cited_by,omitempty"`
-	DOI                 *string    `json:"doi,omitempty"`
-	EID                 string     `json:"eid"`
-	ScopusID            *string    `json:"scopus_id,omitempty"`
-	ScopusURL           *string    `json:"scopus_url,omitempty"`
-	CiteScorePercentile *float64   `json:"cite_score_percentile,omitempty"`
-	CiteScoreQuartile   *string    `json:"cite_score_quartile,omitempty"`
-	CiteScoreStatus     *string    `json:"cite_score_status,omitempty"`
-	CiteScoreRank       *int       `json:"cite_score_rank,omitempty"`
+	UserID                 uint       `json:"user_id"`
+	UserName               string     `json:"user_name"`
+	UserEmail              string     `json:"user_email"`
+	UserScopusID           *string    `json:"user_scopus_id,omitempty"`
+	DocumentID             uint       `json:"document_id"`
+	Title                  string     `json:"title"`
+	PublicationName        *string    `json:"publication_name,omitempty"`
+	AffiliationAFID        *string    `json:"affiliation_afid,omitempty"`
+	AffiliationName        *string    `json:"affiliation_name,omitempty"`
+	AffiliationCity        *string    `json:"affiliation_city,omitempty"`
+	AffiliationCountry     *string    `json:"affiliation_country,omitempty"`
+	AffiliationURL         *string    `json:"affiliation_url,omitempty"`
+	AffiliationsJSON       *string    `json:"affiliations_json,omitempty"`
+	UserAffiliationAFID    *string    `json:"user_affiliation_afid,omitempty"`
+	UserAffiliationName    *string    `json:"user_affiliation_name,omitempty"`
+	UserAffiliationCity    *string    `json:"user_affiliation_city,omitempty"`
+	UserAffiliationCountry *string    `json:"user_affiliation_country,omitempty"`
+	UserAffiliationURL     *string    `json:"user_affiliation_url,omitempty"`
+	SourceID               *string    `json:"source_id,omitempty"`
+	PublicationYear        *int       `json:"publication_year,omitempty"`
+	CoverDate              *time.Time `json:"cover_date,omitempty"`
+	CitedBy                *int       `json:"cited_by,omitempty"`
+	DOI                    *string    `json:"doi,omitempty"`
+	EID                    string     `json:"eid"`
+	ScopusID               *string    `json:"scopus_id,omitempty"`
+	ScopusURL              *string    `json:"scopus_url,omitempty"`
+	CiteScorePercentile    *float64   `json:"cite_score_percentile,omitempty"`
+	CiteScoreQuartile      *string    `json:"cite_score_quartile,omitempty"`
+	CiteScoreStatus        *string    `json:"cite_score_status,omitempty"`
+	CiteScoreRank          *int       `json:"cite_score_rank,omitempty"`
 }
 
 // ScopusPublicationTrendPoint represents per-year document/citation aggregates.
@@ -141,25 +146,30 @@ type scopusPublicationRow struct {
 }
 
 type scopusPublicationByUserRow struct {
-	UserID              uint
-	UserName            string  `gorm:"column:user_name"`
-	UserEmail           *string `gorm:"column:user_email"`
-	UserScopusID        *string `gorm:"column:user_scopus_id"`
-	DocumentID          uint    `gorm:"column:document_id"`
-	Title               *string
-	PublicationName     *string
-	SourceID            *string
-	CoverDate           *time.Time
-	CoverDisplayDate    *string `gorm:"column:cover_display_date"`
-	CitedByCount        *int    `gorm:"column:citedby_count"`
-	DOI                 *string
-	EID                 string
-	ScopusID            *string `gorm:"column:scopus_id"`
-	ScopusLink          *string `gorm:"column:scopus_link"`
-	CiteScorePercentile *float64
-	CiteScoreQuartile   *string
-	CiteScoreStatus     *string
-	CiteScoreRank       *int
+	UserID                 uint
+	UserName               string  `gorm:"column:user_name"`
+	UserEmail              *string `gorm:"column:user_email"`
+	UserScopusID           *string `gorm:"column:user_scopus_id"`
+	DocumentID             uint    `gorm:"column:document_id"`
+	Title                  *string
+	PublicationName        *string
+	UserAffiliationAFID    *string `gorm:"column:user_affiliation_afid"`
+	UserAffiliationName    *string `gorm:"column:user_affiliation_name"`
+	UserAffiliationCity    *string `gorm:"column:user_affiliation_city"`
+	UserAffiliationCountry *string `gorm:"column:user_affiliation_country"`
+	UserAffiliationURL     *string `gorm:"column:user_affiliation_url"`
+	SourceID               *string
+	CoverDate              *time.Time
+	CoverDisplayDate       *string `gorm:"column:cover_display_date"`
+	CitedByCount           *int    `gorm:"column:citedby_count"`
+	DOI                    *string
+	EID                    string
+	ScopusID               *string `gorm:"column:scopus_id"`
+	ScopusLink             *string `gorm:"column:scopus_link"`
+	CiteScorePercentile    *float64
+	CiteScoreQuartile      *string
+	CiteScoreStatus        *string
+	CiteScoreRank          *int
 }
 
 type scopusDocumentAffiliationRow struct {
@@ -345,7 +355,7 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 	}
 
 	pairQuery := s.db.Table("users AS u").
-		Select("u.user_id, sd.id AS document_id").
+		Select("u.user_id, sd.id AS document_id, MIN(sda.affiliation_id) AS user_affiliation_id").
 		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
@@ -371,9 +381,10 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("(?) AS pairs", pairQuery.Session(&gorm.Session{NewDB: true})).
-		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
+		Joins("LEFT JOIN scopus_affiliations AS owner_aff ON owner_aff.id = pairs.user_affiliation_id").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	orderClause := orderForScopusByUser(sortField, sortDirection)
@@ -479,24 +490,29 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 	for _, row := range rows {
 		title := strings.TrimSpace(stringOrEmpty(row.Title))
 		pub := ScopusPublicationByUser{
-			UserID:              row.UserID,
-			UserName:            strings.TrimSpace(row.UserName),
-			UserEmail:           strings.TrimSpace(stringOrEmpty(row.UserEmail)),
-			UserScopusID:        normalizeNullable(row.UserScopusID),
-			DocumentID:          row.DocumentID,
-			Title:               title,
-			PublicationName:     normalizeNullable(row.PublicationName),
-			SourceID:            normalizeNullable(row.SourceID),
-			CoverDate:           row.CoverDate,
-			CitedBy:             row.CitedByCount,
-			DOI:                 normalizeNullable(row.DOI),
-			EID:                 row.EID,
-			ScopusID:            normalizeNullable(row.ScopusID),
-			ScopusURL:           normalizeNullable(row.ScopusLink),
-			CiteScorePercentile: row.CiteScorePercentile,
-			CiteScoreQuartile:   normalizeNullable(row.CiteScoreQuartile),
-			CiteScoreStatus:     normalizeNullable(row.CiteScoreStatus),
-			CiteScoreRank:       row.CiteScoreRank,
+			UserID:                 row.UserID,
+			UserName:               strings.TrimSpace(row.UserName),
+			UserEmail:              strings.TrimSpace(stringOrEmpty(row.UserEmail)),
+			UserScopusID:           normalizeNullable(row.UserScopusID),
+			DocumentID:             row.DocumentID,
+			Title:                  title,
+			PublicationName:        normalizeNullable(row.PublicationName),
+			UserAffiliationAFID:    normalizeNullable(row.UserAffiliationAFID),
+			UserAffiliationName:    normalizeNullable(row.UserAffiliationName),
+			UserAffiliationCity:    normalizeNullable(row.UserAffiliationCity),
+			UserAffiliationCountry: normalizeNullable(row.UserAffiliationCountry),
+			UserAffiliationURL:     normalizeNullable(row.UserAffiliationURL),
+			SourceID:               normalizeNullable(row.SourceID),
+			CoverDate:              row.CoverDate,
+			CitedBy:                row.CitedByCount,
+			DOI:                    normalizeNullable(row.DOI),
+			EID:                    row.EID,
+			ScopusID:               normalizeNullable(row.ScopusID),
+			ScopusURL:              normalizeNullable(row.ScopusLink),
+			CiteScorePercentile:    row.CiteScorePercentile,
+			CiteScoreQuartile:      normalizeNullable(row.CiteScoreQuartile),
+			CiteScoreStatus:        normalizeNullable(row.CiteScoreStatus),
+			CiteScoreRank:          row.CiteScoreRank,
 		}
 
 		if affiliation, ok := affiliationByDocument[row.DocumentID]; ok {
