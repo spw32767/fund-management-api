@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -23,6 +24,12 @@ type ScopusPublication struct {
 	Subtype             *string    `json:"subtype,omitempty"`
 	SubtypeDescription  *string    `json:"subtype_description,omitempty"`
 	PublicationName     *string    `json:"publication_name,omitempty"`
+	AffiliationAFID     *string    `json:"affiliation_afid,omitempty"`
+	AffiliationName     *string    `json:"affiliation_name,omitempty"`
+	AffiliationCity     *string    `json:"affiliation_city,omitempty"`
+	AffiliationCountry  *string    `json:"affiliation_country,omitempty"`
+	AffiliationURL      *string    `json:"affiliation_url,omitempty"`
+	AffiliationsJSON    *string    `json:"affiliations_json,omitempty"`
 	Venue               *string    `json:"venue,omitempty"`
 	SourceID            *string    `json:"source_id,omitempty"`
 	PublicationYear     *int       `json:"publication_year,omitempty"`
@@ -58,6 +65,12 @@ type ScopusPublicationByUser struct {
 	DocumentID          uint       `json:"document_id"`
 	Title               string     `json:"title"`
 	PublicationName     *string    `json:"publication_name,omitempty"`
+	AffiliationAFID     *string    `json:"affiliation_afid,omitempty"`
+	AffiliationName     *string    `json:"affiliation_name,omitempty"`
+	AffiliationCity     *string    `json:"affiliation_city,omitempty"`
+	AffiliationCountry  *string    `json:"affiliation_country,omitempty"`
+	AffiliationURL      *string    `json:"affiliation_url,omitempty"`
+	AffiliationsJSON    *string    `json:"affiliations_json,omitempty"`
 	SourceID            *string    `json:"source_id,omitempty"`
 	PublicationYear     *int       `json:"publication_year,omitempty"`
 	CoverDate           *time.Time `json:"cover_date,omitempty"`
@@ -149,6 +162,33 @@ type scopusPublicationByUserRow struct {
 	CiteScoreRank       *int
 }
 
+type scopusDocumentAffiliationRow struct {
+	DocumentID     uint    `gorm:"column:document_id"`
+	AffiliationID  *uint   `gorm:"column:affiliation_id"`
+	Afid           *string `gorm:"column:afid"`
+	Name           *string `gorm:"column:name"`
+	City           *string `gorm:"column:city"`
+	Country        *string `gorm:"column:country"`
+	AffiliationURL *string `gorm:"column:affiliation_url"`
+}
+
+type scopusAffiliationAggregate struct {
+	AFID    *string
+	Name    *string
+	City    *string
+	Country *string
+	URL     *string
+	JSON    *string
+}
+
+type scopusAffiliationEntry struct {
+	AFID           string `json:"afid"`
+	Name           string `json:"name"`
+	City           string `json:"city"`
+	Country        string `json:"country"`
+	AffiliationURL string `json:"affiliation_url"`
+}
+
 // NewScopusPublicationService instantiates the service.
 func NewScopusPublicationService(db *gorm.DB) *ScopusPublicationService {
 	if db == nil {
@@ -234,7 +274,12 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		return nil, 0, meta, err
 	}
 
-	return mapScopusRows(rows), total, meta, nil
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDs(rows))
+	if err != nil {
+		return nil, 0, meta, err
+	}
+
+	return mapScopusRows(rows, affiliationByDocument), total, meta, nil
 }
 
 // ListAll returns paginated Scopus publications across all users.
@@ -279,7 +324,12 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		return nil, 0, err
 	}
 
-	return mapScopusRows(rows), total, nil
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDs(rows))
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRows(rows, affiliationByDocument), total, nil
 }
 
 // ListByUserOwnership returns paginated Scopus publications mapped to users in this system.
@@ -332,10 +382,15 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		return nil, 0, err
 	}
 
-	return mapScopusRowsByUser(rows), total, nil
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDsByUser(rows))
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRowsByUser(rows, affiliationByDocument), total, nil
 }
 
-func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
+func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]scopusAffiliationAggregate) []ScopusPublication {
 	publications := make([]ScopusPublication, 0, len(rows))
 	for _, row := range rows {
 		publication := ScopusPublication{
@@ -365,6 +420,16 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 			EID:                 row.EID,
 			ScopusID:            row.ScopusID,
 		}
+
+		if affiliation, ok := affiliationByDocument[row.ID]; ok {
+			publication.AffiliationAFID = affiliation.AFID
+			publication.AffiliationName = affiliation.Name
+			publication.AffiliationCity = affiliation.City
+			publication.AffiliationCountry = affiliation.Country
+			publication.AffiliationURL = affiliation.URL
+			publication.AffiliationsJSON = affiliation.JSON
+		}
+
 		publication.CoverDate = row.CoverDate
 		publication.PublicationName = row.PublicationName
 
@@ -409,7 +474,7 @@ func mapScopusRows(rows []scopusPublicationRow) []ScopusPublication {
 	return publications
 }
 
-func mapScopusRowsByUser(rows []scopusPublicationByUserRow) []ScopusPublicationByUser {
+func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocument map[uint]scopusAffiliationAggregate) []ScopusPublicationByUser {
 	items := make([]ScopusPublicationByUser, 0, len(rows))
 	for _, row := range rows {
 		title := strings.TrimSpace(stringOrEmpty(row.Title))
@@ -434,6 +499,15 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow) []ScopusPublicationB
 			CiteScoreRank:       row.CiteScoreRank,
 		}
 
+		if affiliation, ok := affiliationByDocument[row.DocumentID]; ok {
+			pub.AffiliationAFID = affiliation.AFID
+			pub.AffiliationName = affiliation.Name
+			pub.AffiliationCity = affiliation.City
+			pub.AffiliationCountry = affiliation.Country
+			pub.AffiliationURL = affiliation.URL
+			pub.AffiliationsJSON = affiliation.JSON
+		}
+
 		if row.CoverDate != nil {
 			year := row.CoverDate.Year()
 			if year > 0 {
@@ -455,6 +529,153 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow) []ScopusPublicationB
 	}
 
 	return items
+}
+
+func collectDocumentIDs(rows []scopusPublicationRow) []uint {
+	documentIDs := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		documentIDs = append(documentIDs, row.ID)
+	}
+	return documentIDs
+}
+
+func collectDocumentIDsByUser(rows []scopusPublicationByUserRow) []uint {
+	documentIDs := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		documentIDs = append(documentIDs, row.DocumentID)
+	}
+	return documentIDs
+}
+
+func (s *ScopusPublicationService) loadDocumentAffiliationAggregates(documentIDs []uint) (map[uint]scopusAffiliationAggregate, error) {
+	aggregates := make(map[uint]scopusAffiliationAggregate)
+	uniqueDocumentIDs := uniqueUintValues(documentIDs)
+	if len(uniqueDocumentIDs) == 0 {
+		return aggregates, nil
+	}
+
+	var rows []scopusDocumentAffiliationRow
+	err := s.db.Table("scopus_document_authors AS sda").
+		Select("sda.document_id, sda.affiliation_id, sa.afid, sa.name, sa.city, sa.country, sa.affiliation_url").
+		Joins("LEFT JOIN scopus_affiliations AS sa ON sa.id = sda.affiliation_id").
+		Where("sda.document_id IN ?", uniqueDocumentIDs).
+		Where("sda.affiliation_id IS NOT NULL").
+		Order("sda.document_id ASC").
+		Order("sda.author_seq ASC").
+		Order("sda.id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	type aggregateState struct {
+		seen      map[string]struct{}
+		afids     []string
+		names     []string
+		cities    []string
+		countries []string
+		urls      []string
+		entries   []scopusAffiliationEntry
+	}
+
+	states := make(map[uint]*aggregateState)
+	for _, row := range rows {
+		afid := strings.TrimSpace(stringValue(row.Afid))
+		name := strings.TrimSpace(stringValue(row.Name))
+		city := strings.TrimSpace(stringValue(row.City))
+		country := strings.TrimSpace(stringValue(row.Country))
+		affiliationURL := strings.TrimSpace(stringValue(row.AffiliationURL))
+		if afid == "" && name == "" && city == "" && country == "" && affiliationURL == "" {
+			continue
+		}
+
+		state, ok := states[row.DocumentID]
+		if !ok {
+			state = &aggregateState{seen: map[string]struct{}{}}
+			states[row.DocumentID] = state
+		}
+
+		dedupKey := ""
+		if row.AffiliationID != nil {
+			dedupKey = fmt.Sprintf("id:%d", *row.AffiliationID)
+		} else {
+			dedupKey = fmt.Sprintf("afid:%s|name:%s|city:%s|country:%s|url:%s", afid, name, city, country, affiliationURL)
+		}
+		if _, exists := state.seen[dedupKey]; exists {
+			continue
+		}
+		state.seen[dedupKey] = struct{}{}
+
+		state.afids = append(state.afids, afid)
+		state.names = append(state.names, name)
+		state.cities = append(state.cities, city)
+		state.countries = append(state.countries, country)
+		state.urls = append(state.urls, affiliationURL)
+		state.entries = append(state.entries, scopusAffiliationEntry{
+			AFID:           afid,
+			Name:           name,
+			City:           city,
+			Country:        country,
+			AffiliationURL: affiliationURL,
+		})
+	}
+
+	for documentID, state := range states {
+		aggregates[documentID] = scopusAffiliationAggregate{
+			AFID:    joinNonEmptyValues(state.afids),
+			Name:    joinNonEmptyValues(state.names),
+			City:    joinNonEmptyValues(state.cities),
+			Country: joinNonEmptyValues(state.countries),
+			URL:     joinNonEmptyValues(state.urls),
+			JSON:    marshalAffiliationsJSON(state.entries),
+		}
+	}
+
+	return aggregates, nil
+}
+
+func uniqueUintValues(values []uint) []uint {
+	if len(values) == 0 {
+		return []uint{}
+	}
+	seen := make(map[uint]struct{}, len(values))
+	unique := make([]uint, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func joinNonEmptyValues(values []string) *string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		filtered = append(filtered, trimmed)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	joined := strings.Join(filtered, " | ")
+	return &joined
+}
+
+func marshalAffiliationsJSON(entries []scopusAffiliationEntry) *string {
+	if len(entries) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(entries)
+	if err != nil {
+		return nil
+	}
+	value := string(payload)
+	return &value
 }
 
 func latestCiteScoreMetricsSubquery(db *gorm.DB) *gorm.DB {
