@@ -134,7 +134,7 @@ type scopusPublicationRow struct {
 	CoverDate           *time.Time
 	CitedByCount        *int `gorm:"column:citedby_count"`
 	DOI                 *string
-	EID                 string
+	EID                 string   `gorm:"column:eid"`
 	ScopusID            *string  `gorm:"column:scopus_id"`
 	ScopusLink          *string  `gorm:"column:scopus_link"`
 	CiteScorePercentile *float64 `gorm:"column:cite_score_percentile"`
@@ -163,7 +163,7 @@ type scopusPublicationByUserRow struct {
 	CoverDisplayDate       *string `gorm:"column:cover_display_date"`
 	CitedByCount           *int    `gorm:"column:citedby_count"`
 	DOI                    *string
-	EID                    string
+	EID                    string  `gorm:"column:eid"`
 	ScopusID               *string `gorm:"column:scopus_id"`
 	ScopusLink             *string `gorm:"column:scopus_link"`
 	CiteScorePercentile    *float64
