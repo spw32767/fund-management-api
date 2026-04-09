@@ -526,6 +526,8 @@ func ApproveSubmission(c *gin.Context) {
 		// Legacy fallback fields
 		ApprovedAmount  *float64 `json:"approved_amount"`
 		ApprovalComment string   `json:"approval_comment"`
+		AdminComment    string   `json:"admin_comment"`
+		Comment         string   `json:"comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
@@ -580,8 +582,15 @@ func ApproveSubmission(c *gin.Context) {
 		"rejected_at":       gorm.Expr("NULL"),
 	}
 	// Save admin comment when provided
-	if strings.TrimSpace(req.ApprovalComment) != "" {
-		updates["admin_comment"] = strings.TrimSpace(req.ApprovalComment)
+	approvalComment := strings.TrimSpace(req.ApprovalComment)
+	if approvalComment == "" {
+		approvalComment = strings.TrimSpace(req.AdminComment)
+	}
+	if approvalComment == "" {
+		approvalComment = strings.TrimSpace(req.Comment)
+	}
+	if approvalComment != "" {
+		updates["admin_comment"] = approvalComment
 	}
 
 	if err := tx.Model(&models.Submission{}).
@@ -686,6 +695,7 @@ func RejectSubmission(c *gin.Context) {
 	var req struct {
 		RejectionReason string `json:"rejection_reason" binding:"required"`
 		Comment         string `json:"comment"`
+		AdminComment    string `json:"admin_comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RejectionReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Rejection reason is required"})
@@ -732,8 +742,12 @@ func RejectSubmission(c *gin.Context) {
 		"approved_by":            gorm.Expr("NULL"),
 		"approved_at":            gorm.Expr("NULL"),
 	}
-	if strings.TrimSpace(req.Comment) != "" {
-		updates["admin_comment"] = strings.TrimSpace(req.Comment)
+	rejectionComment := strings.TrimSpace(req.Comment)
+	if rejectionComment == "" {
+		rejectionComment = strings.TrimSpace(req.AdminComment)
+	}
+	if rejectionComment != "" {
+		updates["admin_comment"] = rejectionComment
 	}
 
 	if err := tx.Model(&models.Submission{}).
