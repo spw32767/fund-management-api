@@ -45,6 +45,7 @@ func SetupRoutes(router *gin.Engine) {
 
 			RegisterUploadRoutes(public) // สำหรับ POST /upload
 			RegisterFileRoutes(public)   // สำหรับ GET /files, DELETE /files/:name
+			RegisterFileViewRoutes(public)
 
 			public.GET("/years", controllers.GetActiveYears)
 			public.GET("/support-fundmapping", controllers.GetSupportFundMappings)
@@ -983,6 +984,68 @@ func RegisterFileRoutes(rg *gin.RouterGroup) {
 
 		log.Printf("✅ Deleted file: %s", filePath)
 		c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
+	})
+}
+
+func RegisterFileViewRoutes(rg *gin.RouterGroup) {
+	rg.GET("/view/*path", func(c *gin.Context) {
+		rawPath := strings.TrimSpace(c.Param("path"))
+		rawPath = strings.TrimPrefix(rawPath, "/")
+		if rawPath == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+			return
+		}
+
+		normalized := strings.ReplaceAll(rawPath, "\\", "/")
+		normalized = strings.TrimPrefix(normalized, "./")
+		normalized = strings.TrimPrefix(normalized, "/")
+		normalized = strings.TrimPrefix(normalized, "uploads/")
+
+		if normalized == "" || strings.Contains(normalized, "..") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+			return
+		}
+
+		uploadRoot := strings.TrimSpace(os.Getenv("UPLOAD_PATH"))
+		if uploadRoot == "" {
+			uploadRoot = "./uploads"
+		}
+
+		rootAbs, err := filepath.Abs(filepath.Clean(uploadRoot))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve upload root"})
+			return
+		}
+
+		fullPath := filepath.Join(rootAbs, filepath.FromSlash(normalized))
+		fullPathAbs, err := filepath.Abs(filepath.Clean(fullPath))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve file path"})
+			return
+		}
+
+		rootPrefix := rootAbs + string(os.PathSeparator)
+		if fullPathAbs != rootAbs && !strings.HasPrefix(fullPathAbs, rootPrefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+			return
+		}
+
+		info, err := os.Stat(fullPathAbs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to access file"})
+			return
+		}
+
+		if info.IsDir() {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			return
+		}
+
+		c.File(fullPathAbs)
 	})
 }
 
