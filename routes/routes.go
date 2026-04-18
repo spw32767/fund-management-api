@@ -471,6 +471,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/user-publications/import/scopus/all", controllers.AdminImportScopusForAll)
 				admin.GET("/publications/scopus", middleware.RequirePermission("scopus.publications.read", "ui.page.admin.scopus.view"), controllers.AdminListScopusPublications)
 				admin.GET("/publications/scopus/by-user", middleware.RequirePermission("scopus.publications.export_by_user"), controllers.AdminListScopusPublicationsByUser)
+				admin.GET("/scopus/dashboard/filter-options", middleware.RequirePermission("scopus.publications.read", "ui.page.admin.scopus.view"), controllers.AdminGetScopusDashboardFilterOptions)
+				admin.GET("/scopus/dashboard/summary", middleware.RequirePermission("scopus.publications.read", "ui.page.admin.scopus.view"), controllers.AdminGetScopusDashboardSummary)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
 				admin.GET("/scopus/metrics/runs", controllers.AdminListCiteScoreMetricRuns)
