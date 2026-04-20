@@ -612,6 +612,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		Q2                int
 		Q3                int
 		Q4                int
+		TCI               int
 		NA                int
 		Journal           int
 		Conference        int
@@ -731,6 +732,55 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		}
 	}
 
+	tciRows := make([]struct {
+		SubmittedYearCE  int `gorm:"column:submitted_year_ce"`
+		SubmittedMonthCE int `gorm:"column:submitted_month_ce"`
+		Total            int `gorm:"column:total"`
+	}, 0)
+	tciQuery := config.DB.Table("publication_reward_details AS prd").
+		Select("YEAR(s.submitted_at) AS submitted_year_ce, MONTH(s.submitted_at) AS submitted_month_ce, COUNT(DISTINCT s.submission_id) AS total").
+		Joins("JOIN submissions AS s ON s.submission_id = prd.submission_id").
+		Where("prd.delete_at IS NULL").
+		Where("s.deleted_at IS NULL").
+		Where("s.submission_type = ?", "publication_reward").
+		Where("s.submitted_at IS NOT NULL").
+		Where("s.status_id <> ?", 5).
+		Where("UPPER(TRIM(prd.quartile)) = ?", "TCI")
+	if filters.YearStartCE != nil {
+		tciQuery = tciQuery.Where("YEAR(s.submitted_at) >= ?", *filters.YearStartCE)
+	}
+	if filters.YearEndCE != nil {
+		tciQuery = tciQuery.Where("YEAR(s.submitted_at) <= ?", *filters.YearEndCE)
+	}
+	tciQuery = tciQuery.Group("YEAR(s.submitted_at), MONTH(s.submitted_at)")
+	if err := tciQuery.Find(&tciRows).Error; err == nil {
+		for _, row := range tciRows {
+			if row.SubmittedYearCE <= 0 || row.Total <= 0 {
+				continue
+			}
+
+			yearBE := row.SubmittedYearCE + 543
+			fiscalYearBE := yearBE
+			if row.SubmittedMonthCE >= 10 {
+				fiscalYearBE = yearBE + 1
+			}
+
+			bucket, ok := historyByYear[yearBE]
+			if !ok {
+				bucket = &historyBucket{PublicationYearBE: yearBE}
+				historyByYear[yearBE] = bucket
+			}
+			bucket.TCI += row.Total
+
+			fiscalBucket, okFiscal := historyByFiscalYear[fiscalYearBE]
+			if !okFiscal {
+				fiscalBucket = &historyBucket{PublicationYearBE: fiscalYearBE}
+				historyByFiscalYear[fiscalYearBE] = fiscalBucket
+			}
+			fiscalBucket.TCI += row.Total
+		}
+	}
+
 	avgCitations := 0.0
 	if totalDocuments > 0 {
 		avgCitations = float64(totalCitations) / float64(totalDocuments)
@@ -834,6 +884,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			"q2":               bucket.Q2,
 			"q3":               bucket.Q3,
 			"q4":               bucket.Q4,
+			"tci":              bucket.TCI,
 			"na":               bucket.NA,
 			"journal":          bucket.Journal,
 			"conference":       bucket.Conference,
@@ -858,6 +909,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			"q2":               bucket.Q2,
 			"q3":               bucket.Q3,
 			"q4":               bucket.Q4,
+			"tci":              bucket.TCI,
 			"na":               bucket.NA,
 			"journal":          bucket.Journal,
 			"conference":       bucket.Conference,
