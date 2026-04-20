@@ -397,7 +397,7 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 
 // GET /api/v1/admin/scopus/dashboard/filter-options
 func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
-	cacheKey := "scopus_dashboard_filter_options_v1"
+	cacheKey := "scopus_dashboard_filter_options_v2"
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
 
 	if !forceRefresh {
@@ -501,7 +501,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 	for _, key := range qualityOrder {
 		label := key
 		if key == "T1" {
-			label = "T1 (Percentile 90-100)"
+			label = "T1"
 		}
 		qualityOptions = append(qualityOptions, map[string]interface{}{
 			"value": key,
