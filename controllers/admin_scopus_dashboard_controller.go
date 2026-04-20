@@ -59,6 +59,7 @@ type scopusSummaryRow struct {
 	Quartile            string   `gorm:"column:quartile"`
 	CiteScorePercentile *float64 `gorm:"column:cite_score_percentile"`
 	PublicationYearCE   *int     `gorm:"column:publication_year_ce"`
+	PublicationMonthCE  *int     `gorm:"column:publication_month_ce"`
 	AggregationType     string   `gorm:"column:aggregation_type"`
 	PublicationName     string   `gorm:"column:publication_name"`
 	FundSponsor         string   `gorm:"column:fund_sponsor"`
@@ -266,10 +267,6 @@ func scopusPublicationYearExpr() string {
 
 func scopusMetricYearExpr() string {
 	publicationYearExpr := scopusPublicationYearExpr()
-	inProgressExistsExpr := fmt.Sprintf(
-		"EXISTS (SELECT 1 FROM scopus_source_metrics AS ssm_ip WHERE ssm_ip.source_id = sd.source_id AND ssm_ip.doc_type = 'all' AND ssm_ip.metric_year = %s AND LOWER(ssm_ip.cite_score_status) = 'in-progress')",
-		publicationYearExpr,
-	)
 	sameYearCompleteExpr := fmt.Sprintf(
 		"(SELECT ssm_complete.metric_year FROM scopus_source_metrics AS ssm_complete WHERE ssm_complete.source_id = sd.source_id AND ssm_complete.doc_type = 'all' AND ssm_complete.metric_year = %s AND LOWER(ssm_complete.cite_score_status) = 'complete' LIMIT 1)",
 		publicationYearExpr,
@@ -279,12 +276,7 @@ func scopusMetricYearExpr() string {
 		publicationYearExpr,
 	)
 
-	return fmt.Sprintf(
-		"COALESCE(%s, CASE WHEN %s THEN %s ELSE NULL END)",
-		sameYearCompleteExpr,
-		inProgressExistsExpr,
-		previousCompleteExpr,
-	)
+	return fmt.Sprintf("COALESCE(%s, %s)", sameYearCompleteExpr, previousCompleteExpr)
 }
 
 func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
@@ -583,6 +575,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A') AS quartile,
 			metrics.cite_score_percentile,
 			` + scopusPublicationYearExpr() + ` AS publication_year_ce,
+			MONTH(sd.cover_date) AS publication_month_ce,
 			COALESCE(NULLIF(TRIM(sd.aggregation_type), ''), 'N/A') AS aggregation_type,
 			COALESCE(NULLIF(TRIM(sd.publication_name), ''), 'N/A') AS publication_name,
 			COALESCE(NULLIF(TRIM(sd.fund_sponsor), ''), 'N/A') AS fund_sponsor
@@ -604,7 +597,11 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		"N/A": 0,
 	}
 	aggregationCounts := map[string]int{}
-	publicationSourceCounts := map[string]int{}
+	type publicationSourceKey struct {
+		AggregationType string
+		PublicationName string
+	}
+	publicationSourceCounts := map[publicationSourceKey]int{}
 	fundingSponsorCounts := map[string]int{}
 	yearCounts := map[string]int{}
 	type historyBucket struct {
@@ -621,6 +618,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		CitedByTotal      int
 	}
 	historyByYear := map[int]*historyBucket{}
+	historyByFiscalYear := map[int]*historyBucket{}
 	seenDocumentIDs := map[uint]struct{}{}
 	totalDocuments := 0
 	totalCitations := 0
@@ -659,7 +657,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		if sourceLabel == "" {
 			sourceLabel = "N/A"
 		}
-		publicationSourceCounts[sourceLabel]++
+		publicationSourceCounts[publicationSourceKey{AggregationType: aggLabel, PublicationName: sourceLabel}]++
 
 		sponsorLabel := strings.TrimSpace(row.FundSponsor)
 		if sponsorLabel == "" {
@@ -672,37 +670,58 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			yearCounts[yearKey]++
 
 			yearBE := *row.PublicationYearCE + 543
+			fiscalYearBE := yearBE
+			if row.PublicationMonthCE != nil && *row.PublicationMonthCE >= 10 {
+				fiscalYearBE = yearBE + 1
+			}
+
 			bucket, ok := historyByYear[yearBE]
 			if !ok {
 				bucket = &historyBucket{PublicationYearBE: yearBE}
 				historyByYear[yearBE] = bucket
 			}
 
+			fiscalBucket, okFiscal := historyByFiscalYear[fiscalYearBE]
+			if !okFiscal {
+				fiscalBucket = &historyBucket{PublicationYearBE: fiscalYearBE}
+				historyByFiscalYear[fiscalYearBE] = fiscalBucket
+			}
+
 			bucket.UniqueDocuments++
 			bucket.CitedByTotal += row.CitedByCount
+			fiscalBucket.UniqueDocuments++
+			fiscalBucket.CitedByTotal += row.CitedByCount
 
 			if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Journal") {
 				bucket.Journal++
+				fiscalBucket.Journal++
 			}
 			if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Conference Proceeding") {
 				bucket.Conference++
+				fiscalBucket.Conference++
 			}
 
 			isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
 			if isT1 {
 				bucket.T1++
+				fiscalBucket.T1++
 			} else {
 				switch quartile {
 				case "Q1":
 					bucket.Q1++
+					fiscalBucket.Q1++
 				case "Q2":
 					bucket.Q2++
+					fiscalBucket.Q2++
 				case "Q3":
 					bucket.Q3++
+					fiscalBucket.Q3++
 				case "Q4":
 					bucket.Q4++
+					fiscalBucket.Q4++
 				default:
 					bucket.NA++
+					fiscalBucket.NA++
 				}
 			}
 		}
@@ -717,11 +736,25 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		avgCitations = float64(totalCitations) / float64(totalDocuments)
 	}
 
-	var totalTeachersWithScopusID int64
+	var latestScopusPullAt *time.Time
+	latestPullRow := struct {
+		FinishedAt *time.Time `gorm:"column:finished_at"`
+	}{}
+	if err := config.DB.Table("scopus_batch_import_runs").
+		Select("finished_at").
+		Where("status = ? AND finished_at IS NOT NULL", "success").
+		Order("finished_at DESC").
+		Limit(1).
+		Scan(&latestPullRow).Error; err == nil {
+		latestScopusPullAt = latestPullRow.FinishedAt
+	}
+
+	var totalTeachersInFaculty int64
 	if err := config.DB.Table("users").
-		Where("delete_at IS NULL AND scopus_id IS NOT NULL AND TRIM(scopus_id) <> ''").
-		Count(&totalTeachersWithScopusID).Error; err != nil {
-		totalTeachersWithScopusID = 0
+		Where("delete_at IS NULL").
+		Where("role_id IN ?", []int{1, 4, 5}).
+		Count(&totalTeachersInFaculty).Error; err != nil {
+		totalTeachersInFaculty = 0
 	}
 
 	aggRows := make([]map[string]interface{}, 0, len(aggregationCounts))
@@ -741,23 +774,29 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	})
 
 	sourceRows := make([]map[string]interface{}, 0, len(publicationSourceCounts))
-	for label, total := range publicationSourceCounts {
+	for key, total := range publicationSourceCounts {
 		sourceRows = append(sourceRows, map[string]interface{}{
-			"label": label,
-			"total": total,
+			"aggregation_type":   key.AggregationType,
+			"publication_source": key.PublicationName,
+			"label":              key.PublicationName,
+			"total":              total,
 		})
 	}
 	sort.Slice(sourceRows, func(i, j int) bool {
-		left := sourceRows[i]["total"].(int)
-		right := sourceRows[j]["total"].(int)
-		if left == right {
-			return sourceRows[i]["label"].(string) < sourceRows[j]["label"].(string)
+		leftTotal := sourceRows[i]["total"].(int)
+		rightTotal := sourceRows[j]["total"].(int)
+		if leftTotal != rightTotal {
+			return leftTotal > rightTotal
 		}
-		return left > right
+		leftSource := sourceRows[i]["publication_source"].(string)
+		rightSource := sourceRows[j]["publication_source"].(string)
+		if leftSource != rightSource {
+			return leftSource < rightSource
+		}
+		leftAgg := sourceRows[i]["aggregation_type"].(string)
+		rightAgg := sourceRows[j]["aggregation_type"].(string)
+		return leftAgg < rightAgg
 	})
-	if len(sourceRows) > 10 {
-		sourceRows = sourceRows[:10]
-	}
 
 	sponsorRows := make([]map[string]interface{}, 0, len(fundingSponsorCounts))
 	for label, total := range fundingSponsorCounts {
@@ -788,6 +827,30 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	for _, year := range historyYears {
 		bucket := historyByYear[year]
 		historyRows = append(historyRows, map[string]interface{}{
+			"publication_year": year,
+			"unique_documents": bucket.UniqueDocuments,
+			"t1":               bucket.T1,
+			"q1":               bucket.Q1,
+			"q2":               bucket.Q2,
+			"q3":               bucket.Q3,
+			"q4":               bucket.Q4,
+			"na":               bucket.NA,
+			"journal":          bucket.Journal,
+			"conference":       bucket.Conference,
+			"cited_by_total":   bucket.CitedByTotal,
+		})
+	}
+
+	fiscalHistoryYears := make([]int, 0, len(historyByFiscalYear))
+	for year := range historyByFiscalYear {
+		fiscalHistoryYears = append(fiscalHistoryYears, year)
+	}
+	sort.Ints(fiscalHistoryYears)
+
+	fiscalHistoryRows := make([]map[string]interface{}, 0, len(fiscalHistoryYears))
+	for _, year := range fiscalHistoryYears {
+		bucket := historyByFiscalYear[year]
+		fiscalHistoryRows = append(fiscalHistoryRows, map[string]interface{}{
 			"publication_year": year,
 			"unique_documents": bucket.UniqueDocuments,
 			"t1":               bucket.T1,
@@ -1139,21 +1202,23 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	payload := map[string]interface{}{
 		"kpi": map[string]interface{}{
 			"total_documents":            totalDocuments,
-			"total_teachers_with_scopus": totalTeachersWithScopusID,
+			"total_teachers_with_scopus": totalTeachersInFaculty,
 			"total_citations":            totalCitations,
 			"avg_citations_per_document": avgCitations,
 			"open_access_documents":      openAccessDocuments,
 			"t1_documents":               t1Documents,
 		},
-		"quality_breakdown":            qualityRows,
-		"aggregation_breakdown":        aggRows,
-		"faculty_quartile_history":     historyRows,
-		"person_summary":               personSummaryRows,
-		"person_year_matrix":           personYearMatrix,
-		"internal_collaboration_pairs": internalCollaborationPairs,
-		"top_publication_sources":      sourceRows,
-		"funding_sponsor_breakdown":    sponsorRows,
-		"year_breakdown_be":            yearCounts,
+		"quality_breakdown":               qualityRows,
+		"aggregation_breakdown":           aggRows,
+		"faculty_quartile_history":        historyRows,
+		"faculty_quartile_history_fiscal": fiscalHistoryRows,
+		"person_summary":                  personSummaryRows,
+		"person_year_matrix":              personYearMatrix,
+		"internal_collaboration_pairs":    internalCollaborationPairs,
+		"top_publication_sources":         sourceRows,
+		"funding_sponsor_breakdown":       sponsorRows,
+		"year_breakdown_be":               yearCounts,
+		"latest_scopus_pull_at":           latestScopusPullAt,
 		"applied_filters": map[string]interface{}{
 			"scope":              filters.Scope,
 			"year_start_be":      ceToBE(filters.YearStartCE),
