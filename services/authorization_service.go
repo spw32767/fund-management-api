@@ -78,6 +78,7 @@ var defaultPermissionsByRole = map[int][]string{
 		"scopus.publications.export",
 		"scopus.publications.export_by_user",
 		"ui.page.admin.dashboard.view",
+		"ui.page.admin.research_dashboard.view",
 		"ui.page.admin.research_fund.view",
 		"ui.page.admin.promotion_fund.view",
 		"ui.page.admin.applications.view",
@@ -120,12 +121,13 @@ var defaultPermissionsByRole = map[int][]string{
 }
 
 var impliedPermissions = map[string][]string{
-	"ui.page.admin.dashboard.view":      {"dashboard.view.admin"},
-	"ui.page.admin.applications.view":   {"submission.read.all"},
-	"ui.page.admin.scopus.view":         {"scopus.publications.read"},
-	"ui.page.admin.import_export.view":  {"report.export"},
-	"ui.page.admin.access_control.view": {"access.view"},
-	"ui.page.member.dept_review.view":   {"submission.read.department"},
+	"ui.page.admin.dashboard.view":          {"dashboard.view.admin"},
+	"ui.page.admin.research_dashboard.view": {"scopus.publications.read"},
+	"ui.page.admin.applications.view":       {"submission.read.all"},
+	"ui.page.admin.scopus.view":             {"scopus.publications.read"},
+	"ui.page.admin.import_export.view":      {"report.export"},
+	"ui.page.admin.access_control.view":     {"access.view"},
+	"ui.page.member.dept_review.view":       {"submission.read.department"},
 }
 
 func GetAuthorizationService() *AuthorizationService {
