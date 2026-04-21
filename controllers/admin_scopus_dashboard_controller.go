@@ -18,6 +18,8 @@ import (
 const (
 	scopusDashboardOptionsCacheTTL = 6 * time.Hour
 	scopusDashboardSummaryCacheTTL = 10 * time.Minute
+	scopusAffiliationNameKKU       = "khon kaen university"
+	scopusAffiliationNameSciKKU    = "faculty of science, khon kaen university"
 )
 
 type scopusDashboardCacheItem struct {
@@ -279,23 +281,26 @@ func scopusMetricYearExpr() string {
 	return fmt.Sprintf("COALESCE(%s, %s)", sameYearCompleteExpr, previousCompleteExpr)
 }
 
-func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
-	q := query
-	pubYearExpr := scopusPublicationYearExpr()
+func applyScopusKKUAffiliationConstraint(query *gorm.DB) *gorm.DB {
+	return query.Where(`
+		EXISTS (
+			SELECT 1
+			FROM scopus_document_authors sda
+			JOIN scopus_authors sa ON sa.id = sda.author_id
+			JOIN users u ON TRIM(u.scopus_id) = sa.scopus_author_id
+			JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
+			WHERE sda.document_id = sd.id
+			  AND u.delete_at IS NULL
+			  AND u.scopus_id IS NOT NULL
+			  AND TRIM(u.scopus_id) <> ''
+			  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
+		)
+	`, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU)
+}
 
-	if filters.Scope == "individual" {
-		q = q.Where(`
-			EXISTS (
-				SELECT 1
-				FROM scopus_document_authors sda
-				JOIN scopus_authors sa ON sa.id = sda.author_id
-				JOIN users u ON TRIM(u.scopus_id) = sa.scopus_author_id
-				WHERE sda.document_id = sd.id
-				  AND u.scopus_id IS NOT NULL
-				  AND TRIM(u.scopus_id) <> ''
-			)
-		`)
-	}
+func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
+	q := applyScopusKKUAffiliationConstraint(query)
+	pubYearExpr := scopusPublicationYearExpr()
 
 	if filters.YearStartCE != nil {
 		q = q.Where(pubYearExpr+" >= ?", *filters.YearStartCE)
@@ -397,7 +402,7 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 
 // GET /api/v1/admin/scopus/dashboard/filter-options
 func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
-	cacheKey := "scopus_dashboard_filter_options_v2"
+	cacheKey := "scopus_dashboard_filter_options_v3"
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
 
 	if !forceRefresh {
@@ -416,12 +421,14 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		}
 	}
 
-	pubYearExpr := "COALESCE(YEAR(cover_date), CAST(RIGHT(cover_display_date, 4) AS UNSIGNED))"
+	pubYearExpr := scopusPublicationYearExpr()
+	metricYearExpr := scopusMetricYearExpr()
 
 	var years []scopusYearOptionRow
-	if err := config.DB.Table("scopus_documents").
-		Select(pubYearExpr + " AS year_ce, COUNT(*) AS total").
+	if err := config.DB.Table("scopus_documents AS sd").
+		Select(pubYearExpr + " AS year_ce, COUNT(DISTINCT sd.id) AS total").
 		Where(pubYearExpr + " IS NOT NULL AND " + pubYearExpr + " > 0").
+		Scopes(applyScopusKKUAffiliationConstraint).
 		Group("year_ce").
 		Order("year_ce DESC").
 		Scan(&years).Error; err != nil {
@@ -430,9 +437,10 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 	}
 
 	var aggregationTypes []scopusAggregationTypeRow
-	if err := config.DB.Table("scopus_documents").
-		Select("TRIM(aggregation_type) AS label, COUNT(*) AS total").
-		Where("aggregation_type IS NOT NULL AND TRIM(aggregation_type) <> ''").
+	if err := config.DB.Table("scopus_documents AS sd").
+		Select("TRIM(sd.aggregation_type) AS label, COUNT(DISTINCT sd.id) AS total").
+		Where("sd.aggregation_type IS NOT NULL AND TRIM(sd.aggregation_type) <> ''").
+		Scopes(applyScopusKKUAffiliationConstraint).
 		Group("TRIM(aggregation_type)").
 		Order("total DESC, label ASC").
 		Scan(&aggregationTypes).Error; err != nil {
@@ -454,9 +462,10 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Total    int64  `gorm:"column:total"`
 	}
 	var qualityRows []qualityCountRow
-	if err := config.DB.Table("scopus_source_metrics").
-		Select("COALESCE(NULLIF(UPPER(TRIM(cite_score_quartile)), ''), 'N/A') AS quartile, COUNT(*) AS total").
-		Where("doc_type = 'all'").
+	if err := config.DB.Table("scopus_documents AS sd").
+		Select("COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A') AS quartile, COUNT(DISTINCT sd.id) AS total").
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
+		Scopes(applyScopusKKUAffiliationConstraint).
 		Group("quartile").
 		Scan(&qualityRows).Error; err == nil {
 		for _, row := range qualityRows {
@@ -465,8 +474,11 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 	}
 
 	var t1Count int64
-	if err := config.DB.Table("scopus_source_metrics").
-		Where("doc_type = 'all' AND cite_score_percentile BETWEEN 90 AND 100").
+	if err := config.DB.Table("scopus_documents AS sd").
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
+		Scopes(applyScopusKKUAffiliationConstraint).
+		Where("metrics.cite_score_percentile BETWEEN 90 AND 100").
+		Distinct("sd.id").
 		Count(&t1Count).Error; err == nil {
 		qualityCounts["T1"] = t1Count
 	}
@@ -545,7 +557,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 func AdminGetScopusDashboardSummary(c *gin.Context) {
 	filters := parseScopusDashboardFilters(c)
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
-	cacheKey := "scopus_dashboard_summary_v7:" + filters.cacheKey()
+	cacheKey := "scopus_dashboard_summary_v8:" + filters.cacheKey()
 
 	if !forceRefresh {
 		if cached, ok := readScopusDashboardCache(cacheKey); ok {
@@ -934,7 +946,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				COALESCE(NULLIF(TRIM(u.email), ''), '-') AS user_email,
 				COALESCE(NULLIF(TRIM(u.scopus_id), ''), '-') AS user_scopus_id,
 				sd.id AS document_id,
-				` + scopusPublicationYearExpr() + ` AS publication_year_ce,
+				`+scopusPublicationYearExpr()+` AS publication_year_ce,
 				COALESCE(sd.citedby_count, 0) AS cited_by_count,
 				COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A') AS quartile,
 				metrics.cite_score_percentile,
@@ -942,9 +954,11 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			`).
 			Joins("JOIN scopus_authors sa ON TRIM(u.scopus_id) = sa.scopus_author_id").
 			Joins("JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+			Joins("JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id").
 			Joins("JOIN scopus_documents sd ON sd.id = sda.document_id").
-			Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
-			Where("u.delete_at IS NULL AND u.scopus_id IS NOT NULL AND TRIM(u.scopus_id) <> ''")
+			Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = "+metricYearExpr).
+			Where("u.delete_at IS NULL AND u.scopus_id IS NOT NULL AND TRIM(u.scopus_id) <> ''").
+			Where("LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)", scopusAffiliationNameKKU, scopusAffiliationNameSciKKU)
 
 		personQuery = applyScopusDashboardFilters(personQuery, filters, true)
 
@@ -1203,18 +1217,22 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				FROM users u
 				JOIN scopus_authors sa ON TRIM(u.scopus_id) = sa.scopus_author_id
 				JOIN scopus_document_authors sda ON sda.author_id = sa.id
+				JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
 				WHERE u.delete_at IS NULL
 				  AND u.scopus_id IS NOT NULL
 				  AND TRIM(u.scopus_id) <> ''
+				  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
 			) d1
 			JOIN (
 				SELECT DISTINCT u.user_id, sda.document_id
 				FROM users u
 				JOIN scopus_authors sa ON TRIM(u.scopus_id) = sa.scopus_author_id
 				JOIN scopus_document_authors sda ON sda.author_id = sa.id
+				JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
 				WHERE u.delete_at IS NULL
 				  AND u.scopus_id IS NOT NULL
 				  AND TRIM(u.scopus_id) <> ''
+				  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
 			) d2 ON d1.document_id = d2.document_id AND d1.user_id < d2.user_id
 			JOIN users ua ON ua.user_id = d1.user_id
 			JOIN users ub ON ub.user_id = d2.user_id
@@ -1223,7 +1241,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			ORDER BY shared_documents DESC, user_a ASC, user_b ASC
 		`
 
-		if err := config.DB.Raw(pairSQL).Scan(&pairRows).Error; err == nil {
+		if err := config.DB.Raw(pairSQL, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU).Scan(&pairRows).Error; err == nil {
 			internalCollaborationPairs = make([]map[string]interface{}, 0, len(pairRows))
 			for _, row := range pairRows {
 				internalCollaborationPairs = append(internalCollaborationPairs, map[string]interface{}{
