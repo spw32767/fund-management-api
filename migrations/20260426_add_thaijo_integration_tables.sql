@@ -1,0 +1,188 @@
+-- ThaiJO integration schema
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS thaijo_author_id varchar(100) DEFAULT NULL AFTER scopus_id,
+  ADD COLUMN IF NOT EXISTS thaijo_sync_enabled tinyint(1) NOT NULL DEFAULT 0 AFTER thaijo_author_id;
+
+CREATE TABLE IF NOT EXISTS thaijo_documents (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  thaijo_article_id varchar(128) NOT NULL,
+  article_url text DEFAULT NULL,
+  journal_id int(11) DEFAULT NULL,
+  journal_path varchar(128) DEFAULT NULL,
+  journal_url text DEFAULT NULL,
+  title_en text DEFAULT NULL,
+  title_th text DEFAULT NULL,
+  year int(11) DEFAULT NULL,
+  date_published datetime DEFAULT NULL,
+  doi varchar(255) DEFAULT NULL,
+  pdf_url text DEFAULT NULL,
+  publication_id int(11) DEFAULT NULL,
+  submission_id int(11) DEFAULT NULL,
+  languages_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(languages_json)),
+  keywords_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(keywords_json)),
+  raw_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(raw_json)),
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_thaijo_article_id (thaijo_article_id),
+  KEY idx_thaijo_year (year),
+  KEY idx_thaijo_journal_path (journal_path),
+  KEY idx_thaijo_publication_id (publication_id),
+  KEY idx_thaijo_submission_id (submission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_authors (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  thaijo_author_id varchar(128) NOT NULL,
+  identity_key varchar(255) DEFAULT NULL,
+  orcid varchar(255) DEFAULT NULL,
+  full_name_en text DEFAULT NULL,
+  full_name_th text DEFAULT NULL,
+  given_name_en text DEFAULT NULL,
+  given_name_th text DEFAULT NULL,
+  family_name_en text DEFAULT NULL,
+  family_name_th text DEFAULT NULL,
+  country varchar(16) DEFAULT NULL,
+  article_count int(11) DEFAULT NULL,
+  article_ids_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(article_ids_json)),
+  affiliations_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(affiliations_json)),
+  journal_paths_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(journal_paths_json)),
+  journals_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(journals_json)),
+  years_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(years_json)),
+  raw_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(raw_json)),
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_thaijo_author_id (thaijo_author_id),
+  KEY idx_thaijo_identity_key (identity_key(191)),
+  KEY idx_thaijo_orcid (orcid(191))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_journals (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  thaijo_journal_key varchar(128) NOT NULL,
+  journal_id int(11) DEFAULT NULL,
+  path varchar(128) DEFAULT NULL,
+  acronym varchar(128) DEFAULT NULL,
+  category varchar(128) DEFAULT NULL,
+  journal_url text DEFAULT NULL,
+  name_en text DEFAULT NULL,
+  name_th text DEFAULT NULL,
+  online_issn varchar(64) DEFAULT NULL,
+  print_issn varchar(64) DEFAULT NULL,
+  tier int(11) DEFAULT NULL,
+  tier_period varchar(64) DEFAULT NULL,
+  enabled tinyint(1) DEFAULT NULL,
+  raw_json longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(raw_json)),
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_thaijo_journal_key (thaijo_journal_key),
+  KEY idx_thaijo_journal_id (journal_id),
+  KEY idx_thaijo_journal_path (path),
+  KEY idx_thaijo_tier (tier)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_document_authors (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  document_id bigint(20) UNSIGNED NOT NULL,
+  author_id bigint(20) UNSIGNED DEFAULT NULL,
+  author_seq int(11) DEFAULT NULL,
+  name_en text DEFAULT NULL,
+  name_th text DEFAULT NULL,
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_thaijo_doc_author_seq (document_id,author_id,author_seq),
+  KEY idx_thaijo_doc_author_document (document_id),
+  KEY idx_thaijo_doc_author_author (author_id),
+  CONSTRAINT fk_thaijo_doc_author_document FOREIGN KEY (document_id) REFERENCES thaijo_documents (id) ON DELETE CASCADE,
+  CONSTRAINT fk_thaijo_doc_author_author FOREIGN KEY (author_id) REFERENCES thaijo_authors (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_api_import_jobs (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  service varchar(64) NOT NULL DEFAULT 'thaijo',
+  job_type varchar(64) NOT NULL DEFAULT 'author_documents',
+  user_id int(11) DEFAULT NULL,
+  thaijo_author_id varchar(100) DEFAULT NULL,
+  search_name text DEFAULT NULL,
+  query_string text NOT NULL,
+  total_results int(11) DEFAULT NULL,
+  author_selection_reason varchar(64) DEFAULT NULL,
+  status varchar(32) NOT NULL DEFAULT 'running',
+  error_message text DEFAULT NULL,
+  started_at datetime NOT NULL DEFAULT current_timestamp(),
+  finished_at datetime DEFAULT NULL,
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  KEY idx_thaijo_jobs_user (user_id),
+  KEY idx_thaijo_jobs_status (status),
+  KEY idx_thaijo_jobs_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_api_requests (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  job_id bigint(20) UNSIGNED DEFAULT NULL,
+  http_method varchar(8) NOT NULL DEFAULT 'POST',
+  endpoint text NOT NULL,
+  query_params longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(query_params)),
+  request_headers longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(request_headers)),
+  request_body longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(request_body)),
+  response_status int(11) DEFAULT NULL,
+  response_time_ms int(11) DEFAULT NULL,
+  items_returned int(11) DEFAULT NULL,
+  response_body longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(response_body)),
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  KEY idx_thaijo_req_job (job_id),
+  KEY idx_thaijo_req_created (created_at),
+  CONSTRAINT fk_thaijo_api_req_job FOREIGN KEY (job_id) REFERENCES thaijo_api_import_jobs (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_batch_import_runs (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  status varchar(32) NOT NULL DEFAULT 'running',
+  error_message text DEFAULT NULL,
+  requested_user_ids text DEFAULT NULL,
+  limit_count int(11) DEFAULT NULL,
+  users_processed int(11) NOT NULL DEFAULT 0,
+  users_with_errors int(11) NOT NULL DEFAULT 0,
+  documents_fetched int(11) NOT NULL DEFAULT 0,
+  documents_created int(11) NOT NULL DEFAULT 0,
+  documents_updated int(11) NOT NULL DEFAULT 0,
+  documents_failed int(11) NOT NULL DEFAULT 0,
+  authors_created int(11) NOT NULL DEFAULT 0,
+  authors_updated int(11) NOT NULL DEFAULT 0,
+  journals_created int(11) NOT NULL DEFAULT 0,
+  journals_updated int(11) NOT NULL DEFAULT 0,
+  links_inserted int(11) NOT NULL DEFAULT 0,
+  links_updated int(11) NOT NULL DEFAULT 0,
+  rejected_hits int(11) NOT NULL DEFAULT 0,
+  started_at datetime NOT NULL DEFAULT current_timestamp(),
+  finished_at datetime DEFAULT NULL,
+  duration_seconds double DEFAULT NULL,
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  updated_at datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (id),
+  KEY idx_thaijo_batch_runs_status (status),
+  KEY idx_thaijo_batch_runs_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thaijo_rejected_hits (
+  id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  job_id bigint(20) UNSIGNED DEFAULT NULL,
+  user_id int(11) DEFAULT NULL,
+  thaijo_article_id varchar(128) DEFAULT NULL,
+  reason varchar(64) NOT NULL,
+  author_match tinyint(1) NOT NULL DEFAULT 0,
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  KEY idx_thaijo_rejected_job (job_id),
+  KEY idx_thaijo_rejected_user (user_id),
+  KEY idx_thaijo_rejected_article (thaijo_article_id),
+  KEY idx_thaijo_rejected_created (created_at),
+  CONSTRAINT fk_thaijo_rejected_job FOREIGN KEY (job_id) REFERENCES thaijo_api_import_jobs (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
