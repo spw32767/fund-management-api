@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -437,7 +438,7 @@ func (s *ThaiJOIngestService) reserveRateLimitSlot(ctx context.Context, jobID ui
 		}
 
 		// Pace requests globally to avoid burst traffic.
-		var latestCreatedAt time.Time
+		var latestCreatedAt sql.NullTime
 		if err := s.db.WithContext(lockCtx).
 			Table("thaijo_api_requests").
 			Select("MAX(created_at)").
@@ -445,8 +446,8 @@ func (s *ThaiJOIngestService) reserveRateLimitSlot(ctx context.Context, jobID ui
 			_ = release()
 			return 0, err
 		}
-		if !latestCreatedAt.IsZero() {
-			nextAllowed := latestCreatedAt.Add(thaiJOPacedInterval)
+		if latestCreatedAt.Valid {
+			nextAllowed := latestCreatedAt.Time.Add(thaiJOPacedInterval)
 			if waitFor := time.Until(nextAllowed); waitFor > 0 {
 				_ = release()
 				select {
