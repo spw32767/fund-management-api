@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS thaijo_documents (
   journal_url text DEFAULT NULL,
   title_en text DEFAULT NULL,
   title_th text DEFAULT NULL,
+  abstract_en longtext DEFAULT NULL,
+  abstract_th longtext DEFAULT NULL,
   year int(11) DEFAULT NULL,
   date_published datetime DEFAULT NULL,
   doi varchar(255) DEFAULT NULL,
