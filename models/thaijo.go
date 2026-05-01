@@ -11,6 +11,8 @@ type ThaiJODocument struct {
 	JournalURL     *string    `json:"journal_url,omitempty" gorm:"column:journal_url;type:text"`
 	TitleEN        *string    `json:"title_en,omitempty" gorm:"column:title_en;type:text"`
 	TitleTH        *string    `json:"title_th,omitempty" gorm:"column:title_th;type:text"`
+	AbstractEN     *string    `json:"abstract_en,omitempty" gorm:"column:abstract_en;type:longtext"`
+	AbstractTH     *string    `json:"abstract_th,omitempty" gorm:"column:abstract_th;type:longtext"`
 	Year           *int       `json:"year,omitempty" gorm:"column:year"`
 	DatePublished  *time.Time `json:"date_published,omitempty" gorm:"column:date_published"`
 	DOI            *string    `json:"doi,omitempty" gorm:"column:doi;type:varchar(255)"`

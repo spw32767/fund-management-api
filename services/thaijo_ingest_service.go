@@ -673,6 +673,8 @@ func (s *ThaiJOIngestService) persistArticle(ctx context.Context, hit thaiJOAdva
 		JournalURL:      optionalString(hit.JournalURL),
 		TitleEN:         optionalString(hit.Titles.EN),
 		TitleTH:         optionalString(hit.Titles.TH),
+		AbstractEN:      optionalString(hit.Abstracts.EN),
+		AbstractTH:      optionalString(hit.Abstracts.TH),
 		Year:            intPointer(hit.Year),
 		DatePublished:   parseThaiJODateTime(hit.DatePublished),
 		DOI:             optionalString(hit.DOI),
@@ -809,6 +811,7 @@ type thaiJOAdvancedSearchHit struct {
 	JournalURL    string            `json:"journal_url"`
 	JournalName   thaiJONamePair    `json:"journal_name"`
 	Titles        thaiJONamePair    `json:"titles"`
+	Abstracts     thaiJONamePair    `json:"abstracts"`
 	Authors       thaiJOAuthorsPair `json:"authors"`
 	Year          int               `json:"year"`
 	DatePublished string            `json:"date_published"`
