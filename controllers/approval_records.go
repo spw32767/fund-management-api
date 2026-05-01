@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	// ใช้ DB กลางของโปรเจกต์
 	"fund-management-api/config"
@@ -86,16 +87,17 @@ func safeSortRecords(s string) string {
 	return "approved_at"
 }
 
-// GET /api/v1/admin/approval-records/totals?teacher_id=&year=&category_id=&subcategory_id=&subcategory_budget_id=
-func GetApprovalTotals(c *gin.Context) {
-	db := config.DB
-
-	teacherID := parseUintPtr(c.Query("teacher_id"))
-	year := c.Query("year")
-	catID := parseUintPtr(c.Query("category_id"))
-	subID := parseUintPtr(c.Query("subcategory_id"))
-	budgetID := parseUintPtr(c.Query("subcategory_budget_id"))
-
+func queryApprovalTotalsRows(
+	db *gorm.DB,
+	teacherID *uint,
+	year string,
+	yearID *uint,
+	catID *uint,
+	subID *uint,
+	budgetID *uint,
+	sort string,
+	dir string,
+) ([]ApprovalTotalsRow, error) {
 	var rows []ApprovalTotalsRow
 	q := db.Table("v_approval_totals_by_teacher AS t")
 
@@ -104,6 +106,9 @@ func GetApprovalTotals(c *gin.Context) {
 	}
 	if year != "" {
 		q = q.Where("t.year_th = ?", year)
+	}
+	if yearID != nil {
+		q = q.Where("t.year_id = ?", *yearID)
 	}
 	if catID != nil {
 		q = q.Where("t.category_id = ?", *catID)
@@ -115,17 +120,84 @@ func GetApprovalTotals(c *gin.Context) {
 		q = q.Where("t.subcategory_budget_id = ?", *budgetID)
 	}
 
+	q = q.Order("t." + sort + " " + dir).
+		Order("t.subcategory_name ASC").
+		Order("t.subcategory_budget_label ASC")
+
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GET /api/v1/admin/approval-records/totals?teacher_id=&year=&category_id=&subcategory_id=&subcategory_budget_id=
+func GetApprovalTotals(c *gin.Context) {
+	db := config.DB
+
+	teacherID := parseUintPtr(c.Query("teacher_id"))
+	year := c.Query("year")
+	yearID := parseUintPtr(c.Query("year_id"))
+	catID := parseUintPtr(c.Query("category_id"))
+	subID := parseUintPtr(c.Query("subcategory_id"))
+	budgetID := parseUintPtr(c.Query("subcategory_budget_id"))
+
 	sort := safeSortTotals(c.Query("sort"))
 	dir := strings.ToUpper(c.Query("dir"))
 	if dir != "DESC" {
 		dir = "ASC"
 	}
 
-	q = q.Order("t." + sort + " " + dir).
-		Order("t.subcategory_name ASC").
-		Order("t.subcategory_budget_label ASC")
+	rows, err := queryApprovalTotalsRows(db, teacherID, year, yearID, catID, subID, budgetID, sort, dir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	if err := q.Scan(&rows).Error; err != nil {
+	grand := 0.0
+	for _, r := range rows {
+		grand += r.TotalApprovedAmount
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"rows":        rows,
+			"grand_total": grand,
+		},
+	})
+}
+
+// GET /api/v1/teacher/approval-records/totals?year=&year_id=&category_id=&subcategory_id=&subcategory_budget_id=
+// GET /api/v1/staff/approval-records/totals?year=&year_id=&category_id=&subcategory_id=&subcategory_budget_id=
+func GetMyApprovalTotals(c *gin.Context) {
+	db := config.DB
+
+	currentUserID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userIDInt, ok := currentUserID.(int)
+	if !ok || userIDInt <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user context"})
+		return
+	}
+
+	uid := uint(userIDInt)
+	year := c.Query("year")
+	yearID := parseUintPtr(c.Query("year_id"))
+	catID := parseUintPtr(c.Query("category_id"))
+	subID := parseUintPtr(c.Query("subcategory_id"))
+	budgetID := parseUintPtr(c.Query("subcategory_budget_id"))
+
+	sort := safeSortTotals(c.Query("sort"))
+	dir := strings.ToUpper(c.Query("dir"))
+	if dir != "DESC" {
+		dir = "ASC"
+	}
+
+	rows, err := queryApprovalTotalsRows(db, &uid, year, yearID, catID, subID, budgetID, sort, dir)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

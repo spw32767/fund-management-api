@@ -170,6 +170,7 @@ func SetupRoutes(router *gin.Engine) {
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
 				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
+				teacher.GET("/approval-records/totals", controllers.GetMyApprovalTotals)
 				// User Publications
 				teacher.GET("/user-publications", controllers.GetUserPublications)
 				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
@@ -191,6 +192,7 @@ func SetupRoutes(router *gin.Engine) {
 				staff.GET("/subcategories", controllers.GetSubcategoryForRole)
 				staff.GET("/submissions", controllers.GetStaffSubmissions) // Staff ดู submissions ของตัวเอง
 				staff.GET("/dashboard/stats", controllers.GetDashboardStats)
+				staff.GET("/approval-records/totals", controllers.GetMyApprovalTotals)
 			}
 
 			// Dept head review endpoints
