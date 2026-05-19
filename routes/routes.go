@@ -50,6 +50,8 @@ func SetupRoutes(router *gin.Engine) {
 			public.GET("/years", controllers.GetActiveYears)
 			public.GET("/support-fundmapping", controllers.GetSupportFundMappings)
 
+			public.GET("/publications/search", controllers.SearchPublications)
+
 			// Authentication
 			public.POST("/login", controllers.Login)
 			public.POST("/password/forgot", controllers.ForgotPassword)
