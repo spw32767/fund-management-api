@@ -164,6 +164,37 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
 			protected.GET("/submissions/search", controllers.SearchSubmissions) // ค้นหา submissions
 
+			// ===== MOU (Memorandum of Understanding) =====
+			mou := protected.Group("/mou")
+			{
+				mou.GET("", controllers.GetMous)                           // List all MOUs
+				mou.GET("/statuses", controllers.GetMouStatuses)           // List available statuses
+				mou.GET("/types", controllers.GetMouTypes)                 // List available types
+				mou.GET("/countries", controllers.GetCountries)            // List available countries
+				mou.GET("/faculties", controllers.GetFaculties)            // List available faculties
+				mou.GET("/levels", controllers.GetMouLevels)              // List distinct levels
+				mou.POST("", controllers.CreateMou)                        // Create new MOU
+				mou.GET("/dashboard", controllers.GetMouDashboard)          // Dashboard stats
+				mou.GET("/activity-types", controllers.GetActivityTypes)    // List activity types
+				mou.POST("/activity-types", controllers.CreateActivityType)  // Create activity type
+				mou.PUT("/activity-types/:id", controllers.UpdateActivityType) // Update activity type
+				mou.DELETE("/activity-types/:id", controllers.DeleteActivityType) // Delete activity type
+				mou.GET("/okrs", controllers.GetOkrList)                   // List OKRs
+				mou.POST("/okrs", controllers.CreateOkr)                   // Create OKR
+				mou.PUT("/okrs/:id", controllers.UpdateOkr)                // Update OKR
+				mou.DELETE("/okrs/:id", controllers.DeleteOkr)             // Delete OKR
+				mou.POST("/activities", controllers.CreateMouActivity)     // Create activity
+				mou.GET("/activities/:id", controllers.GetMouActivity)     // Get activity detail
+				mou.PUT("/activities/:id", controllers.UpdateMouActivity)   // Update activity
+				mou.DELETE("/activities/:id", controllers.DeleteMouActivity) // Delete activity
+				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
+				mou.GET("/:id", controllers.GetMouDetail)                  // Get MOU detail
+				mou.GET("/:id/download", controllers.DownloadMouAttachments) // Download MOU attachments as ZIP
+				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
+				mou.PUT("/:id", controllers.UpdateMou)                     // Update MOU
+				mou.DELETE("/:id", controllers.DeleteMou)                  // Delete MOU
+			}
+
 			// Teacher-specific endpoints
 			teacher := protected.Group("/teacher")
 			{
