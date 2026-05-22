@@ -28,7 +28,7 @@ SELECT
     NULL                                             AS track_id,
     d.citedby_count                                  AS cited_by,
   
-    NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), '') AS journal_quartile,
+    CASE WHEN d.aggregation_type = 'Conference Proceeding' THEN NULL ELSE NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), '') END AS journal_quartile,
       
     metrics.cite_score_percentile                    AS journal_percentile,
     NULL                                             AS journal_tier,
