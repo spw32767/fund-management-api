@@ -90,18 +90,32 @@ type Faculty struct {
 
 // MouPartner represents a partner organization for an MOU
 type MouPartner struct {
-	ID          int       `gorm:"primaryKey;column:id" json:"id"`
-	MouID       int       `gorm:"column:mou_id" json:"mou_id"`
-	PartnerOrg  string    `gorm:"column:partner_org" json:"partner_org"`
-	PartnerType string    `gorm:"column:partner_type" json:"partner_type"`
-	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"column:updated_at;autoUpdateTime:milli" json:"updated_at"`
+	ID            int       `gorm:"primaryKey;column:id" json:"id"`
+	MouID         int       `gorm:"column:mou_id" json:"mou_id"`
+	PartnerOrg    string    `gorm:"column:partner_org" json:"partner_org"`
+	PartnerTypeID int       `gorm:"column:partner_type_id" json:"partner_type_id"`
+	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at;autoUpdateTime:milli" json:"updated_at"`
 
 	// Relations
-	Mou MouRecord `gorm:"foreignKey:MouID" json:"mou,omitempty"`
+	Mou         MouRecord       `gorm:"foreignKey:MouID" json:"mou,omitempty"`
+	PartnerType MouPartnerType  `gorm:"foreignKey:PartnerTypeID" json:"partner_type,omitempty"`
 }
 
 func (MouPartner) TableName() string { return "mou_partner" }
+
+// MouPartnerType represents a partner type lookup
+type MouPartnerType struct {
+	ID          int        `gorm:"primaryKey;column:id" json:"id"`
+	NameTh      string     `gorm:"column:name_th" json:"name_th"`
+	Description *string    `gorm:"column:description" json:"description"`
+	IsActive    bool       `gorm:"column:is_active;default:true" json:"is_active"`
+	DeletedAt   *time.Time `gorm:"column:deleted_at;index" json:"deleted_at"`
+	CreatedAt   time.Time  `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updated_at"`
+}
+
+func (MouPartnerType) TableName() string { return "mou_partner_type" }
 
 // MouFaculty represents faculty mapping for an MOU
 type MouFaculty struct {
@@ -239,7 +253,7 @@ type CreateMouRequest struct {
 	EndDate          string     `json:"end_date" binding:"required"`
 	YearOfSigning    int        `json:"year_of_signing"` // พ.ศ. หรือ ค.ศ. (ตัวเลข 4 หลัก)
 	PartnerName      string     `json:"partner_name" binding:"required"`
-	PartnerType      string     `json:"partner_type"`
+	PartnerTypeID    int        `json:"partner_type_id"`
 	CountryID        *int       `json:"country_id"`
 	CoordinatorID    *int       `json:"coordinator_id"`
 	CoordinatorName  string     `json:"coordinator_name"`
@@ -317,7 +331,7 @@ type UpdateMouRequest struct {
 	EndDate           *string       `json:"end_date"`
 	YearOfSigning     *int          `json:"year_of_signing"`
 	PartnerName       *string       `json:"partner_name"`
-	PartnerType       *string       `json:"partner_type"`
+	PartnerTypeID     *int          `json:"partner_type_id"`
 	CountryID         *int          `json:"country_id"`
 	CoordinatorID     *int          `json:"coordinator_id"`
 	CoordinatorName   *string       `json:"coordinator_name"`

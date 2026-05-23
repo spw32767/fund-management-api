@@ -172,6 +172,10 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/types", controllers.GetMouTypes)                 // List available types
 				mou.GET("/countries", controllers.GetCountries)            // List available countries
 				mou.GET("/faculties", controllers.GetFaculties)            // List available faculties
+				mou.GET("/partner-types", controllers.GetMouPartnerTypes)  // List partner types
+				mou.POST("/partner-types", controllers.CreateMouPartnerType)  // Create partner type
+				mou.PUT("/partner-types/:id", controllers.UpdateMouPartnerType)  // Update partner type
+				mou.DELETE("/partner-types/:id", controllers.DeleteMouPartnerType)  // Delete partner type
 				mou.GET("/levels", controllers.GetMouLevels)              // List distinct levels
 				mou.POST("", controllers.CreateMou)                        // Create new MOU
 				mou.GET("/dashboard", controllers.GetMouDashboard)          // Dashboard stats

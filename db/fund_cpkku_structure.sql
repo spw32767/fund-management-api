@@ -120,15 +120,28 @@ CREATE TABLE `mou_records` (
   FOREIGN KEY (`updated_by`) REFERENCES `users`(`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mou_partner_type
+CREATE TABLE `mou_partner_type` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(100) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_partner_type_name` (`name_th`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- mou_partner
 CREATE TABLE `mou_partner` (
   `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `mou_id` int(11) NOT NULL,
   `partner_org` varchar(300) NOT NULL,
-  `partner_type` enum('university','company','government','ngo','other') NOT NULL,
+  `partner_type_id` int(11) NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`partner_type_id`) REFERENCES `mou_partner_type`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- mou_faculty

@@ -439,9 +439,9 @@ func CreateMou(c *gin.Context) {
 	// Create partner record
 	if req.PartnerName != "" {
 		partner := models.MouPartner{
-			MouID:       mou.ID,
-			PartnerOrg:  req.PartnerName,
-			PartnerType: req.PartnerType,
+			MouID:         mou.ID,
+			PartnerOrg:    req.PartnerName,
+			PartnerTypeID: req.PartnerTypeID,
 		}
 		if err := config.DB.Create(&partner).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create MOU partner: " + err.Error()})
@@ -650,12 +650,11 @@ func UpdateMou(c *gin.Context) {
 		config.DB.Where("mou_id = ?", mou.ID).Delete(&models.MouPartner{})
 		if *req.PartnerName != "" {
 			partner := models.MouPartner{
-				MouID:       mou.ID,
-				PartnerOrg:  *req.PartnerName,
-				PartnerType: "",
+				MouID:      mou.ID,
+				PartnerOrg: *req.PartnerName,
 			}
-			if req.PartnerType != nil {
-				partner.PartnerType = *req.PartnerType
+			if req.PartnerTypeID != nil {
+				partner.PartnerTypeID = *req.PartnerTypeID
 			}
 			config.DB.Create(&partner)
 		}
@@ -1458,6 +1457,109 @@ func DeleteMouActivityAttachment(c *gin.Context) {
 		"success": true,
 		"message": "Attachment deleted successfully",
 	})
+}
+
+// GetMouPartnerTypes returns all active partner types
+func GetMouPartnerTypes(c *gin.Context) {
+	var types []models.MouPartnerType
+	config.DB.Where("deleted_at IS NULL AND is_active = ?", true).Find(&types)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    types,
+	})
+}
+
+// CreateMouPartnerType creates a new partner type
+func CreateMouPartnerType(c *gin.Context) {
+	var req struct {
+		NameTh      string  `json:"name_th" binding:"required"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	pt := models.MouPartnerType{
+		NameTh:      req.NameTh,
+		Description: req.Description,
+	}
+	if err := config.DB.Create(&pt).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create partner type"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": pt})
+}
+
+// UpdateMouPartnerType updates a partner type
+func UpdateMouPartnerType(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var pt models.MouPartnerType
+	if err := config.DB.Where("deleted_at IS NULL").First(&pt, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Partner type not found"})
+		return
+	}
+
+	var req struct {
+		NameTh      *string `json:"name_th"`
+		Description *string `json:"description"`
+		IsActive    *bool   `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.NameTh != nil {
+		updates["name_th"] = *req.NameTh
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.IsActive != nil {
+		updates["is_active"] = *req.IsActive
+	}
+
+	if err := config.DB.Model(&pt).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update partner type"})
+		return
+	}
+
+	config.DB.First(&pt, id)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": pt})
+}
+
+// DeleteMouPartnerType soft-deletes a partner type
+func DeleteMouPartnerType(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var pt models.MouPartnerType
+	if err := config.DB.Where("deleted_at IS NULL").First(&pt, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Partner type not found"})
+		return
+	}
+
+	now := time.Now()
+	pt.DeletedAt = &now
+	if err := config.DB.Save(&pt).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete partner type"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Partner type deleted"})
 }
 
 // Helper function to parse date string in DD/MM/YYYY format
