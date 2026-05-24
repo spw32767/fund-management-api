@@ -262,6 +262,7 @@ type CreateMouRequest struct {
 	FacultyIDs       []int         `json:"faculty_ids"`
 	Faculties        []FacultyUser `json:"faculties"`
 	NotifyDaysBefore *int           `json:"notify_days_before"`
+	StatusID         *int           `json:"status_id"`
 }
 
 // FacultyUser represents faculty with assigned responsible person

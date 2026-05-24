@@ -145,9 +145,9 @@ func GetMous(c *gin.Context) {
 	}
 
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)",
-		append(statsArgs, "%มีผล%", "%Active%")...).Scan(&activeCount)
+		append(statsArgs, "%มีผล%", "%ใกล้หมดอายุ%")...).Scan(&activeCount)
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()",
-		append(statsArgs, "%มีผล%", "%Active%")...).Scan(&nearExpiryCount)
+		append(statsArgs, "%มีผล%", "%ใกล้หมดอายุ%")...).Scan(&nearExpiryCount)
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)",
 		append(statsArgs, "%หมดอายุ%", "%Expired%")...).Scan(&expiredCount)
 
@@ -393,11 +393,15 @@ func CreateMou(c *gin.Context) {
 		return
 	}
 
-	// Set default status to "Draft" (usually status_id = 1)
+	// Set default status
 	var statusID int = 1
-	var status models.MouStatus
-	if err := config.DB.Where("name = ?", "ร่าง (Draft)").First(&status).Error; err == nil {
-		statusID = status.ID
+	if req.StatusID != nil && *req.StatusID > 0 {
+		statusID = *req.StatusID
+	} else {
+		var status models.MouStatus
+		if err := config.DB.Where("name LIKE ?", "%ร่าง%").First(&status).Error; err == nil {
+			statusID = status.ID
+		}
 	}
 
 	userID, exists := c.Get("userID")
@@ -1052,42 +1056,89 @@ func DeleteOkr(c *gin.Context) {
 
 // GetMouDashboard returns aggregate stats for the dashboard
 func GetMouDashboard(c *gin.Context) {
-	var totalCount, activeCount, nearExpiryCount, expiredCount, pendingCount, cancelledCount int64
+	var totalCount, activeCount, nearExpiryCount, expiredCount, pendingCount, cancelledCount, draftCount, renewedCount int64
 
-	config.DB.Model(&models.MouRecord{}).Where("deleted_at IS NULL").Count(&totalCount)
+	yearParam := c.Query("year")
+	yearFilter := ""
+	var yearArgs []interface{}
+	if yearParam != "" {
+		y, err := strconv.Atoi(yearParam)
+		if err == nil {
+			greg := y
+			if y > 2155 {
+				greg = y - 543
+			}
+			yearStart := fmt.Sprintf("%d-01-01", greg)
+			yearEnd := fmt.Sprintf("%d-12-31", greg)
+			yearFilter = " AND mou_records.start_date <= ? AND (mou_records.end_date IS NULL OR mou_records.end_date >= ?)"
+			yearArgs = []interface{}{yearEnd, yearStart}
+		}
+	}
+
+	config.DB.Model(&models.MouRecord{}).Where("deleted_at IS NULL"+yearFilter, yearArgs...).Count(&totalCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%Active%").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%มีผล%", "%ใกล้หมดอายุ%"}, yearArgs...)...).
 		Count(&activeCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()", "%มีผล%", "%Active%").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()"+yearFilter, append([]interface{}{"%มีผล%", "%ใกล้หมดอายุ%"}, yearArgs...)...).
 		Count(&nearExpiryCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%หมดอายุ%", "%Expired%").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%หมดอายุ%"}, yearArgs...)...).
 		Count(&expiredCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%รอดำเนินการ%", "%Pending%").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%รอดำเนินการ%"}, yearArgs...)...).
 		Count(&pendingCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%ยกเลิก%", "%Cancelled%").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ยกเลิก%"}, yearArgs...)...).
 		Count(&cancelledCount)
-
-	// Recent activities
-	var recentActivities []models.MouActivity
-	config.DB.Preload("Mou").Preload("ActivityType").Order("created_at DESC").Limit(5).Find(&recentActivities)
-
-	// Urgent MOUs (near expiry, sorted by soonest)
-	var urgentMous []models.MouRecord
-	config.DB.Preload("Status").
+	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date >= CURDATE()", "%มีผล%", "%Active%").
-		Order("mou_records.end_date ASC").
-		Limit(5).
-		Find(&urgentMous)
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ร่าง%"}, yearArgs...)...).
+		Count(&draftCount)
+	config.DB.Model(&models.MouRecord{}).
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ต่ออายุ%"}, yearArgs...)...).
+		Count(&renewedCount)
+
+	// Active MOUs for the selected year
+	var activeMous []models.MouRecord
+	activeQuery := config.DB.Preload("Status").Preload("Partners").Preload("MouType").
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%ใกล้หมดอายุ%")
+	if yearParam != "" {
+		y, err := strconv.Atoi(yearParam)
+		if err == nil {
+			greg := y
+			if y > 2155 {
+				greg = y - 543
+			}
+			activeQuery = activeQuery.Where("mou_records.start_date <= ? AND (mou_records.end_date IS NULL OR mou_records.end_date >= ?)",
+				fmt.Sprintf("%d-12-31", greg), fmt.Sprintf("%d-01-01", greg))
+		}
+	}
+	activeQuery.Order("mou_records.end_date ASC").Limit(50).Find(&activeMous)
+
+	// MOUs expiring within the selected year
+	var expiredMous []models.MouRecord
+	expiredQuery := config.DB.Preload("Status").Preload("Partners").Preload("MouType").
+		Where("mou_records.deleted_at IS NULL")
+	if yearParam != "" {
+		y, err := strconv.Atoi(yearParam)
+		if err == nil {
+			greg := y
+			if y > 2155 {
+				greg = y - 543
+			}
+			expiredQuery = expiredQuery.Where("mou_records.end_date >= ? AND mou_records.end_date <= ?",
+				fmt.Sprintf("%d-01-01", greg), fmt.Sprintf("%d-12-31", greg))
+		}
+	}
+	expiredQuery.Order("mou_records.end_date DESC").Limit(20).Find(&expiredMous)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1098,9 +1149,11 @@ func GetMouDashboard(c *gin.Context) {
 			"expired":    expiredCount,
 			"pending":    pendingCount,
 			"cancelled":  cancelledCount,
+			"draft":      draftCount,
+			"renewed":    renewedCount,
 		},
-		"recentActivities": recentActivities,
-		"urgentMous":       urgentMous,
+		"activeMous":  activeMous,
+		"expiredMous": expiredMous,
 	})
 }
 
@@ -1592,4 +1645,85 @@ func parseDateString(dateStr string) (time.Time, error) {
 	}
 
 	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC), nil
+}
+
+// GetMouNotifications returns MOUs that are near expiry or expired for the bell icon
+func GetMouNotifications(c *gin.Context) {
+	var nearExpiry []models.MouRecord
+	var expired []models.MouRecord
+	var nearExpiryCount, expiredCount int64
+
+	today := time.Now().Truncate(24 * time.Hour)
+	ninetyDays := today.AddDate(0, 0, 90)
+
+	config.DB.Where("deleted_at IS NULL AND end_date IS NOT NULL AND end_date >= ? AND end_date <= ? AND (Status_id = ? OR Status_id = ?)",
+		today, ninetyDays, 2, 7).
+		Preload("Status").Preload("Partners").
+		Order("end_date ASC").
+		Find(&nearExpiry)
+	nearExpiryCount = int64(len(nearExpiry))
+
+	config.DB.Where("deleted_at IS NULL AND end_date IS NOT NULL AND end_date < ? AND (Status_id = ? OR Status_id = ?)",
+		today, 2, 7).
+		Preload("Status").Preload("Partners").
+		Order("end_date ASC").
+		Find(&expired)
+	expiredCount = int64(len(expired))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"nearExpiry": gin.H{
+				"count": nearExpiryCount,
+				"items": nearExpiry,
+			},
+			"expired": gin.H{
+				"count": expiredCount,
+				"items": expired,
+			},
+			"total": nearExpiryCount + expiredCount,
+		},
+	})
+}
+
+// RenewMou extends an expired MOU: sets new end_date and status to "ต่ออายุ"
+func RenewMou(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var mou models.MouRecord
+	if err := config.DB.Where("deleted_at IS NULL").First(&mou, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "MOU not found"})
+		return
+	}
+
+	var req struct {
+		NewEndDate string `json:"new_end_date"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	parsedDate, err := parseDateString(req.NewEndDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น DD/MM/YYYY)"})
+		return
+	}
+
+	// Find or create "ต่ออายุ" status
+	var renewedStatus models.MouStatus
+	config.DB.Where("name LIKE ?", "%ต่ออายุ%").First(&renewedStatus)
+
+	mou.EndDate = &parsedDate
+	mou.StatusID = renewedStatus.ID
+	if err := config.DB.Save(&mou).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to renew MOU"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "ต่ออายุ MOU สำเร็จ"})
 }

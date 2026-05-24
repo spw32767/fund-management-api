@@ -179,6 +179,7 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/levels", controllers.GetMouLevels)              // List distinct levels
 				mou.POST("", controllers.CreateMou)                        // Create new MOU
 				mou.GET("/dashboard", controllers.GetMouDashboard)          // Dashboard stats
+				mou.GET("/notifications", controllers.GetMouNotifications)    // Notifications for bell icon
 				mou.GET("/activity-types", controllers.GetActivityTypes)    // List activity types
 				mou.POST("/activity-types", controllers.CreateActivityType)  // Create activity type
 				mou.PUT("/activity-types/:id", controllers.UpdateActivityType) // Update activity type
@@ -196,6 +197,7 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/:id/download", controllers.DownloadMouAttachments) // Download MOU attachments as ZIP
 				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
 				mou.PUT("/:id", controllers.UpdateMou)                     // Update MOU
+				mou.PUT("/:id/renew", controllers.RenewMou)                // Renew MOU
 				mou.DELETE("/:id", controllers.DeleteMou)                  // Delete MOU
 			}
 
