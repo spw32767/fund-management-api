@@ -153,6 +153,7 @@ CREATE TABLE `mou_faculty` (
   `faculty_id` int(11) DEFAULT NULL,
   `external_name` varchar(200) DEFAULT NULL,
   `external_org` varchar(300) DEFAULT NULL,
+  `email` varchar(300) DEFAULT NULL COMMENT 'อีเมลของผู้รับผิดชอบ (กรณีไม่อยู่ในคณะ CP)',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,

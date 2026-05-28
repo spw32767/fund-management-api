@@ -31,15 +31,16 @@ type MouRecord struct {
 	// Relations
 	Status        MouStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
 	MouType       MouType          `gorm:"foreignKey:MouTypeID" json:"mou_type,omitempty"`
-	Country       Country          `gorm:"foreignKey:CountryID" json:"country,omitempty"`
+	Country       *Country         `gorm:"foreignKey:CountryID" json:"country,omitempty"`
 	Coordinator   User             `gorm:"foreignKey:CoordinatorID" json:"coordinator,omitempty"`
 	SignedByUser  User             `gorm:"foreignKey:SignedBy" json:"signed_by_user,omitempty"`
 	Creator       User             `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
 	Updater       *User            `gorm:"foreignKey:UpdatedBy" json:"updater,omitempty"`
 	Partners      []MouPartner     `gorm:"foreignKey:MouID" json:"partners,omitempty"`
 	Faculties     []MouFaculty     `gorm:"foreignKey:MouID" json:"faculties,omitempty"`
-	Notifications []MouNotification `gorm:"foreignKey:MouID" json:"notifications,omitempty"`
-	Activities    []MouActivity    `gorm:"foreignKey:MouID" json:"activities,omitempty"`
+	Notifications []MouNotification     `gorm:"foreignKey:MouID" json:"notifications,omitempty"`
+	MouEvents     []MouNotificationLog  `gorm:"-" json:"mou_events,omitempty"`
+	Activities    []MouActivity         `gorm:"foreignKey:MouID" json:"activities,omitempty"`
 	Attachments   []MouAttachment  `gorm:"foreignKey:MouID" json:"attachments,omitempty"`
 }
 
@@ -126,6 +127,7 @@ type MouFaculty struct {
 	FacultyID     *int      `gorm:"column:faculty_id" json:"faculty_id"`
 	ExternalName  *string   `gorm:"column:external_name" json:"external_name"`
 	ExternalOrg   *string   `gorm:"column:external_org" json:"external_org"`
+	Email         *string   `gorm:"column:email" json:"email"`
 	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
 
 	// Relations
@@ -152,6 +154,25 @@ type MouNotification struct {
 }
 
 func (MouNotification) TableName() string { return "mou_notification" }
+
+// MouNotificationLog represents a log entry for a sent notification or MOU event
+type MouNotificationLog struct {
+	ID             int        `gorm:"primaryKey;column:id" json:"id"`
+	NotificationID *int       `gorm:"column:notification_id" json:"notification_id,omitempty"`
+	MouID          int        `gorm:"column:mou_id" json:"mou_id"`
+	Action         string     `gorm:"column:action" json:"action"`
+	ActorID        int        `gorm:"column:actor_id" json:"actor_id"`
+	SentTo         int        `gorm:"column:sent_to" json:"sent_to"`
+	Channel        string     `gorm:"column:channel" json:"channel"`
+	Success        bool       `gorm:"column:success" json:"success"`
+	Message        *string    `gorm:"column:message" json:"message"`
+	SentAt         time.Time  `gorm:"column:sent_at;autoCreateTime:milli" json:"sent_at"`
+
+	// Relations
+	Actor User `gorm:"foreignKey:ActorID" json:"actor,omitempty"`
+}
+
+func (MouNotificationLog) TableName() string { return "mou_notification_log" }
 
 // MouOKR represents OKRs associated with an MOU
 type MouOKR struct {
@@ -271,6 +292,7 @@ type FacultyUser struct {
 	UserID       int     `json:"user_id"`
 	ExternalName *string `json:"external_name"`
 	ExternalOrg  *string `json:"external_org"`
+	Email        *string `json:"email"`
 }
 
 // CreateMouActivityRequest is the request body for creating an activity

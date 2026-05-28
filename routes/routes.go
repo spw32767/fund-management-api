@@ -198,6 +198,9 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
 				mou.PUT("/:id", controllers.UpdateMou)                     // Update MOU
 				mou.PUT("/:id/renew", controllers.RenewMou)                // Renew MOU
+				mou.GET("/export", controllers.ExportMouCsv)               // Export MOU list as CSV
+				mou.POST("/send-notifications", controllers.SendMouNotifications)  // Trigger sending email notifications
+				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)  // Get notification recipients
 				mou.DELETE("/:id", controllers.DeleteMou)                  // Delete MOU
 			}
 

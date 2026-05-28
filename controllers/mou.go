@@ -3,6 +3,7 @@ package controllers
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"fund-management-api/config"
@@ -84,7 +85,6 @@ func GetMous(c *gin.Context) {
 	err := query.
 		Preload("Status").
 		Preload("MouType").
-		Preload("Country").
 		Preload("Coordinator").
 		Preload("SignedByUser").
 		Preload("Partners").
@@ -96,6 +96,29 @@ func GetMous(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch MOU records"})
 		return
+	}
+
+	// Manually load countries
+	var countryIDs []int
+	for _, m := range mous {
+		if m.CountryID != nil {
+			countryIDs = append(countryIDs, *m.CountryID)
+		}
+	}
+	if len(countryIDs) > 0 {
+		var countries []models.Country
+		config.DB.Find(&countries, countryIDs)
+		countryMap := make(map[int]*models.Country)
+		for i := range countries {
+			countryMap[countries[i].ID] = &countries[i]
+		}
+		for i := range mous {
+			if mous[i].CountryID != nil {
+				if c, ok := countryMap[*mous[i].CountryID]; ok {
+					mous[i].Country = c
+				}
+			}
+		}
 	}
 
 	// Stats queries using raw SQL to avoid GORM chain conflicts
@@ -172,10 +195,9 @@ func GetMouDetail(c *gin.Context) {
 	err := config.DB.
 		Preload("Status").
 		Preload("MouType").
-		Preload("Country").
 		Preload("Coordinator").
 		Preload("SignedByUser").
-		Preload("Partners").
+		Preload("Partners.PartnerType").
 		Preload("Faculties.Faculty").
 		Preload("Notifications").
 		Preload("Activities.ActivityType").
@@ -199,18 +221,20 @@ func GetMouDetail(c *gin.Context) {
 		return
 	}
 
+	// Load MOU events from mou_notification_log
+	var mouEvents []models.MouNotificationLog
+	config.DB.Where("mou_id = ?", mou.ID).Order("sent_at DESC").Preload("Actor").Find(&mouEvents)
+
 	// Load country via raw JOIN (bypasses GORM *int foreign key mapping issues)
 	var countryNameTh, countryNameEn string
-	row := config.DB.Raw(`
+	config.DB.Raw(`
 		SELECT c.name_th, c.name_en
 		FROM mou_records mr
 		LEFT JOIN countries c ON c.id = mr.country_id
 		WHERE mr.id = ?
-	`, id).Row()
-	row.Scan(&countryNameTh, &countryNameEn)
+	`, id).Row().Scan(&countryNameTh, &countryNameEn)
 	if countryNameTh != "" {
-		mou.Country = models.Country{
-			ID:     0,
+		mou.Country = &models.Country{
 			NameTh: countryNameTh,
 			NameEn: countryNameEn,
 		}
@@ -479,6 +503,9 @@ func CreateMou(c *gin.Context) {
 			if hasExtOrg {
 				mouFaculty.ExternalOrg = f.ExternalOrg
 			}
+			if f.Email != nil {
+				mouFaculty.Email = f.Email
+			}
 			if err := config.DB.Create(&mouFaculty).Error; err != nil {
 				fmt.Println("Error creating MOU faculty:", err)
 			}
@@ -538,13 +565,25 @@ func CreateMou(c *gin.Context) {
 		}
 	}
 
+	// Log creation event
+	msg := fmt.Sprintf("สร้าง MOU %s", mou.MouCode)
+	config.DB.Create(&models.MouNotificationLog{
+		MouID:   mou.ID,
+		Action:  "สร้าง MOU",
+		ActorID: uid,
+		SentTo:  0,
+		Channel: "system",
+		Success: true,
+		Message: &msg,
+	})
+
 	// Reload with associations
 	config.DB.Preload("Status").
 		Preload("MouType").
 		Preload("Country").
 		Preload("Coordinator").
 		Preload("SignedByUser").
-		Preload("Partners").
+		Preload("Partners.PartnerType").
 		First(&mou, mou.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -573,6 +612,32 @@ func UpdateMou(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch MOU"})
 		}
 		return
+	}
+
+	// Validate Draft→Active requires year_of_signing + signed_by
+	if req.StatusID != nil && *req.StatusID == 3 {
+		if mou.YearOfSigning == nil || *mou.YearOfSigning == 0 {
+			if req.YearOfSigning == nil || *req.YearOfSigning == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกปีที่ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
+				return
+			}
+		}
+		if mou.SignedBy == nil || *mou.SignedBy == 0 {
+			if req.SignedBy == nil || *req.SignedBy == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกผู้ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
+				return
+			}
+		}
+	}
+
+	// Log status change
+	logStatusChange := false
+	var oldStatusID int
+	if req.StatusID != nil {
+		oldStatusID = mou.StatusID
+		if oldStatusID != *req.StatusID {
+			logStatusChange = true
+		}
 	}
 
 	// Update fields if provided
@@ -649,6 +714,31 @@ func UpdateMou(c *gin.Context) {
 		return
 	}
 
+	// Log status change
+	if logStatusChange {
+		description := fmt.Sprintf("เปลี่ยนสถานะจาก %d เป็น %d", oldStatusID, mou.StatusID)
+		var oldStatus, newStatus models.MouStatus
+		config.DB.First(&oldStatus, oldStatusID)
+		config.DB.First(&newStatus, mou.StatusID)
+		if oldStatus.ID != 0 && newStatus.ID != 0 {
+			description = fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s", oldStatus.Name, newStatus.Name)
+		}
+		var userID int
+		if uid, exists := c.Get("userID"); exists {
+			userID, _ = uid.(int)
+		}
+		desc := description
+		config.DB.Create(&models.MouNotificationLog{
+			MouID:   mou.ID,
+			Action:  "เปลี่ยนสถานะ MOU",
+			ActorID: userID,
+			SentTo:  0,
+			Channel: "system",
+			Success: true,
+			Message: &desc,
+		})
+	}
+
 	// Update partner: delete old, insert new
 	if req.PartnerName != nil {
 		config.DB.Where("mou_id = ?", mou.ID).Delete(&models.MouPartner{})
@@ -686,15 +776,18 @@ func UpdateMou(c *gin.Context) {
 					uidCopy := f.UserID
 					mouFaculty.UserID = &uidCopy
 				}
-				if hasExtName {
-					mouFaculty.ExternalName = f.ExternalName
-				}
-				if hasExtOrg {
-					mouFaculty.ExternalOrg = f.ExternalOrg
-				}
-				config.DB.Create(&mouFaculty)
+			if hasExtName {
+				mouFaculty.ExternalName = f.ExternalName
 			}
-		} else if req.FacultyIDs != nil {
+			if hasExtOrg {
+				mouFaculty.ExternalOrg = f.ExternalOrg
+			}
+			if f.Email != nil {
+				mouFaculty.Email = f.Email
+			}
+			config.DB.Create(&mouFaculty)
+		}
+	} else if req.FacultyIDs != nil {
 			for _, fid := range req.FacultyIDs {
 				if fid <= 0 {
 					continue
@@ -741,7 +834,7 @@ func UpdateMou(c *gin.Context) {
 		Preload("Country").
 		Preload("Coordinator").
 		Preload("SignedByUser").
-		Preload("Partners").
+		Preload("Partners.PartnerType").
 		First(&mou, mou.ID)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1726,4 +1819,252 @@ func RenewMou(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "ต่ออายุ MOU สำเร็จ"})
+}
+
+// ExportMouCsv exports filtered MOU list as CSV file
+func ExportMouCsv(c *gin.Context) {
+	mouCode := c.DefaultQuery("mou_code", "")
+	title := c.DefaultQuery("title", "")
+	partnerName := c.DefaultQuery("partner_name", "")
+	country := c.DefaultQuery("country", "")
+	status := c.DefaultQuery("status", "")
+	mouType := c.DefaultQuery("mou_type", "")
+	level := c.DefaultQuery("level", "")
+	isInternational := c.DefaultQuery("is_international", "")
+
+	var mous []models.MouRecord
+	query := config.DB.Where("mou_records.deleted_at IS NULL")
+
+	if status != "" {
+		query = query.Where("Status_id = ?", status)
+	}
+	if mouType != "" {
+		query = query.Where("mou_type_id = ?", mouType)
+	}
+	if level != "" {
+		query = query.Where("level = ?", level)
+	}
+	if isInternational != "" {
+		if isInternational == "true" || isInternational == "1" {
+			query = query.Where("is_international = ?", 1)
+		} else {
+			query = query.Where("is_international = ?", 0)
+		}
+	}
+	if mouCode != "" {
+		query = query.Where("mou_code LIKE ?", "%"+mouCode+"%")
+	}
+	if title != "" {
+		query = query.Where("title LIKE ?", "%"+title+"%")
+	}
+	if partnerName != "" {
+		subQuery := config.DB.Table("mou_partner").Select("mou_id").Where("partner_org LIKE ?", "%"+partnerName+"%")
+		query = query.Where("mou_records.id IN (?)", subQuery)
+	}
+	if country != "" {
+		query = query.Joins("LEFT JOIN countries ON countries.id = mou_records.country_id").
+			Where("countries.name_th LIKE ? OR countries.name_en LIKE ?", "%"+country+"%", "%"+country+"%")
+	}
+
+	err := query.
+		Preload("Status").
+		Preload("MouType").
+		Preload("Coordinator").
+		Preload("Partners").
+		Order("created_at DESC").
+		Find(&mous).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export MOU records"})
+		return
+	}
+
+	// Manually load countries for each MOU
+	var countryIDs []int
+	for i := range mous {
+		if mous[i].CountryID != nil {
+			countryIDs = append(countryIDs, *mous[i].CountryID)
+		}
+	}
+	if len(countryIDs) > 0 {
+		var countries []models.Country
+		config.DB.Find(&countries, countryIDs)
+		countryMap := make(map[int]*models.Country)
+		for i := range countries {
+			countryMap[countries[i].ID] = &countries[i]
+		}
+		for i := range mous {
+			if mous[i].CountryID != nil {
+				if c, ok := countryMap[*mous[i].CountryID]; ok {
+					mous[i].Country = c
+				}
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	// Write BOM for Excel compatibility
+	buf.WriteString("\xEF\xBB\xBF")
+	writer := csv.NewWriter(&buf)
+
+	// Header
+	writer.Write([]string{
+		"รหัส MOU",
+		"ชื่อโครงการ",
+		"ประเภท MOU",
+		"ระดับ",
+		"สถานะ",
+		"ประเทศ",
+		"ผู้ประสานงาน",
+		"วันที่เริ่มต้น",
+		"วันที่สิ้นสุด",
+		"ปีที่ลงนาม",
+		"คู่ความร่วมมือ",
+		"ระหว่างประเทศ",
+	})
+
+	for _, mou := range mous {
+		partnerOrgs := ""
+		for i, p := range mou.Partners {
+			if i > 0 {
+				partnerOrgs += "; "
+			}
+			partnerOrgs += p.PartnerOrg
+		}
+		coordinatorName := ""
+		if mou.CoordinatorID != nil && *mou.CoordinatorID > 0 && mou.Coordinator.UserID > 0 {
+			coordinatorName = mou.Coordinator.UserFname + " " + mou.Coordinator.UserLname
+		}
+		countryName := ""
+		if mou.Country != nil {
+			countryName = mou.Country.NameTh
+		}
+		intlFlag := "ไม่"
+		if mou.IsInternational {
+			intlFlag = "ใช่"
+		}
+		endDate := ""
+		if mou.EndDate != nil {
+			endDate = mou.EndDate.Format("02/01/2006")
+		}
+		startDate := ""
+		if !mou.StartDate.IsZero() {
+			startDate = mou.StartDate.Format("02/01/2006")
+		}
+		yearSign := ""
+		if mou.YearOfSigning != nil && *mou.YearOfSigning > 0 {
+			yearSign = strconv.Itoa(*mou.YearOfSigning)
+		}
+
+		writer.Write([]string{
+			mou.MouCode,
+			mou.Title,
+			mou.MouType.Name,
+			mou.Level,
+			mou.Status.Name,
+			countryName,
+			coordinatorName,
+			startDate,
+			endDate,
+			yearSign,
+			partnerOrgs,
+			intlFlag,
+		})
+	}
+	writer.Flush()
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename=mou_export_"+time.Now().Format("20060102_150405")+".csv")
+	c.String(http.StatusOK, buf.String())
+}
+
+// GetMouNotificationRecipients returns users assigned to a specific notification
+func GetMouNotificationRecipients(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var notif models.MouNotification
+	if err := config.DB.Preload("Staff").First(&notif, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Notification not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    notif.Staff,
+	})
+}
+
+// SendMouNotifications sends pending email notifications for expiring MOUs
+func SendMouNotifications(c *gin.Context) {
+	today := time.Now().Truncate(24 * time.Hour)
+
+	var notifications []models.MouNotification
+	config.DB.Where("is_sent = ?", false).
+		Preload("Staff").
+		Preload("Mou").
+		Find(&notifications)
+
+	var sentCount, failedCount int
+	for _, notif := range notifications {
+		if notif.Mou.EndDate == nil {
+			continue
+		}
+		notifyDate := notif.Mou.EndDate.AddDate(0, 0, -notif.DaysBefore)
+		if notifyDate.After(today) {
+			continue
+		}
+
+		staffEmail := notif.Staff.EmailNotification
+		if staffEmail == nil || *staffEmail == "" {
+			staffEmail = &notif.Staff.Email
+		}
+		if staffEmail == nil || *staffEmail == "" {
+			continue
+		}
+
+		subject := "แจ้งเตือน MOU ใกล้หมดอายุ"
+		body := fmt.Sprintf(
+			"เรียน %s %s<br><br>MOU เรื่อง \"%s\" (รหัส: %s) จะหมดอายุในวันที่ %s<br><br>กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ<br><br>ขอบคุณ<br>ระบบบริหารจัดการ MOU",
+			notif.Staff.UserFname, notif.Staff.UserLname,
+			notif.Mou.Title, notif.Mou.MouCode,
+			notif.Mou.EndDate.Format("02/01/2006"),
+		)
+
+		err := config.SendMail([]string{*staffEmail}, subject, body)
+		logMsg := ""
+		success := err == nil
+		if err != nil {
+			logMsg = err.Error()
+			failedCount++
+		} else {
+			sentCount++
+			now := time.Now()
+			notif.IsSent = true
+			notif.SentAt = &now
+			config.DB.Save(&notif)
+		}
+
+		notifID := notif.ID
+		logEntry := models.MouNotificationLog{
+			NotificationID: &notifID,
+			SentTo:         notif.StaffID,
+			Channel:        "email",
+			Success:        success,
+		}
+		if logMsg != "" {
+			logEntry.Message = &logMsg
+		}
+		config.DB.Create(&logEntry)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"sent_count":    sentCount,
+		"failed_count":  failedCount,
+		"message":       fmt.Sprintf("ส่งสำเร็จ %d รายการ, ล้มเหลว %d รายการ", sentCount, failedCount),
+	})
 }
