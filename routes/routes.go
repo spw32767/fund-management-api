@@ -7,6 +7,7 @@ import (
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
 	"fund-management-api/utils"
+	"fund-management-api/services"
 	"log"
 	"net/http"
 	"net/url"
@@ -39,6 +40,7 @@ func SetupRoutes(router *gin.Engine) {
 	// API v1 group
 	v1 := router.Group("/api/v1")
 	{
+
 		// Public routes
 		public := v1.Group("")
 		{
@@ -108,6 +110,7 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
+			
 			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
@@ -167,6 +170,8 @@ func SetupRoutes(router *gin.Engine) {
 			// Teacher-specific endpoints
 			teacher := protected.Group("/teacher")
 			{
+				teacher.GET("/my-profile", controllers.GetMyProfile)
+    			teacher.PUT("/my-profile", controllers.UpdateMyProfile)
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
 				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
@@ -442,6 +447,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/import/users", controllers.AdminImportUsers)
 				admin.POST("/import/legacy-submissions", controllers.AdminImportLegacySubmissions)
 
+				
+
 				notificationMessages := admin.Group("/notification-messages")
 				{
 					notificationMessages.GET("", controllers.ListNotificationMessages)
@@ -500,6 +507,32 @@ func SetupRoutes(router *gin.Engine) {
 
 				admin.GET("/approval-records/totals", controllers.GetApprovalTotals)
 				admin.GET("/approval-records", controllers.GetApprovalRecords)
+
+				// ของเดิมที่มี
+				admin.GET("/instructors", controllers.GetInstructors) 
+
+				// สิ่งที่ต้องเพิ่ม (เพื่อรองรับ /instructors/14)
+				admin.GET("/instructors/:id", controllers.GetInstructorByID)    // สำหรับดึงข้อมูล
+				admin.PUT("/instructors/:id", controllers.UpdateInstructorByID) // สำหรับบันทึกข้อมูล
+
+				public.GET("/instructors/profile/:id", controllers.GetFullProfile)
+
+				admin.GET("/ranking-weights", controllers.GetRankingWeights)
+				admin.PUT("/ranking-weights", controllers.UpdateRankingWeights)
+				admin.DELETE("/ranking-weights/:id", controllers.DeleteRankingWeight)
+				admin.GET("/ranking-sources", controllers.GetRankingSources)
+    			admin.PUT("/ranking-sources", controllers.UpdateRankingSources)
+				admin.DELETE("/ranking-sources/:id", controllers.DeleteRankingSource)
+
+				admin.DELETE("/instructor-textbooks/:id", controllers.DeleteInstructorTextbook)
+				admin.DELETE("/instructor-intellectual-properties/:id", controllers.DeleteInstructorIntellectualProperty)
+				admin.DELETE("/instructor-research-projects/:id", controllers.DeleteInstructorResearchProject)
+admin.DELETE("/instructor-expertises/:id", controllers.DeleteInstructorExpertise)
+admin.DELETE("/instructor-educations/:id", controllers.DeleteInstructorEducation)
+			
+				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
+				admin.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
+
 
 				// ===== CP PROFILE IMPORT =====
 				admin.POST("/trigger/cp-profile", controllers.AdminTriggerCpProfile)

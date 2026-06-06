@@ -23,7 +23,6 @@ type ScopusDocument struct {
 	PageRange          *string    `gorm:"column:page_range" json:"page_range,omitempty"`
 	ArticleNumber      *string    `gorm:"column:article_number" json:"article_number,omitempty"`
 	CoverDate          *time.Time `gorm:"column:cover_date" json:"cover_date,omitempty"`
-	CoverDisplayDate   *string    `gorm:"column:cover_display_date" json:"cover_display_date,omitempty"`
 	DOI                *string    `gorm:"column:doi" json:"doi,omitempty"`
 	PII                *string    `gorm:"column:pii" json:"pii,omitempty"`
 	CitedByCount       *int       `gorm:"column:citedby_count" json:"citedby_count,omitempty"`
@@ -33,6 +32,16 @@ type ScopusDocument struct {
 	FundAcr            *string    `gorm:"column:fund_acr" json:"fund_acr,omitempty"`
 	FundSponsor        *string    `gorm:"column:fund_sponsor" json:"fund_sponsor,omitempty"`
 	RawJSON            []byte     `gorm:"column:raw_json" json:"raw_json,omitempty"`
+	CoverDisplayDate   *string    `gorm:"column:cover_display_date" json:"cover_display_date,omitempty"`
+    ConferenceName     *string    `gorm:"column:conference_name" json:"conference_name,omitempty"`
+    ConferenceVenue    *string    `gorm:"column:conference_venue" json:"conference_venue,omitempty"`
+    ConferenceCity     *string    `gorm:"column:conference_city" json:"conference_city,omitempty"`
+    ConferenceCountry  *string    `gorm:"column:conference_country" json:"conference_country,omitempty"`
+    ConferenceLocation *string    `gorm:"column:conference_location" json:"conference_location,omitempty"`
+    ConferenceInfoJSON *string    `gorm:"column:conference_info_json" json:"conference_info_json,omitempty"`
+    ConferenceInfoFetchedAt *time.Time `gorm:"column:conference_info_fetched_at" json:"conference_info_fetched_at,omitempty"`
+    CreatedAt          time.Time  `gorm:"column:created_at" json:"created_at"`
+    UpdatedAt          time.Time  `gorm:"column:updated_at" json:"updated_at"`
 }
 
 // TableName overrides the table name used by ScopusDocument to `scopus_documents`.

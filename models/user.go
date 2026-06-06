@@ -41,6 +41,7 @@ type User struct {
 	// Relations
 	Role     Role     `gorm:"foreignKey:RoleID" json:"role,omitempty"`
 	Position Position `gorm:"foreignKey:PositionID" json:"position,omitempty"`
+	ResponsibleCourses []InstructorCourse `gorm:"many2many:instructor_course_responsibility;foreignKey:UserID;joinForeignKey:user_id;References:CourseID;joinReferences:course_id" json:"responsible_courses"`
 }
 
 type Role struct {
