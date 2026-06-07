@@ -23,12 +23,11 @@ import (
 // GetMous retrieves all MOU records with filtering
 func GetMous(c *gin.Context) {
 
-	mouCode := c.DefaultQuery("mou_code", "")
 	title := c.DefaultQuery("title", "")
+	mouCode := c.DefaultQuery("mou_code", "")
 	partnerName := c.DefaultQuery("partner_name", "")
 	country := c.DefaultQuery("country", "")
 	status := c.DefaultQuery("status", "")
-	mouType := c.DefaultQuery("mou_type", "")
 	level := c.DefaultQuery("level", "")
 	isInternational := c.DefaultQuery("is_international", "")
 	pageStr := c.DefaultQuery("page", "1")
@@ -50,9 +49,6 @@ func GetMous(c *gin.Context) {
 	if status != "" {
 		query = query.Where("Status_id = ?", status)
 	}
-	if mouType != "" {
-		query = query.Where("mou_type_id = ?", mouType)
-	}
 	if level != "" {
 		query = query.Where("level = ?", level)
 	}
@@ -63,18 +59,18 @@ func GetMous(c *gin.Context) {
 			query = query.Where("is_international = ?", 0)
 		}
 	}
-	if mouCode != "" {
-		query = query.Where("mou_code LIKE ?", "%"+mouCode+"%")
-	}
 	if title != "" {
 		query = query.Where("title LIKE ?", "%"+title+"%")
+	}
+	if mouCode != "" {
+		query = query.Where("mou_code LIKE ?", "%"+mouCode+"%")
 	}
 	if partnerName != "" {
 		subQuery := config.DB.Table("mou_partner").Select("mou_id").Where("partner_org LIKE ?", "%"+partnerName+"%")
 		query = query.Where("mou_records.id IN (?)", subQuery)
 	}
 	if country != "" {
-		query = query.Joins("LEFT JOIN countries ON countries.id = mou_records.country_id").
+		query = query.Joins("LEFT JOIN countries ON countries.id = mou_records.Country_id").
 			Where("countries.name_th LIKE ? OR countries.name_en LIKE ?", "%"+country+"%", "%"+country+"%")
 	}
 
@@ -84,10 +80,9 @@ func GetMous(c *gin.Context) {
 	offset := (page - 1) * limit
 	err := query.
 		Preload("Status").
-		Preload("MouType").
 		Preload("Coordinator").
-		Preload("SignedByUser").
-		Preload("Partners").
+		Preload("Partners.PartnerType").
+		Preload("Faculties.Faculty").
 		Offset(offset).
 		Limit(limit).
 		Order("created_at DESC").
@@ -128,10 +123,6 @@ func GetMous(c *gin.Context) {
 		statsWhere += " AND mou_records.Status_id = ?"
 		statsArgs = append(statsArgs, status)
 	}
-	if mouType != "" {
-		statsWhere += " AND mou_records.mou_type_id = ?"
-		statsArgs = append(statsArgs, mouType)
-	}
 	if level != "" {
 		statsWhere += " AND mou_records.level = ?"
 		statsArgs = append(statsArgs, level)
@@ -142,10 +133,6 @@ func GetMous(c *gin.Context) {
 		} else {
 			statsWhere += " AND mou_records.is_international = 0"
 		}
-	}
-	if mouCode != "" {
-		statsWhere += " AND mou_records.mou_code LIKE ?"
-		statsArgs = append(statsArgs, "%"+mouCode+"%")
 	}
 	if title != "" {
 		statsWhere += " AND mou_records.title LIKE ?"
@@ -164,7 +151,7 @@ func GetMous(c *gin.Context) {
 	joinClause := "LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id"
 	countryJoin := ""
 	if country != "" {
-		countryJoin = "LEFT JOIN countries ON countries.id = mou_records.country_id"
+		countryJoin = "LEFT JOIN countries ON countries.id = mou_records.Country_id"
 	}
 
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)",
@@ -194,9 +181,7 @@ func GetMouDetail(c *gin.Context) {
 	var mou models.MouRecord
 	err := config.DB.
 		Preload("Status").
-		Preload("MouType").
 		Preload("Coordinator").
-		Preload("SignedByUser").
 		Preload("Partners.PartnerType").
 		Preload("Faculties.Faculty").
 		Preload("Notifications").
@@ -230,7 +215,7 @@ func GetMouDetail(c *gin.Context) {
 	config.DB.Raw(`
 		SELECT c.name_th, c.name_en
 		FROM mou_records mr
-		LEFT JOIN countries c ON c.id = mr.country_id
+		LEFT JOIN countries c ON c.id = mr.Country_id
 		WHERE mr.id = ?
 	`, id).Row().Scan(&countryNameTh, &countryNameEn)
 	if countryNameTh != "" {
@@ -329,7 +314,7 @@ func DownloadMouAttachments(c *gin.Context) {
 		return
 	}
 
-	zipName := fmt.Sprintf("mou_%s_attachments.zip", mou.MouCode)
+	zipName := fmt.Sprintf("mou_%d_attachments.zip", mou.ID)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipName))
 	c.Header("Content-Type", "application/zip")
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
@@ -405,16 +390,11 @@ func CreateMou(c *gin.Context) {
 		endDate = &parsedEndDate
 	}
 
-	if req.YearOfSigning > 0 && (req.YearOfSigning < 1900 || req.YearOfSigning > 2155) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year_of_signing. Must be a 4-digit year between 1900-2155"})
-		return
-	}
-
-	// Check for duplicate MOU code
-	var existingMou models.MouRecord
-	if err := config.DB.Where("mou_code = ?", req.MouCode).First(&existingMou).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "MOU code already exists"})
-		return
+	if req.YearOfSigning != "" {
+		if _, err := time.Parse("2006-01-02", req.YearOfSigning); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year_of_signing format. Use YYYY-MM-DD"})
+			return
+		}
 	}
 
 	// Set default status
@@ -440,16 +420,12 @@ func CreateMou(c *gin.Context) {
 	}
 
 	mou := models.MouRecord{
-		MouCode:          req.MouCode,
 		Title:            req.Title,
 		Description:      req.Description,
 		StatusID:         statusID,
-		MouTypeID:        req.MouTypeID,
 		Level:            req.Level,
 		StartDate:        startDate,
 		EndDate:          endDate,
-		YearOfSigning:    &req.YearOfSigning,
-		SignedBy:         req.SignedBy,
 		CountryID:        req.CountryID,
 		IsInternational:  req.IsInternational,
 		CoordinatorID:    req.CoordinatorID,
@@ -458,10 +434,28 @@ func CreateMou(c *gin.Context) {
 		CreatedBy:        uid,
 	}
 
+	if req.SignedBy != nil {
+		mou.SignedBy = *req.SignedBy
+	}
+
+	if req.YearOfSigning != "" {
+		parsed, _ := time.Parse("2006-01-02", req.YearOfSigning)
+		mou.YearOfSigning = &parsed
+	}
+
 	if err := config.DB.Create(&mou).Error; err != nil {
 		fmt.Println("Error creating MOU:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create MOU"})
 		return
+	}
+
+	// Auto-generate mou_code if not provided
+	if req.MouCode != "" {
+		config.DB.Model(&mou).Update("mou_code", req.MouCode)
+	} else {
+		mouCode := fmt.Sprintf("MOU-%06d", mou.ID)
+		config.DB.Model(&mou).Update("mou_code", mouCode)
+		mou.MouCode = mouCode
 	}
 
 	// Create partner record
@@ -566,12 +560,12 @@ func CreateMou(c *gin.Context) {
 	}
 
 	// Log creation event
-	msg := fmt.Sprintf("สร้าง MOU %s", mou.MouCode)
+	msg := fmt.Sprintf("สร้าง %s", mou.MouCode)
 	config.DB.Create(&models.MouNotificationLog{
 		MouID:   mou.ID,
 		Action:  "สร้าง MOU",
 		ActorID: uid,
-		SentTo:  0,
+		SentTo:  uid,
 		Channel: "system",
 		Success: true,
 		Message: &msg,
@@ -579,10 +573,8 @@ func CreateMou(c *gin.Context) {
 
 	// Reload with associations
 	config.DB.Preload("Status").
-		Preload("MouType").
 		Preload("Country").
 		Preload("Coordinator").
-		Preload("SignedByUser").
 		Preload("Partners.PartnerType").
 		First(&mou, mou.ID)
 
@@ -614,19 +606,17 @@ func UpdateMou(c *gin.Context) {
 		return
 	}
 
-	// Validate Draft→Active requires year_of_signing + signed_by
-	if req.StatusID != nil && *req.StatusID == 3 {
-		if mou.YearOfSigning == nil || *mou.YearOfSigning == 0 {
-			if req.YearOfSigning == nil || *req.YearOfSigning == 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกปีที่ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
-				return
-			}
+	// Validate when changing to Active: require year_of_signing + signed_by
+	if req.StatusID != nil && *req.StatusID == 2 {
+		if mou.YearOfSigning == nil &&
+			(req.YearOfSigning == nil || *req.YearOfSigning == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกวันเดือนปีที่ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
+			return
 		}
-		if mou.SignedBy == nil || *mou.SignedBy == 0 {
-			if req.SignedBy == nil || *req.SignedBy == 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกผู้ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
-				return
-			}
+		if mou.SignedBy == "" &&
+			(req.SignedBy == nil || *req.SignedBy == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกผู้ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
+			return
 		}
 	}
 
@@ -647,9 +637,6 @@ func UpdateMou(c *gin.Context) {
 	if req.Description != nil {
 		mou.Description = *req.Description
 	}
-	if req.MouTypeID != nil {
-		mou.MouTypeID = *req.MouTypeID
-	}
 	if req.StatusID != nil {
 		mou.StatusID = *req.StatusID
 	}
@@ -663,9 +650,6 @@ func UpdateMou(c *gin.Context) {
 			return
 		}
 		mou.EndDate = &endDate
-	}
-	if req.MouCode != nil {
-		mou.MouCode = *req.MouCode
 	}
 	if req.Level != nil {
 		mou.Level = *req.Level
@@ -685,21 +669,29 @@ func UpdateMou(c *gin.Context) {
 		mou.StartDate = startDate
 	}
 	if req.YearOfSigning != nil {
-		if *req.YearOfSigning < 1900 || *req.YearOfSigning > 2155 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year_of_signing. Must be a 4-digit year between 1900-2155"})
-			return
+		if *req.YearOfSigning != "" {
+			parsed, err := time.Parse("2006-01-02", *req.YearOfSigning)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year_of_signing format. Use YYYY-MM-DD"})
+				return
+			}
+			mou.YearOfSigning = &parsed
+		} else {
+			mou.YearOfSigning = nil
 		}
-		mou.YearOfSigning = req.YearOfSigning
 	}
 	if req.NotifyDaysBefore != nil {
 		mou.NotifyDaysBefore = req.NotifyDaysBefore
 		config.DB.Model(&models.MouNotification{}).Where("mou_id = ?", mou.ID).Update("days_before", *req.NotifyDaysBefore)
 	}
 	if req.SignedBy != nil {
-		mou.SignedBy = req.SignedBy
+		mou.SignedBy = *req.SignedBy
 	}
 	if req.Notes != nil {
 		mou.Notes = *req.Notes
+	}
+	if req.MouCode != nil {
+		mou.MouCode = *req.MouCode
 	}
 
 	// Set UpdatedBy from authenticated user
@@ -732,7 +724,7 @@ func UpdateMou(c *gin.Context) {
 			MouID:   mou.ID,
 			Action:  "เปลี่ยนสถานะ MOU",
 			ActorID: userID,
-			SentTo:  0,
+			SentTo:  userID,
 			Channel: "system",
 			Success: true,
 			Message: &desc,
@@ -830,10 +822,8 @@ func UpdateMou(c *gin.Context) {
 
 	// Reload with associations
 	config.DB.Preload("Status").
-		Preload("MouType").
 		Preload("Country").
 		Preload("Coordinator").
-		Preload("SignedByUser").
 		Preload("Partners.PartnerType").
 		First(&mou, mou.ID)
 
@@ -884,23 +874,6 @@ func GetMouStatuses(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    statuses,
-	})
-}
-
-// GetMouTypes retrieves all available MOU types
-func GetMouTypes(c *gin.Context) {
-
-	var types []models.MouType
-
-	// Note: deleted_at has DEFAULT CURRENT_TIMESTAMP in this schema, so we omit the soft-delete filter
-	if err := config.DB.Where("is_active = ?", true).Find(&types).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch MOU types"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    types,
 	})
 }
 
@@ -1200,7 +1173,7 @@ func GetMouDashboard(c *gin.Context) {
 
 	// Active MOUs for the selected year
 	var activeMous []models.MouRecord
-	activeQuery := config.DB.Preload("Status").Preload("Partners").Preload("MouType").
+	activeQuery := config.DB.Preload("Status").Preload("Partners").
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
 		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%ใกล้หมดอายุ%")
 	if yearParam != "" {
@@ -1218,7 +1191,7 @@ func GetMouDashboard(c *gin.Context) {
 
 	// MOUs expiring within the selected year
 	var expiredMous []models.MouRecord
-	expiredQuery := config.DB.Preload("Status").Preload("Partners").Preload("MouType").
+	expiredQuery := config.DB.Preload("Status").Preload("Partners").
 		Where("mou_records.deleted_at IS NULL")
 	if yearParam != "" {
 		y, err := strconv.Atoi(yearParam)
@@ -1233,6 +1206,64 @@ func GetMouDashboard(c *gin.Context) {
 	}
 	expiredQuery.Order("mou_records.end_date DESC").Limit(20).Find(&expiredMous)
 
+	// Active MOUs per year (MOUs in effect during each year)
+	type YearlyCount struct {
+		Year  int `json:"year"`
+		Count int `json:"count"`
+	}
+	var yearlyData []YearlyCount
+
+	var minYear, maxYear int
+	config.DB.Raw("SELECT COALESCE(MIN(YEAR(start_date)), YEAR(CURDATE())) FROM mou_records WHERE deleted_at IS NULL").Scan(&minYear)
+	config.DB.Raw("SELECT COALESCE(MAX(YEAR(COALESCE(end_date, CURDATE()))), YEAR(CURDATE())) FROM mou_records WHERE deleted_at IS NULL").Scan(&maxYear)
+	if maxYear < time.Now().Year() {
+		maxYear = time.Now().Year()
+	}
+	maxYear++
+
+	var mouDateRanges []struct {
+		StartDate time.Time
+		EndDate   *time.Time
+	}
+	config.DB.Table("mou_records").
+		Select("mou_records.start_date, mou_records.end_date").
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%ใกล้หมดอายุ%").
+		Find(&mouDateRanges)
+	for y := minYear; y <= maxYear; y++ {
+		count := 0
+		for _, m := range mouDateRanges {
+			if m.StartDate.Year() <= y && (m.EndDate == nil || m.EndDate.Year() >= y) {
+				count++
+			}
+		}
+		if count > 0 {
+			yearlyData = append(yearlyData, YearlyCount{Year: y, Count: count})
+		}
+	}
+
+	// MOUs that are expired (exclude "near expiry")
+	var renewMous []models.MouRecord
+	config.DB.Preload("Status").Preload("Partners").
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL AND mou_status.name NOT LIKE ? AND mou_status.name LIKE ?", "%ใกล้%", "%หมดอายุ%").
+		Order("mou_records.end_date ASC").
+		Limit(20).
+		Find(&renewMous)
+
+	// MOUs near expiry
+	var nearExpiryMous []models.MouRecord
+	config.DB.Preload("Status").Preload("Partners").
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ?", "%ใกล้หมดอายุ%").
+		Order("mou_records.end_date ASC").
+		Limit(20).
+		Find(&nearExpiryMous)
+
+	// Recent activities
+	var recentActivities []models.MouNotificationLog
+	config.DB.Order("sent_at DESC").Limit(15).Preload("Actor").Preload("Mou").Find(&recentActivities)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -1245,9 +1276,40 @@ func GetMouDashboard(c *gin.Context) {
 			"draft":      draftCount,
 			"renewed":    renewedCount,
 		},
-		"activeMous":  activeMous,
-		"expiredMous": expiredMous,
+		"activeMous":       activeMous,
+		"expiredMous":      expiredMous,
+		"yearlyData":       yearlyData,
+		"recentActivities": recentActivities,
+		"renewMous":        renewMous,
+		"nearExpiryMous":   nearExpiryMous,
 	})
+}
+
+// GetMouActiveByYear returns MOUs active in a given year
+func GetMouActiveByYear(c *gin.Context) {
+	yearStr := c.Query("year")
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid year"})
+		return
+	}
+
+	greg := year
+	if year > 2155 {
+		greg = year - 543
+	}
+
+	var mous []models.MouRecord
+	config.DB.Preload("Status").Preload("Partners").
+		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+		Where("mou_records.deleted_at IS NULL").
+		Where("mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ?", "%ร่าง%", "%รอดำเนินการ%", "%ต่ออายุ%", "%ยกเลิก%").
+		Where("YEAR(mou_records.start_date) <= ?", greg).
+		Where("mou_records.end_date IS NULL OR YEAR(mou_records.end_date) >= ?", greg).
+		Order("mou_records.start_date ASC").
+		Find(&mous)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": mous})
 }
 
 // CreateMouActivity creates a new activity under an MOU
@@ -1823,12 +1885,10 @@ func RenewMou(c *gin.Context) {
 
 // ExportMouCsv exports filtered MOU list as CSV file
 func ExportMouCsv(c *gin.Context) {
-	mouCode := c.DefaultQuery("mou_code", "")
 	title := c.DefaultQuery("title", "")
 	partnerName := c.DefaultQuery("partner_name", "")
 	country := c.DefaultQuery("country", "")
 	status := c.DefaultQuery("status", "")
-	mouType := c.DefaultQuery("mou_type", "")
 	level := c.DefaultQuery("level", "")
 	isInternational := c.DefaultQuery("is_international", "")
 
@@ -1837,9 +1897,6 @@ func ExportMouCsv(c *gin.Context) {
 
 	if status != "" {
 		query = query.Where("Status_id = ?", status)
-	}
-	if mouType != "" {
-		query = query.Where("mou_type_id = ?", mouType)
 	}
 	if level != "" {
 		query = query.Where("level = ?", level)
@@ -1851,9 +1908,6 @@ func ExportMouCsv(c *gin.Context) {
 			query = query.Where("is_international = ?", 0)
 		}
 	}
-	if mouCode != "" {
-		query = query.Where("mou_code LIKE ?", "%"+mouCode+"%")
-	}
 	if title != "" {
 		query = query.Where("title LIKE ?", "%"+title+"%")
 	}
@@ -1862,13 +1916,12 @@ func ExportMouCsv(c *gin.Context) {
 		query = query.Where("mou_records.id IN (?)", subQuery)
 	}
 	if country != "" {
-		query = query.Joins("LEFT JOIN countries ON countries.id = mou_records.country_id").
+		query = query.Joins("LEFT JOIN countries ON countries.id = mou_records.Country_id").
 			Where("countries.name_th LIKE ? OR countries.name_en LIKE ?", "%"+country+"%", "%"+country+"%")
 	}
 
 	err := query.
 		Preload("Status").
-		Preload("MouType").
 		Preload("Coordinator").
 		Preload("Partners").
 		Order("created_at DESC").
@@ -1952,14 +2005,13 @@ func ExportMouCsv(c *gin.Context) {
 			startDate = mou.StartDate.Format("02/01/2006")
 		}
 		yearSign := ""
-		if mou.YearOfSigning != nil && *mou.YearOfSigning > 0 {
-			yearSign = strconv.Itoa(*mou.YearOfSigning)
+		if mou.YearOfSigning != nil {
+			yearSign = mou.YearOfSigning.Format("02/01/2006")
 		}
 
 		writer.Write([]string{
-			mou.MouCode,
 			mou.Title,
-			mou.MouType.Name,
+			mou.Title,
 			mou.Level,
 			mou.Status.Name,
 			countryName,
@@ -1998,14 +2050,169 @@ func GetMouNotificationRecipients(c *gin.Context) {
 	})
 }
 
+// ListMouNotificationRecipients returns all potential recipients grouped by type
+func ListMouNotificationRecipients(c *gin.Context) {
+	var recipients []models.NotificationRecipient
+
+	// Coordinators (users assigned as coordinator in any MOU)
+	var coordinators []struct {
+		ID    int
+		Fname string
+		Lname string
+		Email string
+	}
+	config.DB.Table("mou_records").
+		Select("DISTINCT u.user_id as id, u.user_fname as fname, u.user_lname as lname, u.email").
+		Joins("JOIN users u ON u.user_id = mou_records.coordinator_id").
+		Where("mou_records.deleted_at IS NULL").
+		Where("u.Is_active = ?", "A").
+		Find(&coordinators)
+	for _, u := range coordinators {
+		recipients = append(recipients, models.NotificationRecipient{
+			ID:   u.ID,
+			Name: u.Fname + " " + u.Lname,
+			Email: u.Email,
+			Type: "coordinator",
+		})
+	}
+
+	// Faculty responsible persons (users linked via mou_faculties.user_id)
+	var facultyStaff []struct {
+		ID          int
+		Fname       string
+		Lname       string
+		Email       string
+		FacultyName string
+	}
+	config.DB.Table("mou_faculties").
+		Select("u.user_id as id, u.user_fname as fname, u.user_lname as lname, u.email, f.name_th as faculty_name").
+		Joins("JOIN faculties f ON f.id = mou_faculties.faculty_id").
+		Joins("JOIN users u ON u.user_id = mou_faculties.user_id").
+		Where("u.Is_active = ?", "A").
+		Where("mou_faculties.user_id IS NOT NULL").
+		Find(&facultyStaff)
+	for _, u := range facultyStaff {
+		recipients = append(recipients, models.NotificationRecipient{
+			ID:          u.ID,
+			Name:        u.Fname + " " + u.Lname,
+			Email:       u.Email,
+			Type:        "faculty",
+			FacultyName: u.FacultyName,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    recipients,
+	})
+}
+
+// GetMouNotificationPreview returns HTML preview of the notification email
+func GetMouNotificationPreview(c *gin.Context) {
+	mouIDStr := c.Query("mou_id")
+	if mouIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mou_id is required"})
+		return
+	}
+
+	var mou models.MouRecord
+	if err := config.DB.Preload("Partners").
+		Preload("Faculties").
+		Preload("Status").
+		First(&mou, mouIDStr).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "MOU not found"})
+		return
+	}
+
+	var setting models.MouNotificationSetting
+	config.DB.First(&setting, 1)
+
+	if v := c.Query("include_mou_code"); v != "" {
+		setting.IncludeMouCode = v == "true"
+	}
+	if v := c.Query("include_title"); v != "" {
+		setting.IncludeTitle = v == "true"
+	}
+	if v := c.Query("include_partner"); v != "" {
+		setting.IncludePartner = v == "true"
+	}
+	if v := c.Query("include_dates"); v != "" {
+		setting.IncludeDates = v == "true"
+	}
+	if v := c.Query("include_level"); v != "" {
+		setting.IncludeLevel = v == "true"
+	}
+	if v := c.Query("include_status"); v != "" {
+		setting.IncludeStatus = v == "true"
+	}
+
+	var meta []emailMetaItem
+	if setting.IncludeMouCode && mou.MouCode != "" {
+		meta = append(meta, emailMetaItem{Label: "รหัส MOU", Value: mou.MouCode})
+	}
+	if setting.IncludeTitle && mou.Title != "" {
+		meta = append(meta, emailMetaItem{Label: "ชื่อ MOU", Value: mou.Title})
+	}
+	if setting.IncludePartner {
+		var partners []string
+		for _, p := range mou.Partners {
+			if p.PartnerOrg != "" {
+				partners = append(partners, p.PartnerOrg)
+			}
+		}
+		if len(partners) > 0 {
+			meta = append(meta, emailMetaItem{Label: "คู่ความร่วมมือ", Value: strings.Join(partners, ", ")})
+		}
+	}
+	if setting.IncludeDates {
+		if !mou.StartDate.IsZero() && mou.EndDate != nil {
+			meta = append(meta, emailMetaItem{
+				Label: "วันที่เริ่มต้น-สิ้นสุด",
+				Value: mou.StartDate.Format("02/01/2006") + " - " + mou.EndDate.Format("02/01/2006"),
+			})
+		}
+	}
+	if setting.IncludeLevel && mou.Level != "" {
+		levelLabel := map[string]string{"university": "มหาวิทยาลัย", "faculty": "คณะ"}[mou.Level]
+		if levelLabel == "" {
+			levelLabel = mou.Level
+		}
+		meta = append(meta, emailMetaItem{Label: "ระดับความร่วมมือ", Value: levelLabel})
+	}
+	if setting.IncludeStatus {
+		meta = append(meta, emailMetaItem{Label: "สถานะ", Value: mou.Status.Name})
+	}
+
+	subject := "แจ้งเตือน MOU ใกล้หมดอายุ"
+	paragraphs := []string{
+		fmt.Sprintf("MOU เรื่อง \"%s\" จะหมดอายุในวันที่ %s", mou.Title, mou.EndDate.Format("02/01/2006")),
+		"กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ",
+	}
+	html := buildEmailTemplate(subject, paragraphs, meta, "", "", "")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"subject": subject,
+			"html":    html,
+		},
+	})
+}
+
 // SendMouNotifications sends pending email notifications for expiring MOUs
 func SendMouNotifications(c *gin.Context) {
 	today := time.Now().Truncate(24 * time.Hour)
+
+	var setting models.MouNotificationSetting
+	config.DB.First(&setting, 1)
 
 	var notifications []models.MouNotification
 	config.DB.Where("is_sent = ?", false).
 		Preload("Staff").
 		Preload("Mou").
+		Preload("Mou.Status").
+		Preload("Mou.Partners").
+		Preload("Mou.Faculties").
 		Find(&notifications)
 
 	var sentCount, failedCount int
@@ -2026,13 +2233,51 @@ func SendMouNotifications(c *gin.Context) {
 			continue
 		}
 
+		// Build email content based on settings
+		var meta []emailMetaItem
+		if setting.IncludeMouCode && notif.Mou.MouCode != "" {
+			meta = append(meta, emailMetaItem{Label: "รหัส MOU", Value: notif.Mou.MouCode})
+		}
+		if setting.IncludeTitle && notif.Mou.Title != "" {
+			meta = append(meta, emailMetaItem{Label: "ชื่อ MOU", Value: notif.Mou.Title})
+		}
+		if setting.IncludePartner {
+			var partners []string
+			for _, p := range notif.Mou.Partners {
+				if p.PartnerOrg != "" {
+					partners = append(partners, p.PartnerOrg)
+				}
+			}
+			if len(partners) > 0 {
+				meta = append(meta, emailMetaItem{Label: "คู่ความร่วมมือ", Value: strings.Join(partners, ", ")})
+			}
+		}
+		if setting.IncludeDates {
+			if !notif.Mou.StartDate.IsZero() && notif.Mou.EndDate != nil {
+				meta = append(meta, emailMetaItem{
+					Label: "วันที่เริ่มต้น-สิ้นสุด",
+					Value: notif.Mou.StartDate.Format("02/01/2006") + " - " + notif.Mou.EndDate.Format("02/01/2006"),
+				})
+			}
+		}
+		if setting.IncludeLevel && notif.Mou.Level != "" {
+			levelLabel := map[string]string{"university": "มหาวิทยาลัย", "faculty": "คณะ"}[notif.Mou.Level]
+			if levelLabel == "" {
+				levelLabel = notif.Mou.Level
+			}
+			meta = append(meta, emailMetaItem{Label: "ระดับความร่วมมือ", Value: levelLabel})
+		}
+		if setting.IncludeStatus {
+			meta = append(meta, emailMetaItem{Label: "สถานะ", Value: notif.Mou.Status.Name})
+		}
+
 		subject := "แจ้งเตือน MOU ใกล้หมดอายุ"
-		body := fmt.Sprintf(
-			"เรียน %s %s<br><br>MOU เรื่อง \"%s\" (รหัส: %s) จะหมดอายุในวันที่ %s<br><br>กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ<br><br>ขอบคุณ<br>ระบบบริหารจัดการ MOU",
-			notif.Staff.UserFname, notif.Staff.UserLname,
-			notif.Mou.Title, notif.Mou.MouCode,
-			notif.Mou.EndDate.Format("02/01/2006"),
-		)
+		paragraphs := []string{
+			fmt.Sprintf("เรียน %s %s", notif.Staff.UserFname, notif.Staff.UserLname),
+			fmt.Sprintf("MOU เรื่อง \"%s\" จะหมดอายุในวันที่ %s", notif.Mou.Title, notif.Mou.EndDate.Format("02/01/2006")),
+			"กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ",
+		}
+		body := buildEmailTemplate(subject, paragraphs, meta, "", "", "")
 
 		err := config.SendMail([]string{*staffEmail}, subject, body)
 		logMsg := ""
@@ -2067,4 +2312,69 @@ func SendMouNotifications(c *gin.Context) {
 		"failed_count":  failedCount,
 		"message":       fmt.Sprintf("ส่งสำเร็จ %d รายการ, ล้มเหลว %d รายการ", sentCount, failedCount),
 	})
+}
+
+// GetMouNotificationSetting returns the single-row notification config (creates default if missing)
+func GetMouNotificationSetting(c *gin.Context) {
+	var setting models.MouNotificationSetting
+	err := config.DB.Preload("Updater").First(&setting, 1).Error
+	if err != nil {
+		setting = models.MouNotificationSetting{ID: 1}
+		config.DB.Create(&setting)
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": setting})
+}
+
+// UpdateMouNotificationSetting updates the notification config (partial update)
+func UpdateMouNotificationSetting(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	var req models.UpdateMouNotificationSettingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request body"})
+		return
+	}
+
+	var setting models.MouNotificationSetting
+	if err := config.DB.First(&setting, 1).Error; err != nil {
+		setting = models.MouNotificationSetting{ID: 1}
+		config.DB.Create(&setting)
+	}
+
+	if req.DefaultDaysBefore != nil {
+		setting.DefaultDaysBefore = *req.DefaultDaysBefore
+	}
+	if req.NotifyCoordinator != nil {
+		setting.NotifyCoordinator = *req.NotifyCoordinator
+	}
+	if req.NotifyFacultyResponsible != nil {
+		setting.NotifyFacultyResponsible = *req.NotifyFacultyResponsible
+	}
+	if req.NotifyExternal != nil {
+		setting.NotifyExternal = *req.NotifyExternal
+	}
+	if req.IncludeMouCode != nil {
+		setting.IncludeMouCode = *req.IncludeMouCode
+	}
+	if req.IncludeTitle != nil {
+		setting.IncludeTitle = *req.IncludeTitle
+	}
+	if req.IncludePartner != nil {
+		setting.IncludePartner = *req.IncludePartner
+	}
+	if req.IncludeDates != nil {
+		setting.IncludeDates = *req.IncludeDates
+	}
+	if req.IncludeLevel != nil {
+		setting.IncludeLevel = *req.IncludeLevel
+	}
+	if req.IncludeStatus != nil {
+		setting.IncludeStatus = *req.IncludeStatus
+	}
+
+	setting.UpdatedBy = &userID
+	config.DB.Save(&setting)
+	config.DB.Preload("Updater").First(&setting, 1)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": setting})
 }

@@ -7,19 +7,18 @@ import (
 // MouRecord represents a Memorandum of Understanding record
 type MouRecord struct {
 	ID              int         `gorm:"primaryKey;column:id" json:"id"`
-	MouCode         string      `gorm:"column:mou_code;uniqueIndex" json:"mou_code"`
+	MouCode         string      `gorm:"column:mou_code;type:varchar(50)" json:"mou_code"`
 	Title           string      `gorm:"column:title" json:"title"`
 	Description     string      `gorm:"column:description;type:text" json:"description"`
 	StatusID        int         `gorm:"column:Status_id" json:"status_id"`
-	MouTypeID       int         `gorm:"column:mou_type_id" json:"mou_type_id"`
 	Level           string      `gorm:"column:level;type:enum('university','faculty')" json:"level"`
 	StartDate       time.Time   `gorm:"column:start_date" json:"start_date"`
 	EndDate         *time.Time  `gorm:"column:end_date" json:"end_date"`
-	YearOfSigning   *int        `gorm:"column:year_of_signing" json:"year_of_signing"`
-	SignedBy        *int        `gorm:"column:signed_by" json:"signed_by"`
+	YearOfSigning   *time.Time  `gorm:"column:year_of_signing" json:"year_of_signing"`
+	SignedBy        string      `gorm:"column:signed_by" json:"signed_by"`
 	Notes           string      `gorm:"column:notes;type:text" json:"notes"`
 	NotifyDaysBefore *int       `gorm:"column:notify_days_before" json:"notify_days_before"`
-	CountryID       *int        `gorm:"column:country_id" json:"country_id"`
+	CountryID       *int        `gorm:"column:Country_id" json:"country_id"`
 	IsInternational bool        `gorm:"column:is_international" json:"is_international"`
 	CoordinatorID   *int        `gorm:"column:coordinator_id" json:"coordinator_id"`
 	CreatedBy       int         `gorm:"column:created_by" json:"created_by"`
@@ -30,10 +29,8 @@ type MouRecord struct {
 
 	// Relations
 	Status        MouStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
-	MouType       MouType          `gorm:"foreignKey:MouTypeID" json:"mou_type,omitempty"`
 	Country       *Country         `gorm:"foreignKey:CountryID" json:"country,omitempty"`
 	Coordinator   User             `gorm:"foreignKey:CoordinatorID" json:"coordinator,omitempty"`
-	SignedByUser  User             `gorm:"foreignKey:SignedBy" json:"signed_by_user,omitempty"`
 	Creator       User             `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
 	Updater       *User            `gorm:"foreignKey:UpdatedBy" json:"updater,omitempty"`
 	Partners      []MouPartner     `gorm:"foreignKey:MouID" json:"partners,omitempty"`
@@ -54,18 +51,6 @@ type MouStatus struct {
 }
 
 func (MouStatus) TableName() string { return "mou_status" }
-
-// MouType represents the type of MOU
-type MouType struct {
-	ID        int       `gorm:"primaryKey;column:id" json:"id"`
-	Name      string    `gorm:"column:name" json:"name"`
-	IsActive  bool      `gorm:"column:is_active" json:"is_active"`
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime:milli" json:"updated_at"`
-	DeletedAt *time.Time `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
-}
-
-func (MouType) TableName() string { return "mou_type" }
 
 // Country represents a country
 type Country struct {
@@ -169,7 +154,8 @@ type MouNotificationLog struct {
 	SentAt         time.Time  `gorm:"column:sent_at;autoCreateTime:milli" json:"sent_at"`
 
 	// Relations
-	Actor User `gorm:"foreignKey:ActorID" json:"actor,omitempty"`
+	Actor User      `gorm:"foreignKey:ActorID" json:"actor,omitempty"`
+	Mou   MouRecord `gorm:"foreignKey:MouID" json:"mou,omitempty"`
 }
 
 func (MouNotificationLog) TableName() string { return "mou_notification_log" }
@@ -264,21 +250,20 @@ type MouActivityAttachment struct {
 
 // CreateMouRequest is the request body for creating an MOU
 type CreateMouRequest struct {
-	MouCode          string     `json:"mou_code" binding:"required"`
+	MouCode          string     `json:"mou_code"`
 	Title            string     `json:"title" binding:"required"`
 	Description      string     `json:"description"`
 	Level            string     `json:"level" binding:"required,oneof=university faculty"`
-	MouTypeID        int        `json:"mou_type_id" binding:"required"`
 	IsInternational  bool       `json:"is_international"`
 	StartDate        string     `json:"start_date" binding:"required"` // format: "02/01/2025"
 	EndDate          string     `json:"end_date" binding:"required"`
-	YearOfSigning    int        `json:"year_of_signing"` // พ.ศ. หรือ ค.ศ. (ตัวเลข 4 หลัก)
+	YearOfSigning    string     `json:"year_of_signing"` // format: "2006-01-02"
 	PartnerName      string     `json:"partner_name" binding:"required"`
 	PartnerTypeID    int        `json:"partner_type_id"`
 	CountryID        *int       `json:"country_id"`
 	CoordinatorID    *int       `json:"coordinator_id"`
 	CoordinatorName  string     `json:"coordinator_name"`
-	SignedBy         *int       `json:"signed_by"`
+	SignedBy         *string    `json:"signed_by"`
 	Notes            string     `json:"notes"`
 	FacultyIDs       []int         `json:"faculty_ids"`
 	Faculties        []FacultyUser `json:"faculties"`
@@ -343,22 +328,21 @@ func (MouOKR) TableName() string { return "mou_okr" }
 
 // UpdateMouRequest is the request body for updating an MOU
 type UpdateMouRequest struct {
+	MouCode           *string       `json:"mou_code"`
 	Title             *string       `json:"title"`
 	Description       *string       `json:"description"`
-	MouCode           *string       `json:"mou_code"`
 	Level             *string       `json:"level"`
-	MouTypeID         *int          `json:"mou_type_id"`
 	StatusID          *int          `json:"status_id"`
 	IsInternational   *bool         `json:"is_international"`
 	StartDate         *string       `json:"start_date"`
 	EndDate           *string       `json:"end_date"`
-	YearOfSigning     *int          `json:"year_of_signing"`
+	YearOfSigning     *string       `json:"year_of_signing"`
 	PartnerName       *string       `json:"partner_name"`
 	PartnerTypeID     *int          `json:"partner_type_id"`
 	CountryID         *int          `json:"country_id"`
 	CoordinatorID     *int          `json:"coordinator_id"`
 	CoordinatorName   *string       `json:"coordinator_name"`
-	SignedBy          *int          `json:"signed_by"`
+	SignedBy          *string       `json:"signed_by"`
 	Notes             *string       `json:"notes"`
 	FacultyIDs           []int         `json:"faculty_ids"`
 	Faculties            []FacultyUser `json:"faculties"`

@@ -169,7 +169,6 @@ func SetupRoutes(router *gin.Engine) {
 			{
 				mou.GET("", controllers.GetMous)                           // List all MOUs
 				mou.GET("/statuses", controllers.GetMouStatuses)           // List available statuses
-				mou.GET("/types", controllers.GetMouTypes)                 // List available types
 				mou.GET("/countries", controllers.GetCountries)            // List available countries
 				mou.GET("/faculties", controllers.GetFaculties)            // List available faculties
 				mou.GET("/partner-types", controllers.GetMouPartnerTypes)  // List partner types
@@ -179,6 +178,7 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/levels", controllers.GetMouLevels)              // List distinct levels
 				mou.POST("", controllers.CreateMou)                        // Create new MOU
 				mou.GET("/dashboard", controllers.GetMouDashboard)          // Dashboard stats
+mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a given year
 				mou.GET("/notifications", controllers.GetMouNotifications)    // Notifications for bell icon
 				mou.GET("/activity-types", controllers.GetActivityTypes)    // List activity types
 				mou.POST("/activity-types", controllers.CreateActivityType)  // Create activity type
@@ -199,7 +199,11 @@ func SetupRoutes(router *gin.Engine) {
 				mou.PUT("/:id", controllers.UpdateMou)                     // Update MOU
 				mou.PUT("/:id/renew", controllers.RenewMou)                // Renew MOU
 				mou.GET("/export", controllers.ExportMouCsv)               // Export MOU list as CSV
+				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)  // List all potential recipients
+				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)  // Preview notification email
 				mou.POST("/send-notifications", controllers.SendMouNotifications)  // Trigger sending email notifications
+				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)         // Get notification settings
+				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)        // Update notification settings
 				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)  // Get notification recipients
 				mou.DELETE("/:id", controllers.DeleteMou)                  // Delete MOU
 			}

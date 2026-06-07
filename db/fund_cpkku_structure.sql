@@ -46,16 +46,6 @@ CREATE TABLE `countries` (
   `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mou_type
-CREATE TABLE `mou_type` (
-  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `name` varchar(200) NOT NULL,
-  `is_active` tinyint(1) NOT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- mou_status
 CREATE TABLE `mou_status` (
   `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -90,15 +80,13 @@ CREATE TABLE `mou_okr` (
 -- mou_records
 CREATE TABLE `mou_records` (
   `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `mou_code` varchar(50) NOT NULL,
   `title` varchar(500) NOT NULL,
   `description` text DEFAULT NULL,
   `status_id` int(11) NOT NULL,
-  `mou_type_id` int(11) NOT NULL,
   `level` enum('university','faculty') NOT NULL,
   `start_date` date NOT NULL,
   `end_date` date DEFAULT NULL,
-  `year_of_signing` year DEFAULT NULL,
+  `year_of_signing` date DEFAULT NULL,
   `signed_by` int(11) DEFAULT NULL COMMENT 'ผู้ลงนาม',
   `notes` text DEFAULT NULL COMMENT 'หมายเหตุ',
   `notify_days_before` int(11) DEFAULT NULL COMMENT 'จำนวนวันแจ้งเตือนล่วงหน้า',
@@ -112,7 +100,6 @@ CREATE TABLE `mou_records` (
   `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` datetime DEFAULT NULL,
   FOREIGN KEY (`status_id`) REFERENCES `mou_status`(`id`),
-  FOREIGN KEY (`mou_type_id`) REFERENCES `mou_type`(`id`),
   FOREIGN KEY (`country_id`) REFERENCES `countries`(`id`) ON DELETE SET NULL,
   FOREIGN KEY (`coordinator_id`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,
   FOREIGN KEY (`signed_by`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,
@@ -261,6 +248,25 @@ CREATE TABLE `mou_notification_log` (
   FOREIGN KEY (`notification_id`) REFERENCES `mou_notification`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`sent_to`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_notification_settings
+CREATE TABLE IF NOT EXISTS mou_notification_settings (
+    id                      INT PRIMARY KEY DEFAULT 1,
+    default_days_before     INT NOT NULL DEFAULT 30,
+    notify_coordinator      BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_faculty_responsible BOOLEAN NOT NULL DEFAULT FALSE,
+    notify_external         BOOLEAN NOT NULL DEFAULT FALSE,
+    include_mou_code        BOOLEAN NOT NULL DEFAULT TRUE,
+    include_title           BOOLEAN NOT NULL DEFAULT TRUE,
+    include_partner         BOOLEAN NOT NULL DEFAULT TRUE,
+    include_dates           BOOLEAN NOT NULL DEFAULT TRUE,
+    include_level           BOOLEAN NOT NULL DEFAULT FALSE,
+    include_status          BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_by              INT,
+    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (updated_by) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
 -- End MOU
