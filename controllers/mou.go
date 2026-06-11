@@ -9,6 +9,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,6 +42,8 @@ func GetMous(c *gin.Context) {
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
+
+	updateMouStatusesBasedOnDate()
 
 	var mous []models.MouRecord
 	query := config.DB.Where("mou_records.deleted_at IS NULL")
@@ -209,6 +212,8 @@ func GetMouDetail(c *gin.Context) {
 	// Load MOU events from mou_notification_log
 	var mouEvents []models.MouNotificationLog
 	config.DB.Where("mou_id = ?", mou.ID).Order("sent_at DESC").Preload("Actor").Find(&mouEvents)
+
+	updateMouStatusesBasedOnDate()
 
 	// Load country via raw JOIN (bypasses GORM *int foreign key mapping issues)
 	var countryNameTh, countryNameEn string
@@ -397,13 +402,13 @@ func CreateMou(c *gin.Context) {
 		}
 	}
 
-	// Set default status
+	// Set default status to pending (รอดำเนินการ)
 	var statusID int = 1
 	if req.StatusID != nil && *req.StatusID > 0 {
 		statusID = *req.StatusID
 	} else {
 		var status models.MouStatus
-		if err := config.DB.Where("name LIKE ?", "%ร่าง%").First(&status).Error; err == nil {
+		if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&status).Error; err == nil {
 			statusID = status.ID
 		}
 	}
@@ -519,19 +524,52 @@ func CreateMou(c *gin.Context) {
 		}
 	}
 
-	// Create notification record
+	// Create notification records
 	notifyDays := 0
 	if req.NotifyDaysBefore != nil {
 		notifyDays = *req.NotifyDaysBefore
 	}
+
+	var notifyStaffIDs []int
+
 	if req.CoordinatorID != nil && *req.CoordinatorID > 0 {
+		notifyStaffIDs = append(notifyStaffIDs, *req.CoordinatorID)
+	}
+
+	for _, f := range req.Faculties {
+		if f.UserID > 0 {
+			notifyStaffIDs = append(notifyStaffIDs, f.UserID)
+		}
+	}
+
+	seen := make(map[int]bool)
+	for _, staffID := range notifyStaffIDs {
+		if seen[staffID] {
+			continue
+		}
+		sid := staffID
 		notification := models.MouNotification{
 			MouID:      mou.ID,
-			StaffID:    *req.CoordinatorID,
+			StaffID:    &sid,
 			DaysBefore: notifyDays,
 		}
 		if err := config.DB.Create(&notification).Error; err != nil {
 			fmt.Println("Error creating MOU notification:", err)
+		}
+	}
+
+	// Create notifications for external faculty persons (no UserID, but have email)
+	for _, f := range req.Faculties {
+		if f.UserID == 0 && f.Email != nil && *f.Email != "" {
+			notification := models.MouNotification{
+				MouID:      mou.ID,
+				StaffID:    nil,
+				Email:      f.Email,
+				DaysBefore: notifyDays,
+			}
+			if err := config.DB.Create(&notification).Error; err != nil {
+				fmt.Println("Error creating MOU notification for external:", err)
+			}
 		}
 	}
 
@@ -799,24 +837,65 @@ func UpdateMou(c *gin.Context) {
 		config.DB.Where("id IN ? AND mou_id = ?", req.RemovedAttachmentIDs, mou.ID).Delete(&models.MouAttachment{})
 	}
 
-	// Update notification: delete old, insert new
-	if req.NotifyDaysBefore != nil || req.CoordinatorID != nil {
-		config.DB.Where("mou_id = ?", mou.ID).Delete(&models.MouNotification{})
+	// Update notification: recreate when coordinator or faculties change
+	notifSettingsChanged := req.CoordinatorID != nil || req.Faculties != nil || req.FacultyIDs != nil
+	if notifSettingsChanged {
+		if req.Faculties != nil || req.FacultyIDs != nil {
+			// Faculties changed: delete all notifications (recreate from request)
+			config.DB.Where("mou_id = ?", mou.ID).Delete(&models.MouNotification{})
+		} else {
+			// Only coordinator changed: preserve external notifications
+			config.DB.Where("mou_id = ? AND staff_id > 0", mou.ID).Delete(&models.MouNotification{})
+		}
+
 		notifyDays := 30
 		if req.NotifyDaysBefore != nil && *req.NotifyDaysBefore > 0 {
 			notifyDays = *req.NotifyDaysBefore
+		} else if mou.NotifyDaysBefore != nil && *mou.NotifyDaysBefore > 0 {
+			notifyDays = *mou.NotifyDaysBefore
 		}
+
+		var notifyStaffIDs []int
+
 		staffID := mou.CoordinatorID
 		if req.CoordinatorID != nil {
 			staffID = req.CoordinatorID
 		}
 		if staffID != nil && *staffID > 0 {
+			notifyStaffIDs = append(notifyStaffIDs, *staffID)
+		}
+
+		for _, f := range req.Faculties {
+			if f.UserID > 0 {
+				notifyStaffIDs = append(notifyStaffIDs, f.UserID)
+			}
+		}
+
+		seen := make(map[int]bool)
+		for _, sid := range notifyStaffIDs {
+			if seen[sid] {
+				continue
+			}
+			sidCopy := sid
 			notification := models.MouNotification{
 				MouID:      mou.ID,
-				StaffID:    *staffID,
+				StaffID:    &sidCopy,
 				DaysBefore: notifyDays,
 			}
 			config.DB.Create(&notification)
+		}
+
+		// Create notifications for external faculty persons (no UserID, but have email)
+		for _, f := range req.Faculties {
+			if f.UserID == 0 && f.Email != nil && *f.Email != "" {
+				notification := models.MouNotification{
+					MouID:      mou.ID,
+					StaffID:    nil,
+					Email:      f.Email,
+					DaysBefore: notifyDays,
+				}
+				config.DB.Create(&notification)
+			}
 		}
 	}
 
@@ -1802,8 +1881,51 @@ func parseDateString(dateStr string) (time.Time, error) {
 	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC), nil
 }
 
+// updateMouStatusesBasedOnDate auto-advances MOU status from pending to active when start_date is reached
+func updateMouStatusesBasedOnDate() {
+	var pendingStatus, activeStatus models.MouStatus
+	if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&pendingStatus).Error; err != nil {
+		return
+	}
+	if err := config.DB.Where("name LIKE ?", "%มีผล%").First(&activeStatus).Error; err != nil {
+		return
+	}
+
+	now := time.Now().Truncate(24 * time.Hour)
+	minDate := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	var mousToUpdate []models.MouRecord
+	config.DB.Where("Status_id = ? AND start_date > ? AND start_date <= ? AND deleted_at IS NULL",
+		pendingStatus.ID, minDate, now).Find(&mousToUpdate)
+
+	if len(mousToUpdate) == 0 {
+		return
+	}
+
+	var ids []int
+	for _, m := range mousToUpdate {
+		ids = append(ids, m.ID)
+	}
+	config.DB.Model(&models.MouRecord{}).Where("id IN ?", ids).Update("Status_id", activeStatus.ID)
+
+	for _, m := range mousToUpdate {
+		desc := fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s อัตโนมัติ", pendingStatus.Name, activeStatus.Name)
+		config.DB.Create(&models.MouNotificationLog{
+			MouID:   m.ID,
+			Action:  "เปลี่ยนสถานะ MOU",
+			ActorID: 0,
+			SentTo:  0,
+			Channel: "system",
+			Success: true,
+			Message: &desc,
+		})
+	}
+}
+
 // GetMouNotifications returns MOUs that are near expiry or expired for the bell icon
 func GetMouNotifications(c *gin.Context) {
+	// Trigger pending email notifications when bell icon is checked
+	SendPendingMouNotifications()
+
 	var nearExpiry []models.MouRecord
 	var expired []models.MouRecord
 	var nearExpiryCount, expiredCount int64
@@ -2199,9 +2321,10 @@ func GetMouNotificationPreview(c *gin.Context) {
 	})
 }
 
-// SendMouNotifications sends pending email notifications for expiring MOUs
-func SendMouNotifications(c *gin.Context) {
-	today := time.Now().Truncate(24 * time.Hour)
+// SendPendingMouNotifications processes and sends pending email notifications for expiring MOUs
+func SendPendingMouNotifications() (sentCount, failedCount int, message string) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	var setting models.MouNotificationSetting
 	config.DB.First(&setting, 1)
@@ -2215,23 +2338,43 @@ func SendMouNotifications(c *gin.Context) {
 		Preload("Mou.Faculties").
 		Find(&notifications)
 
-	var sentCount, failedCount int
+	log.Printf("[SendPendingMouNotifications] found %d pending notifications", len(notifications))
+
 	for _, notif := range notifications {
+		log.Printf("[SendPendingMouNotifications] checking notif id=%d mou_id=%d days_before=%d end_date=%v staff_id=%d",
+			notif.ID, notif.MouID, notif.DaysBefore, notif.Mou.EndDate, notif.StaffID)
+
 		if notif.Mou.EndDate == nil {
+			log.Printf("[SendPendingMouNotifications] skip notif %d: EndDate is nil", notif.ID)
 			continue
 		}
 		notifyDate := notif.Mou.EndDate.AddDate(0, 0, -notif.DaysBefore)
+		log.Printf("[SendPendingMouNotifications] notif %d: today=%v notifyDate=%v notifyDate.After(today)=%v",
+			notif.ID, today, notifyDate, notifyDate.After(today))
 		if notifyDate.After(today) {
+			log.Printf("[SendPendingMouNotifications] skip notif %d: notifyDate is in the future", notif.ID)
 			continue
 		}
 
-		staffEmail := notif.Staff.EmailNotification
-		if staffEmail == nil || *staffEmail == "" {
-			staffEmail = &notif.Staff.Email
+		// Determine email: direct Email field (external) or Staff.Email (internal)
+		var staffEmail *string
+		if notif.Email != nil && *notif.Email != "" {
+			staffEmail = notif.Email
+			log.Printf("[SendPendingMouNotifications] notif %d: using direct Email=%s", notif.ID, *staffEmail)
+		} else if notif.StaffID != nil && *notif.StaffID > 0 {
+			log.Printf("[SendPendingMouNotifications] notif %d: staff.EmailNotification=%v staff.Email=%v",
+				notif.ID, notif.Staff.EmailNotification, notif.Staff.Email)
+			staffEmail = notif.Staff.EmailNotification
+			if staffEmail == nil || *staffEmail == "" {
+				staffEmail = &notif.Staff.Email
+			}
 		}
 		if staffEmail == nil || *staffEmail == "" {
+			log.Printf("[SendPendingMouNotifications] skip notif %d: no email", notif.ID)
 			continue
 		}
+
+		log.Printf("[SendPendingMouNotifications] notif %d: sending email to %s", notif.ID, *staffEmail)
 
 		// Build email content based on settings
 		var meta []emailMetaItem
@@ -2272,14 +2415,26 @@ func SendMouNotifications(c *gin.Context) {
 		}
 
 		subject := "แจ้งเตือน MOU ใกล้หมดอายุ"
+		salutation := "เรียน ผู้รับผิดชอบ"
+		if notif.StaffID != nil && *notif.StaffID > 0 {
+			parts := []string{}
+			if notif.Staff.UserFname != "" {
+				parts = append(parts, notif.Staff.UserFname, notif.Staff.UserLname)
+			}
+			if len(parts) > 0 {
+				salutation = fmt.Sprintf("เรียน %s", strings.Join(parts, " "))
+			}
+		}
 		paragraphs := []string{
-			fmt.Sprintf("เรียน %s %s", notif.Staff.UserFname, notif.Staff.UserLname),
+			salutation,
 			fmt.Sprintf("MOU เรื่อง \"%s\" จะหมดอายุในวันที่ %s", notif.Mou.Title, notif.Mou.EndDate.Format("02/01/2006")),
 			"กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ",
 		}
 		body := buildEmailTemplate(subject, paragraphs, meta, "", "", "")
 
+		log.Printf("[SendPendingMouNotifications] notif %d: calling SendMail to %s", notif.ID, *staffEmail)
 		err := config.SendMail([]string{*staffEmail}, subject, body)
+		log.Printf("[SendPendingMouNotifications] notif %d: SendMail result err=%v", notif.ID, err)
 		logMsg := ""
 		success := err == nil
 		if err != nil {
@@ -2294,11 +2449,20 @@ func SendMouNotifications(c *gin.Context) {
 		}
 
 		notifID := notif.ID
+		sentTo := 0
+		if notif.StaffID != nil {
+			sentTo = *notif.StaffID
+		}
 		logEntry := models.MouNotificationLog{
 			NotificationID: &notifID,
-			SentTo:         notif.StaffID,
+			MouID:          notif.MouID,
+			SentTo:         sentTo,
 			Channel:        "email",
 			Success:        success,
+		}
+		if notif.Email != nil && *notif.Email != "" {
+			emailMsg := fmt.Sprintf("sent to %s", *notif.Email)
+			logEntry.Message = &emailMsg
 		}
 		if logMsg != "" {
 			logEntry.Message = &logMsg
@@ -2306,11 +2470,17 @@ func SendMouNotifications(c *gin.Context) {
 		config.DB.Create(&logEntry)
 	}
 
+	return sentCount, failedCount, fmt.Sprintf("ส่งสำเร็จ %d รายการ, ล้มเหลว %d รายการ", sentCount, failedCount)
+}
+
+// SendMouNotifications sends pending email notifications for expiring MOUs (manual trigger via POST endpoint)
+func SendMouNotifications(c *gin.Context) {
+	sentCount, failedCount, message := SendPendingMouNotifications()
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
 		"sent_count":    sentCount,
 		"failed_count":  failedCount,
-		"message":       fmt.Sprintf("ส่งสำเร็จ %d รายการ, ล้มเหลว %d รายการ", sentCount, failedCount),
+		"message":       message,
 	})
 }
 
@@ -2327,7 +2497,16 @@ func GetMouNotificationSetting(c *gin.Context) {
 
 // UpdateMouNotificationSetting updates the notification config (partial update)
 func UpdateMouNotificationSetting(c *gin.Context) {
-	userID := c.GetInt("user_id")
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "User not authenticated"})
+		return
+	}
+	uid, ok := userID.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Invalid user ID"})
+		return
+	}
 
 	var req models.UpdateMouNotificationSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -2372,8 +2551,11 @@ func UpdateMouNotificationSetting(c *gin.Context) {
 		setting.IncludeStatus = *req.IncludeStatus
 	}
 
-	setting.UpdatedBy = &userID
-	config.DB.Save(&setting)
+	setting.UpdatedBy = &uid
+	if err := config.DB.Save(&setting).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to save notification settings"})
+		return
+	}
 	config.DB.Preload("Updater").First(&setting, 1)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": setting})

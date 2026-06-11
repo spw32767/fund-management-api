@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"fund-management-api/config"
+	"fund-management-api/controllers"
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
 	"fund-management-api/routes"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -80,6 +83,32 @@ func main() {
 	if err := os.MkdirAll(uploadPath, os.ModePerm); err != nil {
 		log.Printf("Warning: Failed to create upload directory: %v", err)
 	}
+
+	// MOU: background scheduler ส่งอีเมลแจ้งเตือน MOU ใกล้หมดอายุ ทำงานทุก NOTIFICATION_INTERVAL_MINUTES (default 1440)
+	go func() {
+		interval := 1440
+		if v := os.Getenv("NOTIFICATION_INTERVAL_MINUTES"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				interval = n
+			}
+		}
+		ticker := time.NewTicker(time.Duration(interval) * time.Minute)
+		defer ticker.Stop()
+
+		// Run once on startup
+		log.Printf("[Scheduler] Starting MOU notification sender (interval: %d min)", interval)
+		sent, failed, msg := controllers.SendPendingMouNotifications()
+		if sent > 0 || failed > 0 {
+			log.Printf("[Scheduler] %s", msg)
+		}
+
+		for range ticker.C {
+			sent, failed, msg := controllers.SendPendingMouNotifications()
+			if sent > 0 || failed > 0 {
+				log.Printf("[Scheduler] %s", msg)
+			}
+		}
+	}()
 
 	// Start server
 	port := os.Getenv("SERVER_PORT")

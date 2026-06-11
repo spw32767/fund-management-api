@@ -127,7 +127,8 @@ func (MouFaculty) TableName() string { return "mou_faculty" }
 type MouNotification struct {
 	ID         int        `gorm:"primaryKey;column:id" json:"id"`
 	MouID      int        `gorm:"column:mou_id" json:"mou_id"`
-	StaffID    int        `gorm:"column:staff_id" json:"staff_id"`
+	StaffID    *int       `gorm:"column:staff_id" json:"staff_id,omitempty"`
+	Email      *string    `gorm:"column:email" json:"email,omitempty"`
 	DaysBefore int        `gorm:"column:days_before" json:"days_before"`
 	IsSent     bool       `gorm:"column:is_sent;default:false" json:"is_sent"`
 	SentAt     *time.Time `gorm:"column:sent_at" json:"sent_at"`
