@@ -31,6 +31,7 @@ func main() {
 	gin.DefaultWriter = logWriter
 	gin.DefaultErrorWriter = logWriter
 
+	godotenv.Load()
 	// Initialize database
 	config.InitDB()
 
