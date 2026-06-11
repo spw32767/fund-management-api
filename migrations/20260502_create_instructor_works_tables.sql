@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS instructor_research_projects (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   user_id         INT NOT NULL,
   project_name_th TEXT NOT NULL,
-  project_name_en TEXT NOT NULL,
+  project_name_en TEXT NULL,
   source_of_fund  VARCHAR(255),
   budget          DECIMAL(15, 2),
   fiscal_year     VARCHAR(4) NULL,         -- เพิ่ม

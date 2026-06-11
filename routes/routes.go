@@ -577,7 +577,17 @@ mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a 
 				admin.DELETE("/instructor-research-projects/:id", controllers.DeleteInstructorResearchProject)
 admin.DELETE("/instructor-expertises/:id", controllers.DeleteInstructorExpertise)
 admin.DELETE("/instructor-educations/:id", controllers.DeleteInstructorEducation)
-			
+
+admin.GET("/courses",        controllers.GetCourses)
+admin.POST("/courses",       controllers.CreateCourse)
+admin.PUT("/courses/:id",    controllers.UpdateCourse)
+admin.DELETE("/courses/:id", controllers.DeleteCourse)
+
+admin.GET("/audit-logs",         controllers.GetAuditLogs)
+admin.GET("/audit-logs/tables",  controllers.GetAuditLogTables)  // ← ต้องอยู่ก่อน /:id
+admin.GET("/audit-logs/:id",     controllers.GetAuditLogByID)
+ 
+
 				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
 				admin.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
 

@@ -1,7 +1,7 @@
 CREATE TABLE `instructor_intellectual_properties` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `id` INT AUTO_INCREMENT,
     `user_id` INT NOT NULL COMMENT 'ID ของอาจารย์ผู้สร้างสรรค์ผลงาน (เชื่อมกับตาราง users)',
-    `type` ENUM('patent', 'petty_patent', 'copyright') NOT NULL COMMENT 'ประเภท: สิทธิบันตร, อนุสิทธิบัตร, ลิขสิทธิ์',
+    `type` ENUM('patent', 'petty_patent', 'copyright') NOT NULL COMMENT 'ประเภท: สิทธิบัตร, อนุสิทธิบัตร, ลิขสิทธิ์',
     `title` VARCHAR(255) NOT NULL COMMENT 'ชื่อผลงานวิชาการ/ทรัพย์สินทางปัญญา',
     `registration_number` VARCHAR(100) DEFAULT NULL COMMENT 'เลขที่สิทธิบัตร หรือเลขทะเบียนจดแจ้ง',
     `granted_year` INT DEFAULT NULL COMMENT 'ปี พ.ศ. หรือ ค.ศ. ที่ได้รับอนุมัติ/เผยแพร่',
