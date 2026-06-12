@@ -6,6 +6,53 @@ import (
 	"testing"
 )
 
+func TestResolveScopusAuthorNameFallbacks(t *testing.T) {
+	fullName := "Full Name"
+	givenName := "Given"
+	surname := "Surname"
+	initials := "GS"
+
+	cases := []struct {
+		name string
+		row  scopusDocumentAuthorRow
+		want string
+	}{
+		{
+			name: "full name",
+			row:  scopusDocumentAuthorRow{FullName: &fullName, GivenName: &givenName, Surname: &surname, Initials: &initials, ScopusAuthorID: "123"},
+			want: "Full Name",
+		},
+		{
+			name: "given and surname",
+			row:  scopusDocumentAuthorRow{GivenName: &givenName, Surname: &surname, Initials: &initials, ScopusAuthorID: "123"},
+			want: "Given Surname",
+		},
+		{
+			name: "surname",
+			row:  scopusDocumentAuthorRow{Surname: &surname, Initials: &initials, ScopusAuthorID: "123"},
+			want: "Surname",
+		},
+		{
+			name: "initials",
+			row:  scopusDocumentAuthorRow{Initials: &initials, ScopusAuthorID: "123"},
+			want: "GS",
+		},
+		{
+			name: "scopus author id",
+			row:  scopusDocumentAuthorRow{ScopusAuthorID: "123"},
+			want: "123",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveScopusAuthorName(tc.row); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestStatsByUserDeduplicatesDocumentsAndUsesMaxCitations(t *testing.T) {
 	userQueryPattern := regexp.MustCompile(`SELECT .*Scopus_id.*FROM .*users.*user_id = \?`)
 	authorQueryPattern := regexp.MustCompile(`SELECT .*id.*FROM .*scopus_authors.*scopus_author_id = \?`)
