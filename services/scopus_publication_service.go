@@ -30,6 +30,7 @@ type ScopusPublication struct {
 	AffiliationCountry  *string    `json:"affiliation_country,omitempty"`
 	AffiliationURL      *string    `json:"affiliation_url,omitempty"`
 	AffiliationsJSON    *string    `json:"affiliations_json,omitempty"`
+	AuthorNames         *string    `json:"author_names,omitempty"`
 	Venue               *string    `json:"venue,omitempty"`
 	SourceID            *string    `json:"source_id,omitempty"`
 	PublicationYear     *int       `json:"publication_year,omitempty"`
@@ -49,6 +50,11 @@ type ScopusPublication struct {
 	AuthKeywords        *string    `json:"authkeywords,omitempty"`
 	FundSponsor         *string    `json:"fund_sponsor,omitempty"`
 	DOI                 *string    `json:"doi,omitempty"`
+	ConferenceName      *string    `json:"conference_name,omitempty"`
+	ConferenceVenue     *string    `json:"conference_venue,omitempty"`
+	ConferenceCity      *string    `json:"conference_city,omitempty"`
+	ConferenceCountry   *string    `json:"conference_country,omitempty"`
+	ConferenceLocation  *string    `json:"conference_location,omitempty"`
 	URL                 *string    `json:"url,omitempty"`
 	EID                 string     `json:"eid"`
 	ScopusID            *string    `json:"scopus_id,omitempty"`
@@ -71,6 +77,7 @@ type ScopusPublicationByUser struct {
 	AffiliationCountry     *string    `json:"affiliation_country,omitempty"`
 	AffiliationURL         *string    `json:"affiliation_url,omitempty"`
 	AffiliationsJSON       *string    `json:"affiliations_json,omitempty"`
+	AuthorNames            *string    `json:"author_names,omitempty"`
 	UserAffiliationAFID    *string    `json:"user_affiliation_afid,omitempty"`
 	UserAffiliationName    *string    `json:"user_affiliation_name,omitempty"`
 	UserAffiliationCity    *string    `json:"user_affiliation_city,omitempty"`
@@ -81,6 +88,11 @@ type ScopusPublicationByUser struct {
 	CoverDate              *time.Time `json:"cover_date,omitempty"`
 	CitedBy                *int       `json:"cited_by,omitempty"`
 	DOI                    *string    `json:"doi,omitempty"`
+	ConferenceName         *string    `json:"conference_name,omitempty"`
+	ConferenceVenue        *string    `json:"conference_venue,omitempty"`
+	ConferenceCity         *string    `json:"conference_city,omitempty"`
+	ConferenceCountry      *string    `json:"conference_country,omitempty"`
+	ConferenceLocation     *string    `json:"conference_location,omitempty"`
 	EID                    string     `json:"eid"`
 	ScopusID               *string    `json:"scopus_id,omitempty"`
 	ScopusURL              *string    `json:"scopus_url,omitempty"`
@@ -143,6 +155,11 @@ type scopusPublicationRow struct {
 	CiteScoreRank       *int     `gorm:"column:cite_score_rank"`
 	AuthKeywords        []byte   `gorm:"column:authkeywords"`
 	FundSponsor         *string  `gorm:"column:fund_sponsor"`
+	ConferenceName      *string  `gorm:"column:conference_name"`
+	ConferenceVenue     *string  `gorm:"column:conference_venue"`
+	ConferenceCity      *string  `gorm:"column:conference_city"`
+	ConferenceCountry   *string  `gorm:"column:conference_country"`
+	ConferenceLocation  *string  `gorm:"column:conference_location"`
 }
 
 type scopusPublicationByUserRow struct {
@@ -170,6 +187,11 @@ type scopusPublicationByUserRow struct {
 	CiteScoreQuartile      *string
 	CiteScoreStatus        *string
 	CiteScoreRank          *int
+	ConferenceName         *string `gorm:"column:conference_name"`
+	ConferenceVenue        *string `gorm:"column:conference_venue"`
+	ConferenceCity         *string `gorm:"column:conference_city"`
+	ConferenceCountry      *string `gorm:"column:conference_country"`
+	ConferenceLocation     *string `gorm:"column:conference_location"`
 }
 
 type scopusDocumentAffiliationRow struct {
@@ -180,6 +202,16 @@ type scopusDocumentAffiliationRow struct {
 	City           *string `gorm:"column:city"`
 	Country        *string `gorm:"column:country"`
 	AffiliationURL *string `gorm:"column:affiliation_url"`
+}
+
+type scopusDocumentAuthorRow struct {
+	DocumentID     uint    `gorm:"column:document_id"`
+	AuthorID       uint    `gorm:"column:author_id"`
+	ScopusAuthorID string  `gorm:"column:scopus_author_id"`
+	FullName       *string `gorm:"column:full_name"`
+	GivenName      *string `gorm:"column:given_name"`
+	Surname        *string `gorm:"column:surname"`
+	Initials       *string `gorm:"column:initials"`
 }
 
 type scopusAffiliationAggregate struct {
@@ -260,7 +292,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
-		docIDs = docIDs.Where("sd.title LIKE ?", like)
+		docIDs = docIDs.Where("sd.title LIKE ? OR sd.conference_location LIKE ?", like, like)
 	}
 
 	countQuery := s.db.Table("(?) AS doc_ids", docIDs.Session(&gorm.Session{NewDB: true}))
@@ -275,7 +307,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	orderClause := orderForScopus(sortField, sortDirection)
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
@@ -284,12 +316,18 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		return nil, 0, meta, err
 	}
 
-	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDs(rows))
+	documentIDs := collectDocumentIDs(rows)
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(documentIDs)
 	if err != nil {
 		return nil, 0, meta, err
 	}
 
-	return mapScopusRows(rows, affiliationByDocument), total, meta, nil
+	authorsByDocument, err := s.loadDocumentAuthorAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, meta, err
+	}
+
+	return mapScopusRows(rows, affiliationByDocument, authorsByDocument), total, meta, nil
 }
 
 // ListAll returns paginated Scopus publications across all users.
@@ -306,14 +344,14 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("scopus_documents AS sd").
-		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		base = base.Where(
-			"sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.scopus_id LIKE ? OR sd.publication_name LIKE ?",
-			like, like, like, like, like,
+			"sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.scopus_id LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ?",
+			like, like, like, like, like, like,
 		)
 	}
 
@@ -334,12 +372,18 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		return nil, 0, err
 	}
 
-	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDs(rows))
+	documentIDs := collectDocumentIDs(rows)
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(documentIDs)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return mapScopusRows(rows, affiliationByDocument), total, nil
+	authorsByDocument, err := s.loadDocumentAuthorAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRows(rows, affiliationByDocument, authorsByDocument), total, nil
 }
 
 // ListByUserOwnership returns paginated Scopus publications mapped to users in this system.
@@ -364,8 +408,8 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		pairQuery = pairQuery.Where(
-			"u.user_fname LIKE ? OR u.user_lname LIKE ? OR u.email LIKE ? OR u.Scopus_id LIKE ? OR sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.publication_name LIKE ?",
-			like, like, like, like, like, like, like, like,
+			"u.user_fname LIKE ? OR u.user_lname LIKE ? OR u.email LIKE ? OR u.Scopus_id LIKE ? OR sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ?",
+			like, like, like, like, like, like, like, like, like,
 		)
 	}
 
@@ -381,7 +425,7 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("(?) AS pairs", pairQuery.Session(&gorm.Session{NewDB: true})).
-		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
 		Joins("LEFT JOIN scopus_affiliations AS owner_aff ON owner_aff.id = pairs.user_affiliation_id").
@@ -393,15 +437,21 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		return nil, 0, err
 	}
 
-	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(collectDocumentIDsByUser(rows))
+	documentIDs := collectDocumentIDsByUser(rows)
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(documentIDs)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return mapScopusRowsByUser(rows, affiliationByDocument), total, nil
+	authorsByDocument, err := s.loadDocumentAuthorAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRowsByUser(rows, affiliationByDocument, authorsByDocument), total, nil
 }
 
-func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]scopusAffiliationAggregate) []ScopusPublication {
+func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]scopusAffiliationAggregate, authorsByDocument map[uint]*string) []ScopusPublication {
 	publications := make([]ScopusPublication, 0, len(rows))
 	for _, row := range rows {
 		publication := ScopusPublication{
@@ -428,6 +478,11 @@ func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]s
 			ArticleNumber:       normalizeNullable(row.ArticleNumber),
 			FundSponsor:         normalizeNullable(row.FundSponsor),
 			DOI:                 normalizeNullable(row.DOI),
+			ConferenceName:      normalizeNullable(row.ConferenceName),
+			ConferenceVenue:     normalizeNullable(row.ConferenceVenue),
+			ConferenceCity:      normalizeNullable(row.ConferenceCity),
+			ConferenceCountry:   normalizeNullable(row.ConferenceCountry),
+			ConferenceLocation:  normalizeNullable(row.ConferenceLocation),
 			EID:                 row.EID,
 			ScopusID:            row.ScopusID,
 		}
@@ -439,6 +494,10 @@ func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]s
 			publication.AffiliationCountry = affiliation.Country
 			publication.AffiliationURL = affiliation.URL
 			publication.AffiliationsJSON = affiliation.JSON
+		}
+
+		if authorNames, ok := authorsByDocument[row.ID]; ok {
+			publication.AuthorNames = authorNames
 		}
 
 		publication.CoverDate = row.CoverDate
@@ -485,7 +544,7 @@ func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]s
 	return publications
 }
 
-func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocument map[uint]scopusAffiliationAggregate) []ScopusPublicationByUser {
+func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocument map[uint]scopusAffiliationAggregate, authorsByDocument map[uint]*string) []ScopusPublicationByUser {
 	items := make([]ScopusPublicationByUser, 0, len(rows))
 	for _, row := range rows {
 		title := strings.TrimSpace(stringOrEmpty(row.Title))
@@ -506,6 +565,11 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 			CoverDate:              row.CoverDate,
 			CitedBy:                row.CitedByCount,
 			DOI:                    normalizeNullable(row.DOI),
+			ConferenceName:         normalizeNullable(row.ConferenceName),
+			ConferenceVenue:        normalizeNullable(row.ConferenceVenue),
+			ConferenceCity:         normalizeNullable(row.ConferenceCity),
+			ConferenceCountry:      normalizeNullable(row.ConferenceCountry),
+			ConferenceLocation:     normalizeNullable(row.ConferenceLocation),
 			EID:                    row.EID,
 			ScopusID:               normalizeNullable(row.ScopusID),
 			ScopusURL:              normalizeNullable(row.ScopusLink),
@@ -522,6 +586,10 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 			pub.AffiliationCountry = affiliation.Country
 			pub.AffiliationURL = affiliation.URL
 			pub.AffiliationsJSON = affiliation.JSON
+		}
+
+		if authorNames, ok := authorsByDocument[row.DocumentID]; ok {
+			pub.AuthorNames = authorNames
 		}
 
 		if row.CoverDate != nil {
@@ -648,6 +716,83 @@ func (s *ScopusPublicationService) loadDocumentAffiliationAggregates(documentIDs
 	}
 
 	return aggregates, nil
+}
+
+func (s *ScopusPublicationService) loadDocumentAuthorAggregates(documentIDs []uint) (map[uint]*string, error) {
+	aggregates := make(map[uint]*string)
+	uniqueDocumentIDs := uniqueUintValues(documentIDs)
+	if len(uniqueDocumentIDs) == 0 {
+		return aggregates, nil
+	}
+
+	var rows []scopusDocumentAuthorRow
+	err := s.db.Table("scopus_document_authors AS sda").
+		Select("sda.document_id, sda.author_id, sa.scopus_author_id, sa.full_name, sa.given_name, sa.surname, sa.initials").
+		Joins("INNER JOIN scopus_authors AS sa ON sa.id = sda.author_id").
+		Where("sda.document_id IN ?", uniqueDocumentIDs).
+		Order("sda.document_id ASC").
+		Order("sda.author_seq ASC").
+		Order("sda.id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	type authorState struct {
+		seen  map[uint]struct{}
+		names []string
+	}
+
+	states := make(map[uint]*authorState)
+	for _, row := range rows {
+		name := resolveScopusAuthorName(row)
+		if name == "" {
+			continue
+		}
+
+		state, ok := states[row.DocumentID]
+		if !ok {
+			state = &authorState{seen: map[uint]struct{}{}}
+			states[row.DocumentID] = state
+		}
+
+		if _, exists := state.seen[row.AuthorID]; exists {
+			continue
+		}
+		state.seen[row.AuthorID] = struct{}{}
+		state.names = append(state.names, name)
+	}
+
+	for documentID, state := range states {
+		aggregates[documentID] = joinNonEmptyValues(state.names)
+	}
+
+	return aggregates, nil
+}
+
+func resolveScopusAuthorName(row scopusDocumentAuthorRow) string {
+	if fullName := strings.TrimSpace(stringValue(row.FullName)); fullName != "" {
+		return fullName
+	}
+
+	givenName := strings.TrimSpace(stringValue(row.GivenName))
+	surname := strings.TrimSpace(stringValue(row.Surname))
+	if givenName != "" || surname != "" {
+		parts := make([]string, 0, 2)
+		if givenName != "" {
+			parts = append(parts, givenName)
+		}
+		if surname != "" {
+			parts = append(parts, surname)
+		}
+		return strings.Join(parts, " ")
+	}
+
+	if initials := strings.TrimSpace(stringValue(row.Initials)); initials != "" {
+		return initials
+	}
+
+	return strings.TrimSpace(row.ScopusAuthorID)
 }
 
 func uniqueUintValues(values []uint) []uint {
