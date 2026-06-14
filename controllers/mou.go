@@ -15,11 +15,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// mouMu protects updateMouStatusesBasedOnDate and SendPendingMouNotifications from concurrent execution
+var mouMu sync.Mutex
 
 // GetMous retrieves all MOU records with filtering
 func GetMous(c *gin.Context) {
@@ -42,8 +46,6 @@ func GetMous(c *gin.Context) {
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
-
-	updateMouStatusesBasedOnDate()
 
 	var mous []models.MouRecord
 	query := config.DB.Where("mou_records.deleted_at IS NULL")
@@ -150,19 +152,21 @@ func GetMous(c *gin.Context) {
 		statsArgs = append(statsArgs, "%"+country+"%", "%"+country+"%")
 	}
 
-	var activeCount, nearExpiryCount, expiredCount int64
+	var activeCount, nearExpiryCount, expiredCount, pendingCount int64
 	joinClause := "LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id"
 	countryJoin := ""
 	if country != "" {
 		countryJoin = "LEFT JOIN countries ON countries.id = mou_records.Country_id"
 	}
 
-	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)",
-		append(statsArgs, "%มีผล%", "%ใกล้หมดอายุ%")...).Scan(&activeCount)
-	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()",
-		append(statsArgs, "%มีผล%", "%ใกล้หมดอายุ%")...).Scan(&nearExpiryCount)
-	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)",
-		append(statsArgs, "%หมดอายุ%", "%Expired%")...).Scan(&expiredCount)
+	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ?",
+		append(statsArgs, "%มีผล%")...).Scan(&activeCount)
+	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ? AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()",
+		append(statsArgs, "%ใกล้หมดอายุ%")...).Scan(&nearExpiryCount)
+	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ? AND mou_status.name NOT LIKE ?",
+		append(statsArgs, "%หมดอายุ%", "%ใกล้%")...).Scan(&expiredCount)
+	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ?",
+		append(statsArgs, "%รอดำเนินการ%")...).Scan(&pendingCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":           true,
@@ -173,6 +177,7 @@ func GetMous(c *gin.Context) {
 		"active_count":      activeCount,
 		"near_expiry_count": nearExpiryCount,
 		"expired_count":     expiredCount,
+		"pending_count":     pendingCount,
 	})
 }
 
@@ -208,10 +213,6 @@ func GetMouDetail(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch MOU"})
 		return
 	}
-
-	// Load MOU events from mou_notification_log
-	var mouEvents []models.MouNotificationLog
-	config.DB.Where("mou_id = ?", mou.ID).Order("sent_at DESC").Preload("Actor").Find(&mouEvents)
 
 	updateMouStatusesBasedOnDate()
 
@@ -297,21 +298,30 @@ func DownloadMouAttachments(c *gin.Context) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 
+	var errs []string
 	for _, att := range attachments {
-		func() {
-			f, err := os.Open(att.FilePath)
-			if err != nil {
-				return
-			}
-			defer f.Close()
+		f, err := os.Open(att.FilePath)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", att.FileName, err))
+			continue
+		}
 
-			w, err := zw.Create(att.FileName)
-			if err != nil {
-				return
-			}
+		w, err := zw.Create(att.FileName)
+		if err != nil {
+			f.Close()
+			errs = append(errs, fmt.Sprintf("%s: zip create failed", att.FileName))
+			continue
+		}
 
-			io.Copy(w, f)
-		}()
+		_, err = io.Copy(w, f)
+		f.Close()
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: copy failed", att.FileName))
+		}
+	}
+
+	if len(errs) > 0 {
+		fmt.Printf("Download errors for MOU %s: %v\n", id, errs)
 	}
 
 	if err := zw.Close(); err != nil {
@@ -379,10 +389,14 @@ func CreateMou(c *gin.Context) {
 	}
 
 	// Parse dates from "DD/MM/YYYY" format
-	startDate, err := parseDateString(req.StartDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start_date format. Use DD/MM/YYYY"})
-		return
+	var startDate *time.Time
+	if req.StartDate != nil && *req.StartDate != "" {
+		parsedStart, err := parseDateString(*req.StartDate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start_date format. Use DD/MM/YYYY"})
+			return
+		}
+		startDate = &parsedStart
 	}
 
 	var endDate *time.Time
@@ -402,14 +416,19 @@ func CreateMou(c *gin.Context) {
 		}
 	}
 
-	// Set default status to pending (รอดำเนินการ)
-	var statusID int = 1
+	// Set default status to draft or pending review
+	var statusID int
 	if req.StatusID != nil && *req.StatusID > 0 {
 		statusID = *req.StatusID
 	} else {
 		var status models.MouStatus
-		if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&status).Error; err == nil {
-			statusID = status.ID
+		if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&status).Error; err != nil {
+			config.DB.Where("name LIKE ?", "%ร่าง%").First(&status)
+		}
+		statusID = status.ID
+		if statusID == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Default MOU status not found. Seed data may be missing."})
+			return
 		}
 	}
 
@@ -431,6 +450,7 @@ func CreateMou(c *gin.Context) {
 		Level:            req.Level,
 		StartDate:        startDate,
 		EndDate:          endDate,
+		ParentMouID:      req.ParentMouID,
 		CountryID:        req.CountryID,
 		IsInternational:  req.IsInternational,
 		CoordinatorID:    req.CoordinatorID,
@@ -448,7 +468,11 @@ func CreateMou(c *gin.Context) {
 		mou.YearOfSigning = &parsed
 	}
 
-	if err := config.DB.Create(&mou).Error; err != nil {
+	// Wrap multi-table writes in a transaction
+	tx := config.DB.Begin()
+
+	if err := tx.Create(&mou).Error; err != nil {
+		tx.Rollback()
 		fmt.Println("Error creating MOU:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create MOU"})
 		return
@@ -456,10 +480,10 @@ func CreateMou(c *gin.Context) {
 
 	// Auto-generate mou_code if not provided
 	if req.MouCode != "" {
-		config.DB.Model(&mou).Update("mou_code", req.MouCode)
+		tx.Model(&mou).Update("mou_code", req.MouCode)
 	} else {
 		mouCode := fmt.Sprintf("MOU-%06d", mou.ID)
-		config.DB.Model(&mou).Update("mou_code", mouCode)
+		tx.Model(&mou).Update("mou_code", mouCode)
 		mou.MouCode = mouCode
 	}
 
@@ -470,7 +494,8 @@ func CreateMou(c *gin.Context) {
 			PartnerOrg:    req.PartnerName,
 			PartnerTypeID: req.PartnerTypeID,
 		}
-		if err := config.DB.Create(&partner).Error; err != nil {
+		if err := tx.Create(&partner).Error; err != nil {
+			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create MOU partner: " + err.Error()})
 			return
 		}
@@ -505,8 +530,11 @@ func CreateMou(c *gin.Context) {
 			if f.Email != nil {
 				mouFaculty.Email = f.Email
 			}
-			if err := config.DB.Create(&mouFaculty).Error; err != nil {
+			if err := tx.Create(&mouFaculty).Error; err != nil {
+				tx.Rollback()
 				fmt.Println("Error creating MOU faculty:", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create faculty"})
+				return
 			}
 		}
 	} else {
@@ -518,18 +546,16 @@ func CreateMou(c *gin.Context) {
 				MouID:     mou.ID,
 				FacultyID: &fid,
 			}
-			if err := config.DB.Create(&mouFaculty).Error; err != nil {
+			if err := tx.Create(&mouFaculty).Error; err != nil {
+				tx.Rollback()
 				fmt.Println("Error creating MOU faculty:", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create faculty"})
+				return
 			}
 		}
 	}
 
 	// Create notification records
-	notifyDays := 0
-	if req.NotifyDaysBefore != nil {
-		notifyDays = *req.NotifyDaysBefore
-	}
-
 	var notifyStaffIDs []int
 
 	if req.CoordinatorID != nil && *req.CoordinatorID > 0 {
@@ -549,12 +575,14 @@ func CreateMou(c *gin.Context) {
 		}
 		sid := staffID
 		notification := models.MouNotification{
-			MouID:      mou.ID,
-			StaffID:    &sid,
-			DaysBefore: notifyDays,
+			MouID:   mou.ID,
+			StaffID: &sid,
 		}
-		if err := config.DB.Create(&notification).Error; err != nil {
+		if err := tx.Create(&notification).Error; err != nil {
+			tx.Rollback()
 			fmt.Println("Error creating MOU notification:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create notification"})
+			return
 		}
 	}
 
@@ -562,27 +590,51 @@ func CreateMou(c *gin.Context) {
 	for _, f := range req.Faculties {
 		if f.UserID == 0 && f.Email != nil && *f.Email != "" {
 			notification := models.MouNotification{
-				MouID:      mou.ID,
-				StaffID:    nil,
-				Email:      f.Email,
-				DaysBefore: notifyDays,
+				MouID:   mou.ID,
+				StaffID: nil,
+				Email:   f.Email,
 			}
-			if err := config.DB.Create(&notification).Error; err != nil {
+			if err := tx.Create(&notification).Error; err != nil {
+				tx.Rollback()
 				fmt.Println("Error creating MOU notification for external:", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create external notification"})
+				return
 			}
 		}
 	}
 
-	// Handle file uploads from multipart form
+	tx.Commit()
+
+	// Handle file uploads from multipart form with validation
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		form, err := c.MultipartForm()
 		if err == nil {
 			uploadFiles := form.File["files"]
+			var fileErrors []string
+			for _, f := range uploadFiles {
+				// Validate file size (max 50MB)
+				if f.Size > 50*1024*1024 {
+					fileErrors = append(fileErrors, fmt.Sprintf("%s: exceeds 50MB limit", f.Filename))
+					continue
+				}
+				// Validate file extension
+				ext := strings.ToLower(filepath.Ext(f.Filename))
+				allowedExts := map[string]bool{".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".jpg": true, ".jpeg": true, ".png": true, ".zip": true, ".rar": true}
+				if !allowedExts[ext] {
+					fileErrors = append(fileErrors, fmt.Sprintf("%s: file type not allowed", f.Filename))
+					continue
+				}
+			}
 			uploadDir := filepath.Join("uploads", "mou")
-			if err := os.MkdirAll(uploadDir, 0755); err == nil {
+			if err := os.MkdirAll(uploadDir, 0755); err != nil {
+				fileErrors = append(fileErrors, fmt.Sprintf("upload directory: %v", err))
+			}
+			if len(fileErrors) == 0 {
 				for _, f := range uploadFiles {
 					savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", mou.ID, f.Filename))
-					if err := c.SaveUploadedFile(f, savePath); err == nil {
+					if err := c.SaveUploadedFile(f, savePath); err != nil {
+						fileErrors = append(fileErrors, fmt.Sprintf("%s: %v", f.Filename, err))
+					} else {
 						attachment := models.MouAttachment{
 							MouID:      mou.ID,
 							FileName:   f.Filename,
@@ -593,6 +645,9 @@ func CreateMou(c *gin.Context) {
 						config.DB.Create(&attachment)
 					}
 				}
+			}
+			if len(fileErrors) > 0 {
+				fmt.Printf("File upload errors for MOU %d: %v\n", mou.ID, fileErrors)
 			}
 		}
 	}
@@ -641,6 +696,12 @@ func UpdateMou(c *gin.Context) {
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch MOU"})
 		}
+		return
+	}
+
+	// Check if MOU is locked
+	if mou.LockMou {
+		c.JSON(http.StatusForbidden, gin.H{"error": "MOU ถูกล็อก ไม่สามารถแก้ไขได้"})
 		return
 	}
 
@@ -699,12 +760,16 @@ func UpdateMou(c *gin.Context) {
 		mou.CoordinatorID = req.CoordinatorID
 	}
 	if req.StartDate != nil {
-		startDate, err := parseDateString(*req.StartDate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start_date format. Use DD/MM/YYYY"})
-			return
+		if *req.StartDate == "" {
+			mou.StartDate = nil
+		} else {
+			startDate, err := parseDateString(*req.StartDate)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start_date format. Use DD/MM/YYYY"})
+				return
+			}
+			mou.StartDate = &startDate
 		}
-		mou.StartDate = startDate
 	}
 	if req.YearOfSigning != nil {
 		if *req.YearOfSigning != "" {
@@ -848,13 +913,6 @@ func UpdateMou(c *gin.Context) {
 			config.DB.Where("mou_id = ? AND staff_id > 0", mou.ID).Delete(&models.MouNotification{})
 		}
 
-		notifyDays := 30
-		if req.NotifyDaysBefore != nil && *req.NotifyDaysBefore > 0 {
-			notifyDays = *req.NotifyDaysBefore
-		} else if mou.NotifyDaysBefore != nil && *mou.NotifyDaysBefore > 0 {
-			notifyDays = *mou.NotifyDaysBefore
-		}
-
 		var notifyStaffIDs []int
 
 		staffID := mou.CoordinatorID
@@ -878,9 +936,8 @@ func UpdateMou(c *gin.Context) {
 			}
 			sidCopy := sid
 			notification := models.MouNotification{
-				MouID:      mou.ID,
-				StaffID:    &sidCopy,
-				DaysBefore: notifyDays,
+				MouID:   mou.ID,
+				StaffID: &sidCopy,
 			}
 			config.DB.Create(&notification)
 		}
@@ -889,10 +946,9 @@ func UpdateMou(c *gin.Context) {
 		for _, f := range req.Faculties {
 			if f.UserID == 0 && f.Email != nil && *f.Email != "" {
 				notification := models.MouNotification{
-					MouID:      mou.ID,
-					StaffID:    nil,
-					Email:      f.Email,
-					DaysBefore: notifyDays,
+					MouID:   mou.ID,
+					StaffID: nil,
+					Email:   f.Email,
 				}
 				config.DB.Create(&notification)
 			}
@@ -933,6 +989,20 @@ func DeleteMou(c *gin.Context) {
 		return
 	}
 
+	// Cascade soft-delete to children
+	now := time.Now()
+	config.DB.Model(&models.MouAttachment{}).Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Update("deleted_at", now)
+	config.DB.Model(&models.MouPartner{}).Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Update("deleted_at", now)
+	config.DB.Model(&models.MouFaculty{}).Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Update("deleted_at", now)
+	config.DB.Model(&models.MouNotification{}).Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Update("deleted_at", now)
+	config.DB.Model(&models.MouNotificationLog{}).Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Update("deleted_at", now)
+	var activities []models.MouActivity
+	config.DB.Where("mou_id = ? AND deleted_at IS NULL", mou.ID).Find(&activities)
+	for _, act := range activities {
+		config.DB.Model(&models.MouActivityAttachment{}).Where("activity_id = ? AND deleted_at IS NULL", act.ID).Update("deleted_at", now)
+		config.DB.Model(&act).Update("deleted_at", now)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "MOU deleted successfully",
@@ -944,7 +1014,6 @@ func GetMouStatuses(c *gin.Context) {
 
 	var statuses []models.MouStatus
 
-	// Note: deleted_at has DEFAULT CURRENT_TIMESTAMP in this schema, so we omit the soft-delete filter
 	if err := config.DB.Find(&statuses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch statuses"})
 		return
@@ -1041,7 +1110,7 @@ func GetActivityTypes(c *gin.Context) {
 // GetOkrList retrieves all available OKRs
 func GetOkrList(c *gin.Context) {
 	var okrs []models.MouOKR
-	if err := config.DB.Find(&okrs).Error; err != nil {
+	if err := config.DB.Where("deleted_at IS NULL").Find(&okrs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch OKRs"})
 		return
 	}
@@ -1070,7 +1139,7 @@ func CreateActivityType(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create activity type"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": actType})
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": actType})
 }
 
 // UpdateActivityType updates an existing activity type
@@ -1144,7 +1213,7 @@ func CreateOkr(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create OKR"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": okr})
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": okr})
 }
 
 // UpdateOkr updates an existing OKR
@@ -1223,15 +1292,15 @@ func GetMouDashboard(c *gin.Context) {
 	config.DB.Model(&models.MouRecord{}).Where("deleted_at IS NULL"+yearFilter, yearArgs...).Count(&totalCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%มีผล%", "%ใกล้หมดอายุ%"}, yearArgs...)...).
+		Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ?"+yearFilter, append([]interface{}{"%มีผล%"}, yearArgs...)...).
 		Count(&activeCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?) AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()"+yearFilter, append([]interface{}{"%มีผล%", "%ใกล้หมดอายุ%"}, yearArgs...)...).
+		Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ? AND mou_records.end_date IS NOT NULL AND mou_records.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND mou_records.end_date >= CURDATE()"+yearFilter, append([]interface{}{"%ใกล้หมดอายุ%"}, yearArgs...)...).
 		Count(&nearExpiryCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%หมดอายุ%"}, yearArgs...)...).
+		Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ? AND mou_status.name NOT LIKE ?"+yearFilter, append([]interface{}{"%หมดอายุ%", "%ใกล้%"}, yearArgs...)...).
 		Count(&expiredCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
@@ -1254,7 +1323,7 @@ func GetMouDashboard(c *gin.Context) {
 	var activeMous []models.MouRecord
 	activeQuery := config.DB.Preload("Status").Preload("Partners").
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%ใกล้หมดอายุ%")
+		Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ?", "%มีผล%")
 	if yearParam != "" {
 		y, err := strconv.Atoi(yearParam)
 		if err == nil {
@@ -1285,7 +1354,7 @@ func GetMouDashboard(c *gin.Context) {
 	}
 	expiredQuery.Order("mou_records.end_date DESC").Limit(20).Find(&expiredMous)
 
-	// Active MOUs per year (MOUs in effect during each year)
+	// Active MOUs per year - use SQL COUNT per year instead of loading all dates in memory
 	type YearlyCount struct {
 		Year  int `json:"year"`
 		Count int `json:"count"`
@@ -1300,24 +1369,15 @@ func GetMouDashboard(c *gin.Context) {
 	}
 	maxYear++
 
-	var mouDateRanges []struct {
-		StartDate time.Time
-		EndDate   *time.Time
-	}
-	config.DB.Table("mou_records").
-		Select("mou_records.start_date, mou_records.end_date").
-		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ? OR mou_status.name LIKE ?)", "%มีผล%", "%ใกล้หมดอายุ%").
-		Find(&mouDateRanges)
 	for y := minYear; y <= maxYear; y++ {
-		count := 0
-		for _, m := range mouDateRanges {
-			if m.StartDate.Year() <= y && (m.EndDate == nil || m.EndDate.Year() >= y) {
-				count++
-			}
-		}
+		var count int64
+		config.DB.Model(&models.MouRecord{}).
+			Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
+			Where("mou_records.deleted_at IS NULL AND mou_status.name LIKE ? AND mou_records.start_date <= ? AND (mou_records.end_date IS NULL OR mou_records.end_date >= ?)",
+				"%มีผล%", fmt.Sprintf("%d-12-31", y), fmt.Sprintf("%d-01-01", y)).
+			Count(&count)
 		if count > 0 {
-			yearlyData = append(yearlyData, YearlyCount{Year: y, Count: count})
+			yearlyData = append(yearlyData, YearlyCount{Year: y, Count: int(count)})
 		}
 	}
 
@@ -1338,6 +1398,35 @@ func GetMouDashboard(c *gin.Context) {
 		Order("mou_records.end_date ASC").
 		Limit(20).
 		Find(&nearExpiryMous)
+
+	// Mark notified status for dashboard cards
+	var notifiedMouIDs []int
+	for _, m := range renewMous {
+		notifiedMouIDs = append(notifiedMouIDs, m.ID)
+	}
+	for _, m := range nearExpiryMous {
+		notifiedMouIDs = append(notifiedMouIDs, m.ID)
+	}
+	if len(notifiedMouIDs) > 0 {
+		var sentIDs []int
+		config.DB.Model(&models.MouNotification{}).
+			Where("mou_id IN ? AND is_sent = 1", notifiedMouIDs).
+			Pluck("mou_id", &sentIDs)
+		sentSet := make(map[int]bool, len(sentIDs))
+		for _, id := range sentIDs {
+			sentSet[id] = true
+		}
+		for i := range renewMous {
+			if sentSet[renewMous[i].ID] {
+				renewMous[i].Notified = true
+			}
+		}
+		for i := range nearExpiryMous {
+			if sentSet[nearExpiryMous[i].ID] {
+				nearExpiryMous[i].Notified = true
+			}
+		}
+	}
 
 	// Recent activities
 	var recentActivities []models.MouNotificationLog
@@ -1420,7 +1509,17 @@ func CreateMouActivity(c *gin.Context) {
 		return
 	}
 
+	// Check if MOU is locked
+	if mou.LockMou {
+		c.JSON(http.StatusForbidden, gin.H{"error": "MOU ถูกล็อก ไม่สามารถเพิ่มกิจกรรมได้"})
+		return
+	}
+
 	// Verify activity types exist
+	if len(req.ActivityTypeIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one activity type is required"})
+		return
+	}
 	var actTypes []models.MouActivityType
 	if err := config.DB.Where("id IN ? AND is_active = ?", req.ActivityTypeIDs, true).Find(&actTypes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify activity types"})
@@ -1509,16 +1608,34 @@ func CreateMouActivity(c *gin.Context) {
 
 	tx.Commit()
 
-	// Handle file uploads from multipart form
+	// Handle file uploads from multipart form with validation
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		form, err := c.MultipartForm()
 		if err == nil {
 			uploadFiles := form.File["files"]
+			var fileErrors []string
+			for _, f := range uploadFiles {
+				if f.Size > 50*1024*1024 {
+					fileErrors = append(fileErrors, fmt.Sprintf("%s: exceeds 50MB limit", f.Filename))
+					continue
+				}
+				ext := strings.ToLower(filepath.Ext(f.Filename))
+				allowedExts := map[string]bool{".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".jpg": true, ".jpeg": true, ".png": true, ".zip": true, ".rar": true}
+				if !allowedExts[ext] {
+					fileErrors = append(fileErrors, fmt.Sprintf("%s: file type not allowed", f.Filename))
+					continue
+				}
+			}
 			uploadDir := filepath.Join("uploads", "activity")
-			if err := os.MkdirAll(uploadDir, 0755); err == nil {
+			if err := os.MkdirAll(uploadDir, 0755); err != nil {
+				fileErrors = append(fileErrors, fmt.Sprintf("upload directory: %v", err))
+			}
+			if len(fileErrors) == 0 {
 				for _, f := range uploadFiles {
 					savePath := filepath.Join(uploadDir, fmt.Sprintf("%d_%s", activity.ID, f.Filename))
-					if err := c.SaveUploadedFile(f, savePath); err == nil {
+					if err := c.SaveUploadedFile(f, savePath); err != nil {
+						fileErrors = append(fileErrors, fmt.Sprintf("%s: %v", f.Filename, err))
+					} else {
 						attachment := models.MouActivityAttachment{
 							ActivityID: activity.ID,
 							FileName:   f.Filename,
@@ -1529,6 +1646,9 @@ func CreateMouActivity(c *gin.Context) {
 						config.DB.Create(&attachment)
 					}
 				}
+			}
+			if len(fileErrors) > 0 {
+				fmt.Printf("File upload errors for activity %d: %v\n", activity.ID, fileErrors)
 			}
 		}
 	}
@@ -1599,6 +1719,13 @@ func UpdateMouActivity(c *gin.Context) {
 		return
 	}
 
+	// Check if parent MOU is locked
+	var parentMou models.MouRecord
+	if err := config.DB.Where("id = ? AND deleted_at IS NULL", activity.MouID).First(&parentMou).Error; err == nil && parentMou.LockMou {
+		c.JSON(http.StatusForbidden, gin.H{"error": "MOU ถูกล็อก ไม่สามารถแก้ไขกิจกรรมได้"})
+		return
+	}
+
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
@@ -1628,15 +1755,31 @@ func UpdateMouActivity(c *gin.Context) {
 		activity.ActivityEnd = activityEnd
 	}
 
-	activity.Title = req.Title
-	activity.Location = req.Location
+	if req.Title != "" {
+		activity.Title = req.Title
+	}
+	if req.Location != "" {
+		activity.Location = req.Location
+	}
 	activity.ParticipantCount = req.ParticipantCount
-	activity.Objective = req.Objective
-	activity.Description = req.Description
-	activity.Plan = req.Plan
-	activity.Notes = req.Notes
-	activity.CoordinatorOther = req.CoordinatorOther
-	activity.CoordinatorOrg = req.CoordinatorOrg
+	if req.Objective != "" {
+		activity.Objective = req.Objective
+	}
+	if req.Description != "" {
+		activity.Description = req.Description
+	}
+	if req.Plan != "" {
+		activity.Plan = req.Plan
+	}
+	if req.Notes != "" {
+		activity.Notes = req.Notes
+	}
+	if req.CoordinatorOther != "" {
+		activity.CoordinatorOther = req.CoordinatorOther
+	}
+	if req.CoordinatorOrg != "" {
+		activity.CoordinatorOrg = req.CoordinatorOrg
+	}
 	activity.UpdatedBy = &uid
 
 	if req.CoordinatorID != nil {
@@ -1873,59 +2016,116 @@ func parseDateString(dateStr string) (time.Time, error) {
 	}
 
 	// Convert Buddhist year to Gregorian if necessary (Thai year is typically 543 years ahead)
-	// For now, assuming it could be either format, detect by checking if year > 2500
 	if year > 2500 {
 		year = year - 543
+	}
+
+	// Validate date components before passing to time.Date (which silently normalizes)
+	if month < 1 || month > 12 || day < 1 {
+		return time.Time{}, fmt.Errorf("invalid date: month or day out of range")
+	}
+	daysInMonth := time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC).Day()
+	if day > daysInMonth {
+		return time.Time{}, fmt.Errorf("invalid date: day %d exceeds month %d max %d", day, month, daysInMonth)
 	}
 
 	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC), nil
 }
 
-// updateMouStatusesBasedOnDate auto-advances MOU status from pending to active when start_date is reached
+// updateMouStatusesBasedOnDate auto-advances MOU status based on dates:
+//   pending (5) → active (2) when start_date <= today
+//   active (2) / near expiry (7) → expired (3) when end_date < today
+//   active (2) → near expiry (7) when end_date is within 90 days
 func updateMouStatusesBasedOnDate() {
-	var pendingStatus, activeStatus models.MouStatus
+	mouMu.Lock()
+	defer mouMu.Unlock()
+
+	var pendingStatus, activeStatus, nearExpiryStatus, expiredStatus models.MouStatus
 	if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&pendingStatus).Error; err != nil {
 		return
 	}
 	if err := config.DB.Where("name LIKE ?", "%มีผล%").First(&activeStatus).Error; err != nil {
 		return
 	}
+	config.DB.Where("name LIKE ?", "%ใกล้หมดอายุ%").First(&nearExpiryStatus)
+	config.DB.Where("name LIKE ?", "%หมดอายุ%").Where("name NOT LIKE ?", "%ใกล้%").First(&expiredStatus)
 
 	now := time.Now().Truncate(24 * time.Hour)
 	minDate := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	var mousToUpdate []models.MouRecord
-	config.DB.Where("Status_id = ? AND start_date > ? AND start_date <= ? AND deleted_at IS NULL",
-		pendingStatus.ID, minDate, now).Find(&mousToUpdate)
+	ninetyDays := now.AddDate(0, 0, 90)
+	var logEntries []models.MouNotificationLog
 
-	if len(mousToUpdate) == 0 {
-		return
+	// 1. Pending → Active when start_date is reached
+	var pendingToActive []models.MouRecord
+	config.DB.Where("Status_id = ? AND start_date IS NOT NULL AND start_date <= ? AND start_date > ? AND deleted_at IS NULL",
+		pendingStatus.ID, now, minDate).Find(&pendingToActive)
+	if len(pendingToActive) > 0 {
+		var ids []int
+		for _, m := range pendingToActive {
+			ids = append(ids, m.ID)
+		}
+		config.DB.Model(&models.MouRecord{}).Where("id IN ?", ids).Update("Status_id", activeStatus.ID)
+		for _, m := range pendingToActive {
+			desc := fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s อัตโนมัติ", pendingStatus.Name, activeStatus.Name)
+			logEntries = append(logEntries, models.MouNotificationLog{
+				MouID: m.ID, Action: "เปลี่ยนสถานะ MOU", ActorID: 0, SentTo: 0, Channel: "system", Success: true, Message: &desc,
+			})
+		}
 	}
 
-	var ids []int
-	for _, m := range mousToUpdate {
-		ids = append(ids, m.ID)
+	// 2. Active / Near Expiry → Expired when past end_date
+	var toExpired []models.MouRecord
+	config.DB.Where("(Status_id = ? OR Status_id = ?) AND end_date IS NOT NULL AND end_date < ? AND deleted_at IS NULL",
+		activeStatus.ID, nearExpiryStatus.ID, now).Find(&toExpired)
+	if len(toExpired) > 0 && expiredStatus.ID > 0 {
+		var ids []int
+		for _, m := range toExpired {
+			ids = append(ids, m.ID)
+		}
+		config.DB.Model(&models.MouRecord{}).Where("id IN ?", ids).Update("Status_id", expiredStatus.ID)
+		for _, m := range toExpired {
+			oldName := activeStatus.Name
+			if m.StatusID == nearExpiryStatus.ID {
+				oldName = nearExpiryStatus.Name
+			}
+			desc := fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s อัตโนมัติ", oldName, expiredStatus.Name)
+			logEntries = append(logEntries, models.MouNotificationLog{
+				MouID: m.ID, Action: "เปลี่ยนสถานะ MOU", ActorID: 0, SentTo: 0, Channel: "system", Success: true, Message: &desc,
+			})
+		}
 	}
-	config.DB.Model(&models.MouRecord{}).Where("id IN ?", ids).Update("Status_id", activeStatus.ID)
 
-	for _, m := range mousToUpdate {
-		desc := fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s อัตโนมัติ", pendingStatus.Name, activeStatus.Name)
-		config.DB.Create(&models.MouNotificationLog{
-			MouID:   m.ID,
-			Action:  "เปลี่ยนสถานะ MOU",
-			ActorID: 0,
-			SentTo:  0,
-			Channel: "system",
-			Success: true,
-			Message: &desc,
-		})
+	// 3. Active → Near Expiry when within 90 days of end_date
+	var toNearExpiry []models.MouRecord
+	config.DB.Where("Status_id = ? AND end_date IS NOT NULL AND end_date >= ? AND end_date <= ? AND deleted_at IS NULL",
+		activeStatus.ID, now, ninetyDays).Find(&toNearExpiry)
+	if len(toNearExpiry) > 0 && nearExpiryStatus.ID > 0 {
+		var ids []int
+		for _, m := range toNearExpiry {
+			ids = append(ids, m.ID)
+		}
+		config.DB.Model(&models.MouRecord{}).Where("id IN ?", ids).Update("Status_id", nearExpiryStatus.ID)
+		for _, m := range toNearExpiry {
+			desc := fmt.Sprintf("เปลี่ยนสถานะจาก %s เป็น %s อัตโนมัติ", activeStatus.Name, nearExpiryStatus.Name)
+			logEntries = append(logEntries, models.MouNotificationLog{
+				MouID: m.ID, Action: "เปลี่ยนสถานะ MOU", ActorID: 0, SentTo: 0, Channel: "system", Success: true, Message: &desc,
+			})
+		}
 	}
+
+	for _, entry := range logEntries {
+		config.DB.Create(&entry)
+	}
+}
+
+// RefreshMouStatuses is a dedicated POST endpoint to trigger status-based MOU updates
+func RefreshMouStatuses(c *gin.Context) {
+	updateMouStatusesBasedOnDate()
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "MOU statuses refreshed"})
 }
 
 // GetMouNotifications returns MOUs that are near expiry or expired for the bell icon
 func GetMouNotifications(c *gin.Context) {
-	// Trigger pending email notifications when bell icon is checked
-	SendPendingMouNotifications()
-
 	var nearExpiry []models.MouRecord
 	var expired []models.MouRecord
 	var nearExpiryCount, expiredCount int64
@@ -1991,9 +2191,18 @@ func RenewMou(c *gin.Context) {
 		return
 	}
 
-	// Find or create "ต่ออายุ" status
+	// Check if MOU is locked
+	if mou.LockMou {
+		c.JSON(http.StatusForbidden, gin.H{"error": "MOU ถูกล็อก ไม่สามารถต่ออายุได้"})
+		return
+	}
+
+	// Find or validate "ต่ออายุ" status
 	var renewedStatus models.MouStatus
-	config.DB.Where("name LIKE ?", "%ต่ออายุ%").First(&renewedStatus)
+	if err := config.DB.Where("name LIKE ?", "%ต่ออายุ%").First(&renewedStatus).Error; err != nil || renewedStatus.ID == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่พบสถานะ 'ต่ออายุ' ในระบบ"})
+		return
+	}
 
 	mou.EndDate = &parsedDate
 	mou.StatusID = renewedStatus.ID
@@ -2002,7 +2211,49 @@ func RenewMou(c *gin.Context) {
 		return
 	}
 
+	// Log renewal event
+	desc := fmt.Sprintf("ต่ออายุ MOU %s สิ้นสุดวันที่ %s", mou.MouCode, req.NewEndDate)
+	config.DB.Create(&models.MouNotificationLog{
+		MouID: mou.ID, Action: "ต่ออายุ MOU", ActorID: 0, SentTo: 0, Channel: "system", Success: true, Message: &desc,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "ต่ออายุ MOU สำเร็จ"})
+}
+
+// ToggleLockMou toggles the lock_mou flag (0→1 or 1→0)
+func ToggleLockMou(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req struct {
+		Lock bool `json:"lock"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify MOU exists
+	var count int64
+	config.DB.Model(&models.MouRecord{}).Where("id = ? AND deleted_at IS NULL", id).Count(&count)
+	if count == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "MOU not found"})
+		return
+	}
+
+	if err := config.DB.Model(&models.MouRecord{}).Where("id = ? AND deleted_at IS NULL", id).Update("lock_mou", req.Lock).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update lock status"})
+		return
+	}
+
+	label := "ล็อก MOU สำเร็จ"
+	if !req.Lock {
+		label = "ปลดล็อก MOU สำเร็จ"
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": label, "lock_mou": req.Lock})
 }
 
 // ExportMouCsv exports filtered MOU list as CSV file
@@ -2086,7 +2337,6 @@ func ExportMouCsv(c *gin.Context) {
 	writer.Write([]string{
 		"รหัส MOU",
 		"ชื่อโครงการ",
-		"ประเภท MOU",
 		"ระดับ",
 		"สถานะ",
 		"ประเทศ",
@@ -2123,7 +2373,7 @@ func ExportMouCsv(c *gin.Context) {
 			endDate = mou.EndDate.Format("02/01/2006")
 		}
 		startDate := ""
-		if !mou.StartDate.IsZero() {
+		if mou.StartDate != nil {
 			startDate = mou.StartDate.Format("02/01/2006")
 		}
 		yearSign := ""
@@ -2132,7 +2382,7 @@ func ExportMouCsv(c *gin.Context) {
 		}
 
 		writer.Write([]string{
-			mou.Title,
+			mou.MouCode,
 			mou.Title,
 			mou.Level,
 			mou.Status.Name,
@@ -2287,7 +2537,7 @@ func GetMouNotificationPreview(c *gin.Context) {
 		}
 	}
 	if setting.IncludeDates {
-		if !mou.StartDate.IsZero() && mou.EndDate != nil {
+		if mou.StartDate != nil && mou.EndDate != nil {
 			meta = append(meta, emailMetaItem{
 				Label: "วันที่เริ่มต้น-สิ้นสุด",
 				Value: mou.StartDate.Format("02/01/2006") + " - " + mou.EndDate.Format("02/01/2006"),
@@ -2306,8 +2556,12 @@ func GetMouNotificationPreview(c *gin.Context) {
 	}
 
 	subject := "แจ้งเตือน MOU ใกล้หมดอายุ"
+	endDateStr := "ไม่ระบุ"
+	if mou.EndDate != nil {
+		endDateStr = mou.EndDate.Format("02/01/2006")
+	}
 	paragraphs := []string{
-		fmt.Sprintf("MOU เรื่อง \"%s\" จะหมดอายุในวันที่ %s", mou.Title, mou.EndDate.Format("02/01/2006")),
+		fmt.Sprintf("MOU เรื่อง \"%s\" จะหมดอายุในวันที่ %s", mou.Title, endDateStr),
 		"กรุณาดำเนินการต่ออายุหรือติดต่อผู้รับผิดชอบ",
 	}
 	html := buildEmailTemplate(subject, paragraphs, meta, "", "", "")
@@ -2323,6 +2577,9 @@ func GetMouNotificationPreview(c *gin.Context) {
 
 // SendPendingMouNotifications processes and sends pending email notifications for expiring MOUs
 func SendPendingMouNotifications() (sentCount, failedCount int, message string) {
+	mouMu.Lock()
+	defer mouMu.Unlock()
+
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
@@ -2341,14 +2598,22 @@ func SendPendingMouNotifications() (sentCount, failedCount int, message string) 
 	log.Printf("[SendPendingMouNotifications] found %d pending notifications", len(notifications))
 
 	for _, notif := range notifications {
+		notifyDays := 0
+		if notif.Mou.NotifyDaysBefore != nil {
+			notifyDays = *notif.Mou.NotifyDaysBefore
+		}
 		log.Printf("[SendPendingMouNotifications] checking notif id=%d mou_id=%d days_before=%d end_date=%v staff_id=%d",
-			notif.ID, notif.MouID, notif.DaysBefore, notif.Mou.EndDate, notif.StaffID)
+			notif.ID, notif.MouID, notifyDays, notif.Mou.EndDate, notif.StaffID)
 
 		if notif.Mou.EndDate == nil {
 			log.Printf("[SendPendingMouNotifications] skip notif %d: EndDate is nil", notif.ID)
 			continue
 		}
-		notifyDate := notif.Mou.EndDate.AddDate(0, 0, -notif.DaysBefore)
+		if notifyDays == 0 {
+			log.Printf("[SendPendingMouNotifications] skip notif %d: notify_days_before is 0 or not configured", notif.ID)
+			continue
+		}
+		notifyDate := notif.Mou.EndDate.AddDate(0, 0, -notifyDays)
 		log.Printf("[SendPendingMouNotifications] notif %d: today=%v notifyDate=%v notifyDate.After(today)=%v",
 			notif.ID, today, notifyDate, notifyDate.After(today))
 		if notifyDate.After(today) {
@@ -2396,7 +2661,7 @@ func SendPendingMouNotifications() (sentCount, failedCount int, message string) 
 			}
 		}
 		if setting.IncludeDates {
-			if !notif.Mou.StartDate.IsZero() && notif.Mou.EndDate != nil {
+			if notif.Mou.StartDate != nil && notif.Mou.EndDate != nil {
 				meta = append(meta, emailMetaItem{
 					Label: "วันที่เริ่มต้น-สิ้นสุด",
 					Value: notif.Mou.StartDate.Format("02/01/2006") + " - " + notif.Mou.EndDate.Format("02/01/2006"),
@@ -2520,9 +2785,6 @@ func UpdateMouNotificationSetting(c *gin.Context) {
 		config.DB.Create(&setting)
 	}
 
-	if req.DefaultDaysBefore != nil {
-		setting.DefaultDaysBefore = *req.DefaultDaysBefore
-	}
 	if req.NotifyCoordinator != nil {
 		setting.NotifyCoordinator = *req.NotifyCoordinator
 	}
@@ -2559,4 +2821,31 @@ func UpdateMouNotificationSetting(c *gin.Context) {
 	config.DB.Preload("Updater").First(&setting, 1)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": setting})
+}
+
+// GetExpiredMous returns expired MOUs for the renewal selection modal
+func GetExpiredMous(c *gin.Context) {
+	var expiredStatus models.MouStatus
+	if err := config.DB.Where("name LIKE ?", "%หมดอายุ%").Where("name NOT LIKE ?", "%ใกล้%").First(&expiredStatus).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
+		return
+	}
+
+	var mous []struct {
+		ID        int    `json:"id"`
+		MouCode   string `json:"mou_code"`
+		Title     string `json:"title"`
+		EndDate   string `json:"end_date"`
+		Partner   string `json:"partner"`
+		Level     string `json:"level"`
+	}
+	config.DB.Table("mou_records").
+		Select("mou_records.id, mou_records.mou_code, mou_records.title, mou_records.end_date, mou_records.level, COALESCE(mou_partner.partner_org, '') as partner").
+		Joins("LEFT JOIN mou_partner ON mou_partner.mou_id = mou_records.id").
+		Where("mou_records.deleted_at IS NULL AND mou_records.Status_id = ?", expiredStatus.ID).
+		Order("mou_records.end_date DESC").
+		Limit(200).
+		Scan(&mous)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": mous})
 }

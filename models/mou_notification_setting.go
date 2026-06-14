@@ -4,7 +4,6 @@ import "time"
 
 type MouNotificationSetting struct {
 	ID                    int       `gorm:"primaryKey;column:id;default:1" json:"id"`
-	DefaultDaysBefore     int       `gorm:"column:default_days_before;default:30" json:"default_days_before"`
 	NotifyCoordinator     bool      `gorm:"column:notify_coordinator;default:true" json:"notify_coordinator"`
 	NotifyFacultyResponsible bool   `gorm:"column:notify_faculty_responsible;default:false" json:"notify_faculty_responsible"`
 	NotifyExternal        bool      `gorm:"column:notify_external;default:false" json:"notify_external"`
@@ -24,7 +23,6 @@ type MouNotificationSetting struct {
 func (MouNotificationSetting) TableName() string { return "mou_notification_settings" }
 
 type UpdateMouNotificationSettingRequest struct {
-	DefaultDaysBefore       *int   `json:"default_days_before"`
 	NotifyCoordinator       *bool  `json:"notify_coordinator"`
 	NotifyFacultyResponsible *bool `json:"notify_faculty_responsible"`
 	NotifyExternal          *bool  `json:"notify_external"`

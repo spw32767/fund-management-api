@@ -8,11 +8,12 @@ import (
 type MouRecord struct {
 	ID              int         `gorm:"primaryKey;column:id" json:"id"`
 	MouCode         string      `gorm:"column:mou_code;type:varchar(50)" json:"mou_code"`
+	ParentMouID     *int        `gorm:"column:parent_mou_id" json:"parent_mou_id,omitempty"`
 	Title           string      `gorm:"column:title" json:"title"`
 	Description     string      `gorm:"column:description;type:text" json:"description"`
 	StatusID        int         `gorm:"column:Status_id" json:"status_id"`
 	Level           string      `gorm:"column:level;type:enum('university','faculty')" json:"level"`
-	StartDate       time.Time   `gorm:"column:start_date" json:"start_date"`
+	StartDate       *time.Time  `gorm:"column:start_date" json:"start_date"`
 	EndDate         *time.Time  `gorm:"column:end_date" json:"end_date"`
 	YearOfSigning   *time.Time  `gorm:"column:year_of_signing" json:"year_of_signing"`
 	SignedBy        string      `gorm:"column:signed_by" json:"signed_by"`
@@ -20,6 +21,7 @@ type MouRecord struct {
 	NotifyDaysBefore *int       `gorm:"column:notify_days_before" json:"notify_days_before"`
 	CountryID       *int        `gorm:"column:Country_id" json:"country_id"`
 	IsInternational bool        `gorm:"column:is_international" json:"is_international"`
+	LockMou        bool        `gorm:"column:lock_mou;default:false" json:"lock_mou"`
 	CoordinatorID   *int        `gorm:"column:coordinator_id" json:"coordinator_id"`
 	CreatedBy       int         `gorm:"column:created_by" json:"created_by"`
 	UpdatedBy       *int        `gorm:"column:updated_by" json:"updated_by,omitempty"`
@@ -29,10 +31,12 @@ type MouRecord struct {
 
 	// Relations
 	Status        MouStatus        `gorm:"foreignKey:StatusID" json:"status,omitempty"`
+	Notified      bool             `gorm:"-" json:"notified"`
 	Country       *Country         `gorm:"foreignKey:CountryID" json:"country,omitempty"`
 	Coordinator   User             `gorm:"foreignKey:CoordinatorID" json:"coordinator,omitempty"`
 	Creator       User             `gorm:"foreignKey:CreatedBy" json:"creator,omitempty"`
 	Updater       *User            `gorm:"foreignKey:UpdatedBy" json:"updater,omitempty"`
+	ParentMou     *MouRecord       `gorm:"foreignKey:ParentMouID" json:"parent_mou,omitempty"`
 	Partners      []MouPartner     `gorm:"foreignKey:MouID" json:"partners,omitempty"`
 	Faculties     []MouFaculty     `gorm:"foreignKey:MouID" json:"faculties,omitempty"`
 	Notifications []MouNotification     `gorm:"foreignKey:MouID" json:"notifications,omitempty"`
@@ -129,7 +133,7 @@ type MouNotification struct {
 	MouID      int        `gorm:"column:mou_id" json:"mou_id"`
 	StaffID    *int       `gorm:"column:staff_id" json:"staff_id,omitempty"`
 	Email      *string    `gorm:"column:email" json:"email,omitempty"`
-	DaysBefore int        `gorm:"column:days_before" json:"days_before"`
+	DaysBefore int        `gorm:"-" json:"-"`
 	IsSent     bool       `gorm:"column:is_sent;default:false" json:"is_sent"`
 	SentAt     *time.Time `gorm:"column:sent_at" json:"sent_at"`
 	CreatedAt  time.Time  `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
@@ -252,11 +256,12 @@ type MouActivityAttachment struct {
 // CreateMouRequest is the request body for creating an MOU
 type CreateMouRequest struct {
 	MouCode          string     `json:"mou_code"`
+	ParentMouID      *int       `json:"parent_mou_id"`
 	Title            string     `json:"title" binding:"required"`
 	Description      string     `json:"description"`
 	Level            string     `json:"level" binding:"required,oneof=university faculty"`
 	IsInternational  bool       `json:"is_international"`
-	StartDate        string     `json:"start_date" binding:"required"` // format: "02/01/2025"
+	StartDate        *string    `json:"start_date"` // format: "DD/MM/YYYY"
 	EndDate          string     `json:"end_date" binding:"required"`
 	YearOfSigning    string     `json:"year_of_signing"` // format: "2006-01-02"
 	PartnerName      string     `json:"partner_name" binding:"required"`

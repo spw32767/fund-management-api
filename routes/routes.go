@@ -181,10 +181,12 @@ func SetupRoutes(router *gin.Engine) {
 				mou.PUT("/partner-types/:id", controllers.UpdateMouPartnerType)  // Update partner type
 				mou.DELETE("/partner-types/:id", controllers.DeleteMouPartnerType)  // Delete partner type
 				mou.GET("/levels", controllers.GetMouLevels)              // List distinct levels
+				mou.GET("/expired", controllers.GetExpiredMous)           // List expired MOUs for renewal selection
 				mou.POST("", controllers.CreateMou)                        // Create new MOU
 				mou.GET("/dashboard", controllers.GetMouDashboard)          // Dashboard stats
 mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a given year
 				mou.GET("/notifications", controllers.GetMouNotifications)    // Notifications for bell icon
+				mou.POST("/refresh-statuses", controllers.RefreshMouStatuses)       // Refresh MOU statuses based on dates
 				mou.GET("/activity-types", controllers.GetActivityTypes)    // List activity types
 				mou.POST("/activity-types", controllers.CreateActivityType)  // Create activity type
 				mou.PUT("/activity-types/:id", controllers.UpdateActivityType) // Update activity type
@@ -203,6 +205,7 @@ mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a 
 				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
 				mou.PUT("/:id", controllers.UpdateMou)                     // Update MOU
 				mou.PUT("/:id/renew", controllers.RenewMou)                // Renew MOU
+				mou.PUT("/:id/lock", controllers.ToggleLockMou)           // Toggle MOU lock
 				mou.GET("/export", controllers.ExportMouCsv)               // Export MOU list as CSV
 				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)  // List all potential recipients
 				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)  // Preview notification email
