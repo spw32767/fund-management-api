@@ -1110,7 +1110,7 @@ func GetActivityTypes(c *gin.Context) {
 // GetOkrList retrieves all available OKRs
 func GetOkrList(c *gin.Context) {
 	var okrs []models.MouOKR
-	if err := config.DB.Where("deleted_at IS NULL").Find(&okrs).Error; err != nil {
+	if err := config.DB.Find(&okrs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch OKRs"})
 		return
 	}
@@ -2296,7 +2296,11 @@ func ExportMouCsv(c *gin.Context) {
 	err := query.
 		Preload("Status").
 		Preload("Coordinator").
-		Preload("Partners").
+		Preload("Partners.PartnerType").
+		Preload("Faculties.Faculty").
+		Preload("Attachments").
+		Preload("Creator").
+		Preload("Updater").
 		Order("created_at DESC").
 		Find(&mous).Error
 
@@ -2328,6 +2332,33 @@ func ExportMouCsv(c *gin.Context) {
 		}
 	}
 
+	// Manually load user data for each faculty
+	var allUserIDs []int
+	for i := range mous {
+		for j := range mous[i].Faculties {
+			if mous[i].Faculties[j].UserID != nil {
+				allUserIDs = append(allUserIDs, *mous[i].Faculties[j].UserID)
+			}
+		}
+	}
+	if len(allUserIDs) > 0 {
+		var users []models.User
+		config.DB.Where("user_id IN ?", allUserIDs).Find(&users)
+		userMap := make(map[int]*models.User)
+		for k := range users {
+			userMap[users[k].UserID] = &users[k]
+		}
+		for i := range mous {
+			for j := range mous[i].Faculties {
+				if mous[i].Faculties[j].UserID != nil {
+					if u, ok := userMap[*mous[i].Faculties[j].UserID]; ok {
+						mous[i].Faculties[j].User = u
+					}
+				}
+			}
+		}
+	}
+
 	var buf bytes.Buffer
 	// Write BOM for Excel compatibility
 	buf.WriteString("\xEF\xBB\xBF")
@@ -2337,28 +2368,52 @@ func ExportMouCsv(c *gin.Context) {
 	writer.Write([]string{
 		"รหัส MOU",
 		"ชื่อโครงการ",
+		"รายละเอียด",
 		"ระดับ",
 		"สถานะ",
 		"ประเทศ",
-		"ผู้ประสานงาน",
+		"ระหว่างประเทศ",
+		"ปีที่ลงนาม",
 		"วันที่เริ่มต้น",
 		"วันที่สิ้นสุด",
-		"ปีที่ลงนาม",
+		"ลงนามโดย",
+		"หมายเหตุ",
+		"ผู้สร้าง",
+		"ผู้แก้ไขล่าสุด",
+		"ผู้ประสานงาน",
+		"อีเมลผู้ประสานงาน",
 		"คู่ความร่วมมือ",
-		"ระหว่างประเทศ",
+		"ประเภทคู่สัญญา",
+		"คณะที่เข้าร่วม",
+		"ผู้รับผิดชอบ (คณะ)",
+		"ผู้รับผิดชอบภายนอก",
+		"หน่วยงานภายนอก",
+		"อีเมลผู้รับผิดชอบ",
+		"ไฟล์แนบ",
 	})
 
 	for _, mou := range mous {
 		partnerOrgs := ""
+		partnerTypes := ""
 		for i, p := range mou.Partners {
 			if i > 0 {
 				partnerOrgs += "; "
+				partnerTypes += "; "
 			}
 			partnerOrgs += p.PartnerOrg
+			if p.PartnerType.ID != 0 {
+				partnerTypes += p.PartnerType.NameTh
+			}
 		}
 		coordinatorName := ""
+		coordinatorEmail := ""
 		if mou.CoordinatorID != nil && *mou.CoordinatorID > 0 && mou.Coordinator.UserID > 0 {
-			coordinatorName = mou.Coordinator.UserFname + " " + mou.Coordinator.UserLname
+			prefix := ""
+			if mou.Coordinator.Prefix != nil {
+				prefix = *mou.Coordinator.Prefix
+			}
+			coordinatorName = prefix + mou.Coordinator.UserFname + " " + mou.Coordinator.UserLname
+			coordinatorEmail = mou.Coordinator.Email
 		}
 		countryName := ""
 		if mou.Country != nil {
@@ -2381,18 +2436,108 @@ func ExportMouCsv(c *gin.Context) {
 			yearSign = mou.YearOfSigning.Format("02/01/2006")
 		}
 
+		// Faculty-related fields
+		facultyNames := ""
+		facultyResponsibles := ""
+		facultyExternalNames := ""
+		facultyExternalOrgs := ""
+		facultyEmails := ""
+		for i, f := range mou.Faculties {
+			if i > 0 {
+				facultyNames += "; "
+				facultyResponsibles += "; "
+				facultyExternalNames += "; "
+				facultyExternalOrgs += "; "
+				facultyEmails += "; "
+			}
+			// Faculty name
+			if f.Faculty != nil {
+				facultyNames += f.Faculty.NameTh
+			}
+			// Internal responsible person
+			if f.User != nil {
+				p := ""
+				if f.User.Prefix != nil {
+					p = *f.User.Prefix
+				}
+				facultyResponsibles += p + f.User.UserFname + " " + f.User.UserLname
+				if f.User.Email != "" {
+					facultyEmails += f.User.Email
+				} else if f.Email != nil && *f.Email != "" {
+					facultyEmails += *f.Email
+				}
+			} else if f.ExternalName != nil && *f.ExternalName != "" {
+				facultyResponsibles += *f.ExternalName
+				if f.Email != nil && *f.Email != "" {
+					facultyEmails += *f.Email
+				}
+			}
+			// External responsible name
+			if f.ExternalName != nil && *f.ExternalName != "" {
+				facultyExternalNames += *f.ExternalName
+			} else {
+				facultyExternalNames += "-"
+			}
+			// External org
+			if f.ExternalOrg != nil && *f.ExternalOrg != "" {
+				facultyExternalOrgs += *f.ExternalOrg
+			} else {
+				facultyExternalOrgs += "-"
+			}
+		}
+
+		// Attachments
+		attachmentNames := ""
+		for i, a := range mou.Attachments {
+			if i > 0 {
+				attachmentNames += "; "
+			}
+			attachmentNames += a.FileName
+		}
+
+		// Creator / Updater
+		creatorName := ""
+		if mou.Creator.UserID > 0 {
+			p := ""
+			if mou.Creator.Prefix != nil {
+				p = *mou.Creator.Prefix
+			}
+			creatorName = p + mou.Creator.UserFname + " " + mou.Creator.UserLname
+		}
+		updaterName := ""
+		if mou.Updater != nil && mou.Updater.UserID > 0 {
+			p := ""
+			if mou.Updater.Prefix != nil {
+				p = *mou.Updater.Prefix
+			}
+			updaterName = p + mou.Updater.UserFname + " " + mou.Updater.UserLname
+		}
+
 		writer.Write([]string{
 			mou.MouCode,
 			mou.Title,
+			mou.Description,
 			mou.Level,
 			mou.Status.Name,
 			countryName,
-			coordinatorName,
+			intlFlag,
+			yearSign,
 			startDate,
 			endDate,
-			yearSign,
+			mou.SignedBy,
+			mou.Notes,
+			creatorName,
+			updaterName,
+			coordinatorName,
+			coordinatorEmail,
 			partnerOrgs,
-			intlFlag,
+			partnerTypes,
+			facultyNames,
+			facultyResponsibles,
+			facultyExternalNames,
+			facultyExternalOrgs,
+			facultyEmails,
+			attachmentNames,
 		})
 	}
 	writer.Flush()
