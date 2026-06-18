@@ -16,7 +16,7 @@ type InstructorEditLog struct {
     OldValue     string    `json:"old_value" gorm:"column:old_value"`
     NewValue     string    `json:"new_value" gorm:"column:new_value"`
     CreatedAt    time.Time `json:"created_at" gorm:"column:created_at"`
-    UserEdit     User      `json:"user_edit,omitempty" gorm:"foreignKey:UserEditID"`
+    //UserEdit     User      `json:"user_edit,omitempty" gorm:"foreignKey:UserEditID"`
 }
 
 func (InstructorEditLog) TableName() string {
