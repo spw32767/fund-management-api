@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS instructor_edit_logs (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     user_edit_id    INT NOT NULL,
-    target_user_id  INT NOT NULL,
+    target_user_id  INT NULL,
     action          ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
     table_name      VARCHAR(100) NOT NULL,
     field_name      VARCHAR(100) NULL,

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS instructor_educations (
   user_id         INT NOT NULL, 
   degree_title_th VARCHAR(255) NOT NULL,
   university_th   VARCHAR(255) NOT NULL,
-  country         VARCHAR(255) NOT NULL,
+  country         VARCHAR(255) NULL,
   grad_year       CHAR(4) NOT NULL,
   created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
