@@ -73,8 +73,8 @@ func (s *researchService) GetResearchByUserID(
 
 	var combinedDocs []models.ResearchDocument
 
-	currentYear := time.Now().Year()
-	fiveYearsAgo := currentYear - 4 // ครอบคลุม 5 ปีล่าสุด (นับรวมปีปัจจุบัน)
+	//currentYear := time.Now().Year()
+	//fiveYearsAgo := currentYear - 4 // ครอบคลุม 5 ปีล่าสุด (นับรวมปีปัจจุบัน)
 
 	// ==========================================
 	// Ranking Sources
@@ -183,11 +183,7 @@ func (s *researchService) GetResearchByUserID(
     JOIN users 
     ON users.scopus_id = REPLACE(scopus_authors.scopus_author_id, 'SCOPUS_ID:', '')
 `).
-		Where(`
-        users.user_id = ?
-        AND YEAR(scopus_documents.cover_date) >= ?
-        AND YEAR(scopus_documents.cover_date) <= ?
-    `, userID, fiveYearsAgo, currentYear).
+		Where("users.user_id = ?", userID).
     Find(&scopusDocs).Error
 
 	if err == nil {
@@ -361,12 +357,8 @@ ConferenceDateEnd:   nil,
             JOIN users
             ON CONCAT(users.user_fname, ' ', users.user_lname) = thaijo_authors.full_name_th
         `).
-		Where(`
-            users.user_id = ?
-            AND thaijo_documents.year >= ?
-            AND thaijo_documents.year <= ?
-        `, userID, fiveYearsAgo, currentYear).
-		Find(&thaijoDocs).Error
+		Where("users.user_id = ?", userID).
+    Find(&thaijoDocs).Error
 
 	if err == nil {
 		thaijoSourceID := sourceIDMap["tci"]
