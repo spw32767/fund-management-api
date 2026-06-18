@@ -563,7 +563,7 @@ mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a 
 				admin.GET("/instructors/:id", controllers.GetInstructorByID)    // สำหรับดึงข้อมูล
 				admin.PUT("/instructors/:id", controllers.UpdateInstructorByID) // สำหรับบันทึกข้อมูล
 
-				public.GET("/instructors/profile/:id", controllers.GetFullProfile)
+				//public.GET("/instructors/profile/:id", controllers.GetFullProfile)
 
 				admin.GET("/ranking-weights", controllers.GetRankingWeights)
 				admin.PUT("/ranking-weights", controllers.UpdateRankingWeights)
