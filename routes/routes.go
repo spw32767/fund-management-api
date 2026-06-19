@@ -205,6 +205,7 @@ func SetupRoutes(router *gin.Engine) {
 				mou.PUT("/activities/:id", controllers.UpdateMouActivity)                                    // Update activity
 				mou.DELETE("/activities/:id", controllers.DeleteMouActivity)                                 // Delete activity
 				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
+
 				mou.GET("/:id", controllers.GetMouDetail)                                                    // Get MOU detail
 				mou.GET("/:id/download", controllers.DownloadMouAttachments)                                 // Download MOU attachments as ZIP
 				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                          // View/download single attachment
@@ -222,7 +223,8 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Researcher management routes for academic designer
 			researcherManagement := protected.Group("/researcher-management")
-			researcherManagement.Use(middleware.RequireRole(6))
+
+			researcherManagement.Use(middleware.RequireRole(3,6))
 			{
 				researcherManagement.GET("/instructors", controllers.GetInstructors)
 				researcherManagement.GET("/instructors/:id", controllers.GetInstructorByID)
@@ -252,6 +254,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
 				researcherManagement.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
+
 			}
 
 			// Teacher-specific endpoints
