@@ -198,6 +198,7 @@ mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a 
 				mou.PUT("/activities/:id", controllers.UpdateMouActivity)   // Update activity
 				mou.DELETE("/activities/:id", controllers.DeleteMouActivity) // Delete activity
 				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
+<<<<<<< Updated upstream
 				mou.GET("/:id", controllers.GetMouDetail)                  // Get MOU detail
 				mou.GET("/:id/download", controllers.DownloadMouAttachments) // Download MOU attachments as ZIP
 				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
@@ -211,6 +212,55 @@ mou.GET("/active-by-year", controllers.GetMouActiveByYear)  // MOUs active in a 
 				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)        // Update notification settings
 				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)  // Get notification recipients
 				mou.DELETE("/:id", controllers.DeleteMou)                  // Delete MOU
+=======
+				mou.GET("/:id", controllers.GetMouDetail)                                                    // Get MOU detail
+				mou.GET("/:id/download", controllers.DownloadMouAttachments)                                 // Download MOU attachments as ZIP
+				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                          // View/download single attachment
+				mou.PUT("/:id", controllers.UpdateMou)                                                       // Update MOU
+				mou.PUT("/:id/renew", controllers.RenewMou)                                                  // Renew MOU
+				mou.GET("/export", controllers.ExportMouCsv)                                                 // Export MOU list as CSV
+				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)               // List all potential recipients
+				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)                      // Preview notification email
+				mou.POST("/send-notifications", controllers.SendMouNotifications)                            // Trigger sending email notifications
+				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)                     // Get notification settings
+				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)                  // Update notification settings
+				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)           // Get notification recipients
+				mou.DELETE("/:id", controllers.DeleteMou)                                                    // Delete MOU
+			}
+
+			// Researcher management routes for academic designer
+			researcherManagement := protected.Group("/researcher-management")
+			researcherManagement.Use(middleware.RequireRole(3,6))
+			{
+				researcherManagement.GET("/instructors", controllers.GetInstructors)
+				researcherManagement.GET("/instructors/:id", controllers.GetInstructorByID)
+				researcherManagement.PUT("/instructors/:id", controllers.UpdateInstructorByID)
+
+				researcherManagement.GET("/ranking-weights", controllers.GetRankingWeights)
+				researcherManagement.PUT("/ranking-weights", controllers.UpdateRankingWeights)
+				researcherManagement.DELETE("/ranking-weights/:id", controllers.DeleteRankingWeight)
+				researcherManagement.GET("/ranking-sources", controllers.GetRankingSources)
+				researcherManagement.PUT("/ranking-sources", controllers.UpdateRankingSources)
+				researcherManagement.DELETE("/ranking-sources/:id", controllers.DeleteRankingSource)
+
+				researcherManagement.DELETE("/instructor-textbooks/:id", controllers.DeleteInstructorTextbook)
+				researcherManagement.DELETE("/instructor-intellectual-properties/:id", controllers.DeleteInstructorIntellectualProperty)
+				researcherManagement.DELETE("/instructor-research-projects/:id", controllers.DeleteInstructorResearchProject)
+				researcherManagement.DELETE("/instructor-expertises/:id", controllers.DeleteInstructorExpertise)
+				researcherManagement.DELETE("/instructor-educations/:id", controllers.DeleteInstructorEducation)
+
+				researcherManagement.GET("/courses", controllers.GetCourses)
+				researcherManagement.POST("/courses", controllers.CreateCourse)
+				researcherManagement.PUT("/courses/:id", controllers.UpdateCourse)
+				researcherManagement.DELETE("/courses/:id", controllers.DeleteCourse)
+
+				researcherManagement.GET("/audit-logs", controllers.GetAuditLogs)
+				researcherManagement.GET("/audit-logs/tables", controllers.GetAuditLogTables)
+				researcherManagement.GET("/audit-logs/:id", controllers.GetAuditLogByID)
+
+				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
+				researcherManagement.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
+>>>>>>> Stashed changes
 			}
 
 			// Teacher-specific endpoints
