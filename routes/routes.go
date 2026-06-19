@@ -52,7 +52,13 @@ func SetupRoutes(router *gin.Engine) {
 			public.GET("/years", controllers.GetActiveYears)
 			public.GET("/support-fundmapping", controllers.GetSupportFundMappings)
 
+			// Publications Search
 			public.GET("/publications/search", controllers.SearchPublications)
+			public.GET("/publications/last-import", controllers.GetLastImportDates)
+			public.POST("/ai-showcase/sync", controllers.SyncAIShowcase)
+			public.POST("/ai-showcase/migrate", controllers.MigrateUnifiedViews)
+			public.POST("/ai-showcase/sync-from-csv", controllers.SyncAIShowcaseFromCSV)
+			public.GET("/publications/detail/:id", controllers.GetPublicationDetail)
 
 			// Authentication
 			public.POST("/login", controllers.Login)
