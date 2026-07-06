@@ -1,0 +1,6 @@
+--SET FOREIGN_KEY_CHECKS = 0;
+
+--ALTER TABLE instructor_course_responsibility DROP PRIMARY KEY;
+--ALTER TABLE instructor_course_responsibility ADD COLUMN id INT AUTO_INCREMENT PRIMARY KEY FIRST;
+
+--SET FOREIGN_KEY_CHECKS = 1;

@@ -6,6 +6,7 @@ import (
 	"fund-management-api/controllers"
 	"fund-management-api/middleware"
 	"fund-management-api/monitor"
+	"fund-management-api/services"
 	"fund-management-api/utils"
 	"log"
 	"net/http"
@@ -39,6 +40,7 @@ func SetupRoutes(router *gin.Engine) {
 	// API v1 group
 	v1 := router.Group("/api/v1")
 	{
+
 		// Public routes
 		public := v1.Group("")
 		{
@@ -49,6 +51,14 @@ func SetupRoutes(router *gin.Engine) {
 
 			public.GET("/years", controllers.GetActiveYears)
 			public.GET("/support-fundmapping", controllers.GetSupportFundMappings)
+
+			// Publications Search
+			public.GET("/publications/search", controllers.SearchPublications)
+			public.GET("/publications/last-import", controllers.GetLastImportDates)
+			public.POST("/ai-showcase/sync", controllers.SyncAIShowcase)
+			public.POST("/ai-showcase/migrate", controllers.MigrateUnifiedViews)
+			public.POST("/ai-showcase/sync-from-csv", controllers.SyncAIShowcaseFromCSV)
+			public.GET("/publications/detail/:id", controllers.GetPublicationDetail)
 
 			// Authentication
 			public.POST("/login", controllers.Login)
@@ -108,6 +118,7 @@ func SetupRoutes(router *gin.Engine) {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware())
 		{
+
 			// Authentication routes
 			protected.GET("/profile", controllers.GetProfile)
 			protected.PUT("/change-password", controllers.ChangePassword)
@@ -164,9 +175,93 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/submissions", controllers.GetAllSubmissions)        // ดูรายการ submissions (filtered by role)
 			protected.GET("/submissions/search", controllers.SearchSubmissions) // ค้นหา submissions
 
+			// ===== MOU (Memorandum of Understanding) =====
+			mou := protected.Group("/mou")
+			mou.Use(middleware.RequireRole(3))
+			{
+				mou.GET("", controllers.GetMous)                                                             // List all MOUs
+				mou.GET("/statuses", controllers.GetMouStatuses)                                             // List available statuses
+				mou.GET("/countries", controllers.GetCountries)                                              // List available countries
+				mou.GET("/faculties", controllers.GetFaculties)                                              // List available faculties
+				mou.GET("/partner-types", controllers.GetMouPartnerTypes)                                    // List partner types
+				mou.POST("/partner-types", controllers.CreateMouPartnerType)                                 // Create partner type
+				mou.PUT("/partner-types/:id", controllers.UpdateMouPartnerType)                              // Update partner type
+				mou.DELETE("/partner-types/:id", controllers.DeleteMouPartnerType)                           // Delete partner type
+				mou.GET("/levels", controllers.GetMouLevels)                                                 // List distinct levels
+				mou.POST("", controllers.CreateMou)                                                          // Create new MOU
+				mou.GET("/dashboard", controllers.GetMouDashboard)                                           // Dashboard stats
+				mou.GET("/active-by-year", controllers.GetMouActiveByYear)                                   // MOUs active in a given year
+				mou.GET("/notifications", controllers.GetMouNotifications)                                   // Notifications for bell icon
+				mou.GET("/activity-types", controllers.GetActivityTypes)                                     // List activity types
+				mou.POST("/activity-types", controllers.CreateActivityType)                                  // Create activity type
+				mou.PUT("/activity-types/:id", controllers.UpdateActivityType)                               // Update activity type
+				mou.DELETE("/activity-types/:id", controllers.DeleteActivityType)                            // Delete activity type
+				mou.GET("/okrs", controllers.GetOkrList)                                                     // List OKRs
+				mou.POST("/okrs", controllers.CreateOkr)                                                     // Create OKR
+				mou.PUT("/okrs/:id", controllers.UpdateOkr)                                                  // Update OKR
+				mou.DELETE("/okrs/:id", controllers.DeleteOkr)                                               // Delete OKR
+				mou.POST("/activities", controllers.CreateMouActivity)                                       // Create activity
+				mou.GET("/activities/:id", controllers.GetMouActivity)                                       // Get activity detail
+				mou.PUT("/activities/:id", controllers.UpdateMouActivity)                                    // Update activity
+				mou.DELETE("/activities/:id", controllers.DeleteMouActivity)                                 // Delete activity
+				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
+
+				mou.GET("/:id", controllers.GetMouDetail)                                                    // Get MOU detail
+				mou.GET("/:id/download", controllers.DownloadMouAttachments)                                 // Download MOU attachments as ZIP
+				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                          // View/download single attachment
+				mou.PUT("/:id", controllers.UpdateMou)                                                       // Update MOU
+				mou.PUT("/:id/renew", controllers.RenewMou)                                                  // Renew MOU
+				mou.GET("/export", controllers.ExportMouCsv)                                                 // Export MOU list as CSV
+				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)               // List all potential recipients
+				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)                      // Preview notification email
+				mou.POST("/send-notifications", controllers.SendMouNotifications)                            // Trigger sending email notifications
+				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)                     // Get notification settings
+				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)                  // Update notification settings
+				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)           // Get notification recipients
+				mou.DELETE("/:id", controllers.DeleteMou)                                                    // Delete MOU
+			}
+
+			// Researcher management routes for academic designer
+			researcherManagement := protected.Group("/researcher-management")
+
+			researcherManagement.Use(middleware.RequireRole(3,6))
+			{
+				researcherManagement.GET("/instructors", controllers.GetInstructors)
+				researcherManagement.GET("/instructors/:id", controllers.GetInstructorByID)
+				researcherManagement.PUT("/instructors/:id", controllers.UpdateInstructorByID)
+
+				researcherManagement.GET("/ranking-weights", controllers.GetRankingWeights)
+				researcherManagement.PUT("/ranking-weights", controllers.UpdateRankingWeights)
+				researcherManagement.DELETE("/ranking-weights/:id", controllers.DeleteRankingWeight)
+				researcherManagement.GET("/ranking-sources", controllers.GetRankingSources)
+				researcherManagement.PUT("/ranking-sources", controllers.UpdateRankingSources)
+				researcherManagement.DELETE("/ranking-sources/:id", controllers.DeleteRankingSource)
+
+				researcherManagement.DELETE("/instructor-textbooks/:id", controllers.DeleteInstructorTextbook)
+				researcherManagement.DELETE("/instructor-intellectual-properties/:id", controllers.DeleteInstructorIntellectualProperty)
+				researcherManagement.DELETE("/instructor-research-projects/:id", controllers.DeleteInstructorResearchProject)
+				researcherManagement.DELETE("/instructor-expertises/:id", controllers.DeleteInstructorExpertise)
+				researcherManagement.DELETE("/instructor-educations/:id", controllers.DeleteInstructorEducation)
+
+				researcherManagement.GET("/courses", controllers.GetCourses)
+				researcherManagement.POST("/courses", controllers.CreateCourse)
+				researcherManagement.PUT("/courses/:id", controllers.UpdateCourse)
+				researcherManagement.DELETE("/courses/:id", controllers.DeleteCourse)
+
+				researcherManagement.GET("/audit-logs", controllers.GetAuditLogs)
+				researcherManagement.GET("/audit-logs/tables", controllers.GetAuditLogTables)
+				researcherManagement.GET("/audit-logs/:id", controllers.GetAuditLogByID)
+
+				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
+				researcherManagement.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
+
+			}
+
 			// Teacher-specific endpoints
 			teacher := protected.Group("/teacher")
 			{
+				teacher.GET("/my-profile", controllers.GetMyProfile)
+				teacher.PUT("/my-profile", controllers.UpdateMyProfile)
 				// ไม่ต้องใส่ RequireRole(1) เพราะ GetSubcategoryForRole จะ check role เอง
 				teacher.GET("/subcategories", controllers.GetSubcategoryForRole)
 				teacher.GET("/submissions", controllers.GetTeacherSubmissions) // Teacher ดู submissions ของตัวเอง
@@ -502,6 +597,40 @@ func SetupRoutes(router *gin.Engine) {
 
 				admin.GET("/approval-records/totals", controllers.GetApprovalTotals)
 				admin.GET("/approval-records", controllers.GetApprovalRecords)
+
+				// ของเดิมที่มี
+				admin.GET("/instructors", controllers.GetInstructors)
+
+				// สิ่งที่ต้องเพิ่ม (เพื่อรองรับ /instructors/14)
+				admin.GET("/instructors/:id", controllers.GetInstructorByID)    // สำหรับดึงข้อมูล
+				admin.PUT("/instructors/:id", controllers.UpdateInstructorByID) // สำหรับบันทึกข้อมูล
+
+				//public.GET("/instructors/profile/:id", controllers.GetFullProfile)
+
+				admin.GET("/ranking-weights", controllers.GetRankingWeights)
+				admin.PUT("/ranking-weights", controllers.UpdateRankingWeights)
+				admin.DELETE("/ranking-weights/:id", controllers.DeleteRankingWeight)
+				admin.GET("/ranking-sources", controllers.GetRankingSources)
+				admin.PUT("/ranking-sources", controllers.UpdateRankingSources)
+				admin.DELETE("/ranking-sources/:id", controllers.DeleteRankingSource)
+
+				admin.DELETE("/instructor-textbooks/:id", controllers.DeleteInstructorTextbook)
+				admin.DELETE("/instructor-intellectual-properties/:id", controllers.DeleteInstructorIntellectualProperty)
+				admin.DELETE("/instructor-research-projects/:id", controllers.DeleteInstructorResearchProject)
+				admin.DELETE("/instructor-expertises/:id", controllers.DeleteInstructorExpertise)
+				admin.DELETE("/instructor-educations/:id", controllers.DeleteInstructorEducation)
+
+				admin.GET("/courses", controllers.GetCourses)
+				admin.POST("/courses", controllers.CreateCourse)
+				admin.PUT("/courses/:id", controllers.UpdateCourse)
+				admin.DELETE("/courses/:id", controllers.DeleteCourse)
+
+				admin.GET("/audit-logs", controllers.GetAuditLogs)
+				admin.GET("/audit-logs/tables", controllers.GetAuditLogTables) // ← ต้องอยู่ก่อน /:id
+				admin.GET("/audit-logs/:id", controllers.GetAuditLogByID)
+
+				researchController := controllers.NewResearchController(services.NewResearchService(config.DB))
+				admin.GET("/instructors/:id/documents", researchController.GetResearchDocuments)
 
 				// ===== CP PROFILE IMPORT =====
 				admin.POST("/trigger/cp-profile", controllers.AdminTriggerCpProfile)

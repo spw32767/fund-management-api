@@ -17,11 +17,260 @@ SET time_zone = "+00:00";
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
 
---
+-- ============================================================
 -- Database: `drnadech_fund_cpkku`
---
+-- ============================================================
+-- ============================================================
+-- โครงสร้างตารางสำหรับระบบ MOU 
+-- ============================================================
 
--- --------------------------------------------------------
+-- faculties
+CREATE TABLE `faculties` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(200) NOT NULL,
+  `name_en` varchar(200) NOT NULL,
+  `is_active` tinyint(1) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- countries
+CREATE TABLE `countries` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(200) NOT NULL,
+  `name_en` varchar(200) NOT NULL,
+  `is_active` tinyint(1) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_status
+CREATE TABLE `mou_status` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name` varchar(200) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- mou_activity_type
+CREATE TABLE `mou_activity_type` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name` varchar(200) NOT NULL,
+  `description` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_okr
+CREATE TABLE `mou_okr` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `title` varchar(300) NOT NULL,
+  `description` text DEFAULT NULL,
+  `category` varchar(100) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_records
+CREATE TABLE `mou_records` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `title` varchar(500) NOT NULL,
+  `description` text DEFAULT NULL,
+  `status_id` int(11) NOT NULL,
+  `level` enum('university','faculty') NOT NULL,
+  `start_date` date NOT NULL,
+  `end_date` date DEFAULT NULL,
+  `year_of_signing` date DEFAULT NULL,
+  `signed_by` int(11) DEFAULT NULL COMMENT 'ผู้ลงนาม',
+  `notes` text DEFAULT NULL COMMENT 'หมายเหตุ',
+  `notify_days_before` int(11) DEFAULT NULL COMMENT 'จำนวนวันแจ้งเตือนล่วงหน้า',
+  `is_international` tinyint(1) NOT NULL DEFAULT 0,
+  `country_id` int(11) DEFAULT NULL,
+  `coordinator_id` int(11) DEFAULT NULL,
+  `lock_mou` tinyint(1) NOT NULL DEFAULT 0,
+  `created_by` int(11) NOT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  FOREIGN KEY (`status_id`) REFERENCES `mou_status`(`id`),
+  FOREIGN KEY (`country_id`) REFERENCES `countries`(`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`coordinator_id`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,
+  FOREIGN KEY (`signed_by`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`user_id`),
+  FOREIGN KEY (`updated_by`) REFERENCES `users`(`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_partner_type
+CREATE TABLE `mou_partner_type` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(100) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `deleted_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_partner_type_name` (`name_th`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_partner
+CREATE TABLE `mou_partner` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `mou_id` int(11) NOT NULL,
+  `partner_org` varchar(300) NOT NULL,
+  `partner_type_id` int(11) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`partner_type_id`) REFERENCES `mou_partner_type`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_faculty
+CREATE TABLE `mou_faculty` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `mou_id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `cp_employee_id` int(11) DEFAULT NULL,
+  `faculty_id` int(11) DEFAULT NULL,
+  `external_name` varchar(200) DEFAULT NULL,
+  `external_org` varchar(300) DEFAULT NULL,
+  `email` varchar(300) DEFAULT NULL COMMENT 'อีเมลของผู้รับผิดชอบ (กรณีไม่อยู่ในคณะ CP)',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE SET NULL,
+  FOREIGN KEY (`cp_employee_id`) REFERENCES `cp_employee`(`ID`) ON DELETE SET NULL,
+  FOREIGN KEY (`faculty_id`) REFERENCES `faculties`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_activity
+CREATE TABLE `mou_activity` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `mou_id` int(11) NOT NULL,
+  `activity_type_id` int(11) NOT NULL,
+  `title` varchar(300) NOT NULL,
+  `objective` text DEFAULT NULL COMMENT 'วัตถุประสงค์กิจกรรม',
+  `description` text DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `participant_count` int(11) DEFAULT 0,
+  `activity_start` date NOT NULL,
+  `activity_end` date NOT NULL,
+  `location` varchar(300) NOT NULL,
+  `plan` text DEFAULT NULL COMMENT 'แผนดำเนินกิจกรรมต่อเนื่อง',
+  `coordinator_id` int(11) DEFAULT NULL COMMENT 'ผู้ประสานงาน',
+  `coordinator_other` varchar(200) DEFAULT NULL COMMENT 'ชื่อผู้ประสานงานกิจกรรม กรณีไม่อยู่ในระบบ',
+  `coordinator_org` varchar(300) NOT NULL COMMENT 'หน่วยงานผู้ประสานงาน',
+  `created_by` int(11) NOT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`activity_type_id`) REFERENCES `mou_activity_type`(`id`),
+  FOREIGN KEY (`coordinator_id`) REFERENCES `users`(`user_id`),
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`user_id`),
+  FOREIGN KEY (`updated_by`) REFERENCES `users`(`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_activity_activity_type (many-to-many junction table)
+CREATE TABLE `mou_activity_activity_type` (
+  `activity_id` int(11) NOT NULL,
+  `activity_type_id` int(11) NOT NULL,
+  PRIMARY KEY (`activity_id`, `activity_type_id`),
+  FOREIGN KEY (`activity_id`) REFERENCES `mou_activity`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`activity_type_id`) REFERENCES `mou_activity_type`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_activity_okr
+CREATE TABLE `mou_activity_okr` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `activity_id` int(11) NOT NULL,
+  `okr_id` int(11) NOT NULL,
+  FOREIGN KEY (`activity_id`) REFERENCES `mou_activity`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`okr_id`) REFERENCES `mou_okr`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_attachment
+CREATE TABLE `mou_attachment` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `mou_id` int(11) NOT NULL,
+  `file_name` varchar(255) NOT NULL,
+  `file_path` varchar(500) NOT NULL,
+  `mime_type` varchar(100) NOT NULL,
+  `uploaded_by` int(11) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`uploaded_by`) REFERENCES `users`(`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_activity_attachment
+CREATE TABLE `mou_activity_attachment` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `activity_id` int(11) NOT NULL,
+  `file_name` varchar(255) NOT NULL,
+  `file_path` varchar(500) NOT NULL,
+  `mime_type` varchar(100) NOT NULL,
+  `uploaded_by` int(11) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  FOREIGN KEY (`activity_id`) REFERENCES `mou_activity`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`uploaded_by`) REFERENCES `users`(`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_notification
+CREATE TABLE `mou_notification` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `mou_id` int(11) NOT NULL,
+  `staff_id` int(11) NOT NULL,
+  `days_before` int(11) NOT NULL,
+  `is_sent` tinyint(1) NOT NULL DEFAULT 0,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`mou_id`) REFERENCES `mou_records`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`staff_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_notification_log
+CREATE TABLE `mou_notification_log` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `notification_id` int(11) NOT NULL,
+  `sent_to` int(11) NOT NULL,
+  `channel` varchar(50) NOT NULL,
+  `success` tinyint(1) NOT NULL,
+  `message` text DEFAULT NULL,
+  `sent_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`notification_id`) REFERENCES `mou_notification`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`sent_to`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mou_notification_settings
+CREATE TABLE IF NOT EXISTS mou_notification_settings (
+    id                      INT PRIMARY KEY DEFAULT 1,
+    default_days_before     INT NOT NULL DEFAULT 30,
+    notify_coordinator      BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_faculty_responsible BOOLEAN NOT NULL DEFAULT FALSE,
+    notify_external         BOOLEAN NOT NULL DEFAULT FALSE,
+    include_mou_code        BOOLEAN NOT NULL DEFAULT TRUE,
+    include_title           BOOLEAN NOT NULL DEFAULT TRUE,
+    include_partner         BOOLEAN NOT NULL DEFAULT TRUE,
+    include_dates           BOOLEAN NOT NULL DEFAULT TRUE,
+    include_level           BOOLEAN NOT NULL DEFAULT FALSE,
+    include_status          BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_by              INT,
+    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (updated_by) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- End MOU
+-- ============================================================
 
 --
 -- Table structure for table `announcements`
