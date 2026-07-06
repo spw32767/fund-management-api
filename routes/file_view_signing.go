@@ -16,7 +16,12 @@ import (
 )
 
 // fileViewURLTTL is how long a signed /view URL stays valid after it is minted.
-const fileViewURLTTL = 5 * time.Minute
+// The short TTL is for live inline display; the export TTL is for links embedded in
+// downloaded spreadsheets/documents that a user may open much later.
+const (
+	fileViewURLTTL       = 5 * time.Minute
+	fileViewExportURLTTL = 7 * 24 * time.Hour
+)
 
 // normalizeUploadRelPath converts a raw client-supplied path into the canonical
 // relative path used under the upload root, rejecting directory traversal. It is
@@ -73,7 +78,13 @@ func SignFileViewURL(c *gin.Context) {
 		return
 	}
 
-	exp := time.Now().Add(fileViewURLTTL).Unix()
+	// purpose=export mints a long-lived link for URLs embedded in downloaded
+	// spreadsheets/documents; the default is a short-lived link for live display.
+	ttl := fileViewURLTTL
+	if c.Query("purpose") == "export" {
+		ttl = fileViewExportURLTTL
+	}
+	exp := time.Now().Add(ttl).Unix()
 	sig := signFileView(normalized, exp)
 
 	c.JSON(http.StatusOK, gin.H{
