@@ -81,8 +81,13 @@ func main() {
 	// Setup routes
 	routes.SetupRoutes(router)
 
-	// Serve static files
-	router.Static("/uploads", "./uploads")
+	// SECURITY (Phase 0-C): the broad `router.Static("/uploads", "./uploads")` mount was
+	// removed — it exposed EVERY uploaded file (submissions, user documents, personal data)
+	// anonymously by URL. All file access now goes through authenticated routes or a
+	// short-lived signed URL (GET /api/v1/files/sign -> /api/v1/view). Only email_assets
+	// stays public, because email logos are embedded in outgoing mail and must load without
+	// auth for external recipients.
+	router.Static("/uploads/email_assets", "./uploads/email_assets")
 
 	// Create upload directory if not exists
 	uploadPath := os.Getenv("UPLOAD_PATH")
