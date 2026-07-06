@@ -61,11 +61,9 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Get JWT secret
+		// Get JWT secret. Validated non-empty at startup (cmd/api/main.go); never fall
+		// back to a public default secret (that would allow token forgery).
 		jwtSecret := os.Getenv("JWT_SECRET")
-		if jwtSecret == "" {
-			jwtSecret = "default-secret-change-this-in-production"
-		}
 
 		// Parse token with enhanced validation
 		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {

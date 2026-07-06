@@ -32,6 +32,14 @@ func main() {
 	gin.DefaultErrorWriter = logWriter
 
 	godotenv.Load()
+
+	// SECURITY (Phase 0): refuse to start without a JWT secret. The code previously fell
+	// back to a public default secret when JWT_SECRET was unset, which would allow anyone
+	// to forge valid tokens (including admin). Fail fast instead of running insecurely.
+	if os.Getenv("JWT_SECRET") == "" {
+		log.Fatal("JWT_SECRET is not set. Refusing to start; set JWT_SECRET in the environment or .env file.")
+	}
+
 	// Initialize database
 	config.InitDB()
 

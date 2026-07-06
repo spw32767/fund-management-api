@@ -169,10 +169,8 @@ func resolveAuthMethodForLogout(c *gin.Context) string {
 		return AuthMethodLocal
 	}
 
+	// JWT_SECRET validated non-empty at startup (cmd/api/main.go); no insecure fallback.
 	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-secret-change-this-in-production"
-	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
