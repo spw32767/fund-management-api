@@ -380,6 +380,9 @@ func SetupRoutes(router *gin.Engine) {
 				files.GET("/managed/:id", controllers.GetFile)               // เปลี่ยนเป็น /managed/:id
 				files.GET("/managed/:id/download", controllers.DownloadFile) // เปลี่ยนเป็น /managed/:id/download
 				files.DELETE("/managed/:id", controllers.DeleteFile)         // เปลี่ยนเป็น /managed/:id
+				// SECURITY (Phase 0): mint a short-lived signed URL for inline viewing of an
+				// uploaded file. Authenticated-only; the /view route verifies the signature.
+				files.GET("/sign", SignFileViewURL)
 			}
 
 			// Documents
@@ -1144,18 +1147,19 @@ func RegisterFileViewRoutes(rg *gin.RouterGroup) {
 	rg.GET("/view/*path", func(c *gin.Context) {
 		rawPath := strings.TrimSpace(c.Param("path"))
 		rawPath = strings.TrimPrefix(rawPath, "/")
-		if rawPath == "" {
+
+		normalized, err := normalizeUploadRelPath(rawPath)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
 			return
 		}
 
-		normalized := strings.ReplaceAll(rawPath, "\\", "/")
-		normalized = strings.TrimPrefix(normalized, "./")
-		normalized = strings.TrimPrefix(normalized, "/")
-		normalized = strings.TrimPrefix(normalized, "uploads/")
-
-		if normalized == "" || strings.Contains(normalized, "..") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+		// SECURITY (Phase 0): require a valid, unexpired signature minted by the
+		// authenticated /files/sign endpoint. This replaces anonymous read access to
+		// uploaded files (personal data / PDPA exposure) while still allowing the
+		// frontend to render files via plain <img>/link URLs.
+		if !verifyFileViewSig(normalized, c.Query("exp"), c.Query("sig")) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired file access signature"})
 			return
 		}
 
