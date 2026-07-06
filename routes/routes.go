@@ -45,8 +45,17 @@ func SetupRoutes(router *gin.Engine) {
 		public := v1.Group("")
 		{
 
-			RegisterUploadRoutes(public) // สำหรับ POST /upload
-			RegisterFileRoutes(public)   // สำหรับ GET /files, DELETE /files/:name
+			// SECURITY (Phase 0): file write/list/delete routes now REQUIRE authentication.
+			// They were previously anonymous, allowing unauthenticated file upload, directory
+			// listing, and recursive file/folder deletion (os.RemoveAll). Same paths, now behind
+			// AuthMiddleware. The frontend only uses the protected /files/managed + /files/upload
+			// + /documents/upload routes, so this does not break any client flow.
+			authedFiles := v1.Group("")
+			authedFiles.Use(middleware.AuthMiddleware())
+			RegisterUploadRoutes(authedFiles) // POST /upload
+			RegisterFileRoutes(authedFiles)   // GET /files, POST/DELETE /folders, DELETE /files/:path
+			// TODO (read-path lockdown): /view/*path and the static /uploads mount are still public
+			// pending the signed-URL access mechanism. Do not rely on them as a long-term public API.
 			RegisterFileViewRoutes(public)
 
 			public.GET("/years", controllers.GetActiveYears)

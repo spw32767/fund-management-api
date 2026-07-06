@@ -882,11 +882,9 @@ func generateAccessTokenWithMethod(user models.User, jti string, authMethod stri
 	// Create token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	// Sign token
+	// Sign token. JWT_SECRET is validated non-empty at startup (cmd/api/main.go);
+	// never fall back to a public default secret (that would allow token forgery).
 	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-secret-change-this-in-production"
-	}
 
 	tokenString, err := token.SignedString([]byte(jwtSecret))
 	if err != nil {
@@ -938,10 +936,8 @@ func updateSessionActivity(c *gin.Context) {
 
 	// Parse token to get JTI
 	token, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(token *jwt.Token) (interface{}, error) {
+		// JWT_SECRET validated non-empty at startup (cmd/api/main.go); no insecure fallback.
 		jwtSecret := os.Getenv("JWT_SECRET")
-		if jwtSecret == "" {
-			jwtSecret = "default-secret-change-this-in-production"
-		}
 		return []byte(jwtSecret), nil
 	})
 
