@@ -44,31 +44,26 @@ done
 | 021 | 20260522_create_instructor_intellectual_properties | |
 | 022 | 20260609_add_id_to_instructor_course_responsibility | **ทั้งไฟล์ถูก comment ไว้ = ไม่ทำอะไร** (ดูข้อ 3) |
 | 023 | 20260609_recreate_unified_search_views | สร้าง unified_search_contents + unified_search_authors ใหม่ (เวอร์ชันจริงที่ใช้) |
-| 024 | 20260613_create_mou_tables | **ต้องมี `countries` และ `faculties` ก่อน** (ดูข้อ 1) |
+| 024 | 20260613_create_mou_tables | สร้าง `countries` + `faculties` (บนสุดของไฟล์) แล้วตามด้วยตาราง mou_* |
 | 025 | 20260619_insert_new_role_into_roles | |
+| 026 | 20260708_add_scopus_conference_columns | เพิ่ม 7 คอลัมน์ conference_* ให้ scopus_documents |
+| 027 | 20260708_add_course_id_to_users | เพิ่มคอลัมน์ users.course_id |
 
 ## ⚠️ สิ่งที่ยังขาด — ต้องขอจาก DB intern ก่อนใช้งานจริง
 
-migration set นี้ยัง **สร้าง schema ของ intern ได้ไม่ครบ** ถ้าเอาไปรันบน DB เปล่าจะ error/ตารางไม่เท่ากัน
-รายการต่อไปนี้มีอยู่ใน DB intern แต่ **ไม่มีไฟล์ migration** (น้องฝึกงานสร้างมือ) — ต้องขอไฟล์เพิ่ม:
+schema ครบแล้ว (schema-only) แต่ยังขาด **ข้อมูล seed** ของตาราง lookup:
+`countries, faculties, mou_status, mou_partner_type, mou_activity_type,
+ranking_sources, ranking_tier_weights, ai_showcase_tracks`
+— dropdown / FK จะใช้งานไม่ได้ถ้าไม่มีข้อมูลตั้งต้น (ยังรอน้องส่ง หรือ export เอง)
 
-1. **ตาราง `countries`** และ **`faculties`** — ถูกอ้างเป็น FK ใน `024_..._create_mou_tables.sql`
-   ถ้าไม่มีตารางสองตัวนี้ก่อน ไฟล์ 024 จะรันไม่ผ่าน
-2. **คอลัมน์ conference ใน `scopus_documents`** (7 คอลัมน์):
-   `conference_name, conference_venue, conference_city, conference_country,
-   conference_location, conference_info_json, conference_info_fetched_at`
-3. **คอลัมน์ `course_id` ใน `users`** (`int(11) NULL`)
-4. **ข้อมูล seed** ของตาราง lookup (countries, faculties, mou_status, mou_partner_type,
-   mou_activity_type, ranking_sources, ranking_tier_weights, ai_showcase_tracks)
-   — dropdown / FK จะใช้งานไม่ได้ถ้าไม่มีข้อมูลตั้งต้น
+> เดิมขาด `countries`/`faculties` (เพิ่มแล้วใน 024), 7 คอลัมน์ conference ของ
+> `scopus_documents` (เพิ่มแล้วใน 026) และ `users.course_id` (เพิ่มแล้วใน 027)
 
-## ปัญหาที่ยังค้าง (ควรแก้ตอนน้องส่งไฟล์ที่ขาดมา)
+## ปัญหาที่ยังค้าง
 
-1. ดูข้อ "สิ่งที่ยังขาด" ข้อ 1 ด้านบน — ต้องเพิ่ม migration สร้าง `countries` / `faculties`
-   ให้มีลำดับ **ก่อน** 024
-2. `013_..._authors_view.sql` จริงๆ ข้างในเขียน `CREATE VIEW unified_search_contents`
+1. `013_..._authors_view.sql` จริงๆ ข้างในเขียน `CREATE VIEW unified_search_contents`
    (ชื่อ view ผิด ควรเป็น `unified_search_authors`) และใช้ `CREATE VIEW` เฉยๆ ไม่ใช่
    `CREATE OR REPLACE` — รันซ้ำจะ error ตอนนี้ผลลัพธ์สุดท้ายถูก 023 recreate ทับให้อยู่แล้ว
    แต่ควรแก้ให้ถูกเพื่อความสะอาด
-3. `022_..._add_id_...sql` ถูก comment ทั้งไฟล์ แต่ตารางจริงใน intern มีคอลัมน์ `id` แล้ว
+2. `022_..._add_id_...sql` ถูก comment ทั้งไฟล์ แต่ตารางจริงใน intern มีคอลัมน์ `id` แล้ว
    (ไฟล์ 020 เวอร์ชันปัจจุบันสร้าง `id` มาให้ตั้งแต่ต้น) — ไฟล์นี้จึงเป็น no-op เก็บไว้อ้างอิงได้
