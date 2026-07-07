@@ -166,7 +166,7 @@ func GetMous(c *gin.Context) {
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ? AND mou_status.name NOT LIKE ?",
 		append(statsArgs, "%หมดอายุ%", "%ใกล้%")...).Scan(&expiredCount)
 	config.DB.Raw("SELECT COUNT(*) FROM mou_records "+countryJoin+" "+joinClause+" WHERE "+statsWhere+" AND mou_status.name LIKE ?",
-		append(statsArgs, "%รอดำเนินการ%")...).Scan(&pendingCount)
+		append(statsArgs, "%กำลังดำเนินการ%")...).Scan(&pendingCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":           true,
@@ -416,18 +416,37 @@ func CreateMou(c *gin.Context) {
 		}
 	}
 
-	// Set default status to draft or pending review
 	var statusID int
 	if req.StatusID != nil && *req.StatusID > 0 {
 		statusID = *req.StatusID
 	} else {
 		var status models.MouStatus
-		if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&status).Error; err != nil {
-			config.DB.Where("name LIKE ?", "%ร่าง%").First(&status)
+		if err := config.DB.Where("name LIKE ?", "%กำลังดำเนินการ%").First(&status).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Default MOU status not found. Seed data may be missing."})
+			return
 		}
 		statusID = status.ID
-		if statusID == 0 {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Default MOU status not found. Seed data may be missing."})
+	}
+
+	if statusID != 5 {
+		var missing []string
+		if req.Title == "" {
+			missing = append(missing, "title")
+		}
+		if req.Level == "" {
+			missing = append(missing, "level")
+		} else if req.Level != "university" && req.Level != "faculty" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "level must be 'university' or 'faculty'"})
+			return
+		}
+		if req.EndDate == "" {
+			missing = append(missing, "end_date")
+		}
+		if req.PartnerName == "" {
+			missing = append(missing, "partner_name")
+		}
+		if len(missing) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Missing required fields: %s", strings.Join(missing, ", "))})
 			return
 		}
 	}
@@ -454,6 +473,7 @@ func CreateMou(c *gin.Context) {
 		CountryID:        req.CountryID,
 		IsInternational:  req.IsInternational,
 		CoordinatorID:    req.CoordinatorID,
+		CoordinatorOther: req.CoordinatorOther,
 		Notes:            req.Notes,
 		NotifyDaysBefore: req.NotifyDaysBefore,
 		CreatedBy:        uid,
@@ -705,20 +725,6 @@ func UpdateMou(c *gin.Context) {
 		return
 	}
 
-	// Validate when changing to Active: require year_of_signing + signed_by
-	if req.StatusID != nil && *req.StatusID == 2 {
-		if mou.YearOfSigning == nil &&
-			(req.YearOfSigning == nil || *req.YearOfSigning == "") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกวันเดือนปีที่ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
-			return
-		}
-		if mou.SignedBy == "" &&
-			(req.SignedBy == nil || *req.SignedBy == "") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกผู้ลงนามก่อนเปลี่ยนสถานะเป็น 'มีผลบังคับใช้'"})
-			return
-		}
-	}
-
 	// Log status change
 	logStatusChange := false
 	var oldStatusID int
@@ -743,12 +749,16 @@ func UpdateMou(c *gin.Context) {
 		mou.IsInternational = *req.IsInternational
 	}
 	if req.EndDate != nil {
-		endDate, err := parseDateString(*req.EndDate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end_date format. Use DD/MM/YYYY"})
-			return
+		if *req.EndDate == "" {
+			mou.EndDate = nil
+		} else {
+			endDate, err := parseDateString(*req.EndDate)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end_date format. Use DD/MM/YYYY"})
+				return
+			}
+			mou.EndDate = &endDate
 		}
-		mou.EndDate = &endDate
 	}
 	if req.Level != nil {
 		mou.Level = *req.Level
@@ -758,6 +768,9 @@ func UpdateMou(c *gin.Context) {
 	}
 	if req.CoordinatorID != nil {
 		mou.CoordinatorID = req.CoordinatorID
+	}
+	if req.CoordinatorOther != nil {
+		mou.CoordinatorOther = *req.CoordinatorOther
 	}
 	if req.StartDate != nil {
 		if *req.StartDate == "" {
@@ -1304,16 +1317,12 @@ func GetMouDashboard(c *gin.Context) {
 		Count(&expiredCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%รอดำเนินการ%"}, yearArgs...)...).
+		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%กำลังดำเนินการ%"}, yearArgs...)...).
 		Count(&pendingCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
 		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ยกเลิก%"}, yearArgs...)...).
 		Count(&cancelledCount)
-	config.DB.Model(&models.MouRecord{}).
-		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
-		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ร่าง%"}, yearArgs...)...).
-		Count(&draftCount)
 	config.DB.Model(&models.MouRecord{}).
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
 		Where("mou_records.deleted_at IS NULL AND (mou_status.name LIKE ?)"+yearFilter, append([]interface{}{"%ต่ออายุ%"}, yearArgs...)...).
@@ -1471,7 +1480,7 @@ func GetMouActiveByYear(c *gin.Context) {
 	config.DB.Preload("Status").Preload("Partners").
 		Joins("LEFT JOIN mou_status ON mou_status.id = mou_records.Status_id").
 		Where("mou_records.deleted_at IS NULL").
-		Where("mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ?", "%ร่าง%", "%รอดำเนินการ%", "%ต่ออายุ%", "%ยกเลิก%").
+		Where("mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ? AND mou_status.name NOT LIKE ?", "%กำลังดำเนินการ%", "%ต่ออายุ%", "%ยกเลิก%").
 		Where("YEAR(mou_records.start_date) <= ?", greg).
 		Where("mou_records.end_date IS NULL OR YEAR(mou_records.end_date) >= ?", greg).
 		Order("mou_records.start_date ASC").
@@ -1576,6 +1585,10 @@ func CreateMouActivity(c *gin.Context) {
 	}
 	if req.CoordinatorOther != "" {
 		activity.CoordinatorOther = req.CoordinatorOther
+	}
+	if len(req.Links) > 0 {
+		linksJSON, _ := json.Marshal(req.Links)
+		activity.Links = string(linksJSON)
 	}
 
 	tx := config.DB.Begin()
@@ -1779,6 +1792,14 @@ func UpdateMouActivity(c *gin.Context) {
 	}
 	if req.CoordinatorOrg != "" {
 		activity.CoordinatorOrg = req.CoordinatorOrg
+	}
+	if req.Links != nil {
+		if len(req.Links) > 0 {
+			linksJSON, _ := json.Marshal(req.Links)
+			activity.Links = string(linksJSON)
+		} else {
+			activity.Links = ""
+		}
 	}
 	activity.UpdatedBy = &uid
 
@@ -2041,7 +2062,7 @@ func updateMouStatusesBasedOnDate() {
 	defer mouMu.Unlock()
 
 	var pendingStatus, activeStatus, nearExpiryStatus, expiredStatus models.MouStatus
-	if err := config.DB.Where("name LIKE ?", "%รอดำเนินการ%").First(&pendingStatus).Error; err != nil {
+	if err := config.DB.Where("name LIKE ?", "%กำลังดำเนินการ%").First(&pendingStatus).Error; err != nil {
 		return
 	}
 	if err := config.DB.Where("name LIKE ?", "%มีผล%").First(&activeStatus).Error; err != nil {

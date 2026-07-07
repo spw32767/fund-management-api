@@ -3,6 +3,27 @@
 -- Migration นี้ใช้สำหรับ reference และตั้งค่าใน environment ใหม่เท่านั้น
 -- ถ้าตารางมีอยู่แล้วจะถูกข้ามไป
 
+-- lookup tables ที่ FK ของ MOU อ้างถึง
+CREATE TABLE IF NOT EXISTS `faculties` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(200) NOT NULL,
+  `name_en` varchar(200) NOT NULL,
+  `is_active` tinyint(1) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `countries` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name_th` varchar(200) NOT NULL,
+  `name_en` varchar(200) NOT NULL,
+  `is_active` tinyint(1) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `mou_status` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(200) NOT NULL,
@@ -61,6 +82,7 @@ CREATE TABLE IF NOT EXISTS `mou_records` (
   `is_international` tinyint(1) NOT NULL DEFAULT 0,
   `Country_id` int(11) DEFAULT NULL,
   `coordinator_id` int(11) DEFAULT NULL,
+  `coordinator_other` varchar(200) DEFAULT NULL COMMENT 'ชื่อผู้ประสานงาน กรณีไม่อยู่ในระบบ',
   `lock_mou` tinyint(1) NOT NULL DEFAULT 0,
   `created_by` int(11) NOT NULL,
   `updated_by` int(11) DEFAULT NULL,
@@ -201,6 +223,7 @@ CREATE TABLE IF NOT EXISTS `mou_activity` (
   `coordinator_id` int(11) NOT NULL,
   `coordinator_other` varchar(200) DEFAULT NULL,
   `coordinator_org` varchar(300) NOT NULL,
+  `links` text DEFAULT NULL COMMENT 'JSON array of reference URLs',
   `created_by` int(11) NOT NULL,
   `updated_by` int(11) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
