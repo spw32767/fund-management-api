@@ -84,10 +84,17 @@ func main() {
 	// SECURITY (Phase 0-C): the broad `router.Static("/uploads", "./uploads")` mount was
 	// removed — it exposed EVERY uploaded file (submissions, user documents, personal data)
 	// anonymously by URL. All file access now goes through authenticated routes or a
-	// short-lived signed URL (GET /api/v1/files/sign -> /api/v1/view). Only email_assets
-	// stays public, because email logos are embedded in outgoing mail and must load without
-	// auth for external recipients.
+	// short-lived signed URL (GET /api/v1/files/sign -> /api/v1/view). The folders below
+	// hold PUBLIC documents and stay openly readable (no login):
+	//   - email_assets     : logos embedded in outgoing email (external recipients)
+	//   - announcements    : public announcements everyone may read
+	//   - fund_forms       : blank fund application forms for download
+	//   - import_templates : import templates for download
+	// Personal-data folders (users, merge_submissions) are NOT here -> signed URL only.
 	router.Static("/uploads/email_assets", "./uploads/email_assets")
+	router.Static("/uploads/announcements", "./uploads/announcements")
+	router.Static("/uploads/fund_forms", "./uploads/fund_forms")
+	router.Static("/uploads/import_templates", "./uploads/import_templates")
 
 	// Create upload directory if not exists
 	uploadPath := os.Getenv("UPLOAD_PATH")
