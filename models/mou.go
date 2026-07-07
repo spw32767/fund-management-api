@@ -22,7 +22,8 @@ type MouRecord struct {
 	CountryID       *int        `gorm:"column:Country_id" json:"country_id"`
 	IsInternational bool        `gorm:"column:is_international" json:"is_international"`
 	LockMou        bool        `gorm:"column:lock_mou;default:false" json:"lock_mou"`
-	CoordinatorID   *int        `gorm:"column:coordinator_id" json:"coordinator_id"`
+	CoordinatorID    *int        `gorm:"column:coordinator_id" json:"coordinator_id"`
+	CoordinatorOther string      `gorm:"column:coordinator_other" json:"coordinator_other"`
 	CreatedBy       int         `gorm:"column:created_by" json:"created_by"`
 	UpdatedBy       *int        `gorm:"column:updated_by" json:"updated_by,omitempty"`
 	CreatedAt       time.Time   `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
@@ -193,6 +194,7 @@ type MouActivity struct {
 	CoordinatorID   *int       `gorm:"column:coordinator_id" json:"coordinator_id"`
 	CoordinatorOther string    `gorm:"column:coordinator_other" json:"coordinator_other"`
 	CoordinatorOrg  string     `gorm:"column:coordinator_org" json:"coordinator_org"`
+	Links           string     `gorm:"column:links;type:text" json:"links"`
 	CreatedBy       int        `gorm:"column:created_by" json:"created_by"`
 	UpdatedBy       *int       `gorm:"column:updated_by" json:"updated_by"`
 	CreatedAt       time.Time  `gorm:"column:created_at;autoCreateTime:milli" json:"created_at"`
@@ -257,17 +259,18 @@ type MouActivityAttachment struct {
 type CreateMouRequest struct {
 	MouCode          string     `json:"mou_code"`
 	ParentMouID      *int       `json:"parent_mou_id"`
-	Title            string     `json:"title" binding:"required"`
+	Title            string     `json:"title"`
 	Description      string     `json:"description"`
-	Level            string     `json:"level" binding:"required,oneof=university faculty"`
+	Level            string     `json:"level"`
 	IsInternational  bool       `json:"is_international"`
 	StartDate        *string    `json:"start_date"` // format: "DD/MM/YYYY"
-	EndDate          string     `json:"end_date" binding:"required"`
+	EndDate          string     `json:"end_date"`
 	YearOfSigning    string     `json:"year_of_signing"` // format: "2006-01-02"
-	PartnerName      string     `json:"partner_name" binding:"required"`
+	PartnerName      string     `json:"partner_name"`
 	PartnerTypeID    int        `json:"partner_type_id"`
 	CountryID        *int       `json:"country_id"`
 	CoordinatorID    *int       `json:"coordinator_id"`
+	CoordinatorOther string     `json:"coordinator_other"`
 	CoordinatorName  string     `json:"coordinator_name"`
 	SignedBy         *string    `json:"signed_by"`
 	Notes            string     `json:"notes"`
@@ -303,6 +306,7 @@ type CreateMouActivityRequest struct {
 	CoordinatorID    *int     `json:"coordinator_id"`
 	CoordinatorOther string   `json:"coordinator_other"`
 	CoordinatorOrg   string   `json:"coordinator_org"`
+	Links            []string `json:"links"`
 }
 
 type UpdateMouActivityRequest struct {
@@ -320,6 +324,7 @@ type UpdateMouActivityRequest struct {
 	CoordinatorID    *int     `json:"coordinator_id"`
 	CoordinatorOther string   `json:"coordinator_other"`
 	CoordinatorOrg   string   `json:"coordinator_org"`
+	Links            []string `json:"links"`
 }
 
 func (MouActivity) TableName() string { return "mou_activity" }
@@ -346,8 +351,9 @@ type UpdateMouRequest struct {
 	PartnerName       *string       `json:"partner_name"`
 	PartnerTypeID     *int          `json:"partner_type_id"`
 	CountryID         *int          `json:"country_id"`
-	CoordinatorID     *int          `json:"coordinator_id"`
-	CoordinatorName   *string       `json:"coordinator_name"`
+	CoordinatorID      *int          `json:"coordinator_id"`
+	CoordinatorOther   *string       `json:"coordinator_other"`
+	CoordinatorName    *string       `json:"coordinator_name"`
 	SignedBy          *string       `json:"signed_by"`
 	Notes             *string       `json:"notes"`
 	FacultyIDs           []int         `json:"faculty_ids"`
