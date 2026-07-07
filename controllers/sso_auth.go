@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -121,8 +122,57 @@ func SSOCallback(c *gin.Context) {
 	user.LastLoginAt = &now
 	user.UpdateAt = &now
 
-	token, expiresIn, err := generateAccessTokenWithMethod(user, "", AuthMethodSSO)
+	// Create a tracked session with a JTI so SSO logins are revocable and appear in the
+	// active-sessions list, exactly like local logins. Without this, SSO tokens skip the
+	// middleware session check (auth.go) and cannot be logged out / force-terminated.
+	jti := uuid.New().String()
+
+	token, expiresIn, err := generateAccessTokenWithMethod(user, jti, AuthMethodSSO)
 	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=sso_failed")
+		return
+	}
+
+	refreshToken, err := generateRefreshToken()
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=sso_failed")
+		return
+	}
+
+	deviceInfo := extractDeviceInfo(c)
+	sessionNow := time.Now()
+	session := models.UserSession{
+		UserID:         user.UserID,
+		AccessTokenJTI: jti,
+		RefreshToken:   refreshToken,
+		DeviceName:     deviceInfo.DeviceName,
+		DeviceType:     deviceInfo.DeviceType,
+		IPAddress:      deviceInfo.IPAddress,
+		UserAgent:      deviceInfo.UserAgent,
+		LastActivity:   &sessionNow,
+		ExpiresAt:      time.Now().Add(time.Duration(getRefreshTokenExpireHours()) * time.Hour),
+		IsActive:       true,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	if err := config.DB.Create(&session).Error; err != nil {
+		c.Redirect(http.StatusFound, "/login?error=sso_failed")
+		return
+	}
+
+	userToken := models.UserToken{
+		UserID:     user.UserID,
+		TokenType:  "refresh",
+		Token:      refreshToken,
+		ExpiresAt:  session.ExpiresAt,
+		IsRevoked:  false,
+		DeviceInfo: deviceInfo.DeviceName + " / " + deviceInfo.DeviceType,
+		IPAddress:  deviceInfo.IPAddress,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if err := config.DB.Create(&userToken).Error; err != nil {
+		config.DB.Delete(&session)
 		c.Redirect(http.StatusFound, "/login?error=sso_failed")
 		return
 	}
@@ -132,6 +182,11 @@ func SSOCallback(c *gin.Context) {
 }
 
 func LogoutWithSSORedirect(c *gin.Context) {
+	// Revoke the server-side session first so the token cannot be reused after logout
+	// (parity with POST /logout for local sessions). Best-effort — ignores errors so the
+	// user is always redirected out.
+	revokeSessionFromToken(c)
+
 	clearAuthTokenCookie(c)
 	logoutRedirect := strings.TrimSpace(os.Getenv("SSO_LOGOUT_REDIRECT_URL"))
 	authMethod := resolveAuthMethodForLogout(c)
@@ -192,6 +247,45 @@ func resolveAuthMethodForLogout(c *gin.Context) string {
 	}
 
 	return AuthMethodLocal
+}
+
+// revokeSessionFromToken marks the session referenced by the request's token (from the
+// Authorization header or the auth cookie) as inactive. Best-effort: any parsing/lookup
+// failure is ignored so logout still proceeds. Works for both SSO and local tokens now
+// that both carry a JTI.
+func revokeSessionFromToken(c *gin.Context) {
+	tokenString := ""
+	if authHeader := strings.TrimSpace(c.GetHeader("Authorization")); authHeader != "" {
+		tokenString = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+	if tokenString == "" {
+		if cookieToken, err := c.Cookie(getAuthCookieName()); err == nil {
+			tokenString = strings.TrimSpace(cookieToken)
+		}
+	}
+	if tokenString == "" {
+		return
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	token, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return
+	}
+
+	claims, ok := token.Claims.(*middleware.Claims)
+	if !ok || claims.ID == "" {
+		return
+	}
+
+	config.DB.Model(&models.UserSession{}).
+		Where("user_id = ? AND access_token_jti = ? AND is_active = ?", claims.UserID, claims.ID, true).
+		Update("is_active", false)
 }
 
 func upsertSSOIdentity(tx *gorm.DB, userID int, email string, providerSubject string, rawClaims []byte, now time.Time) error {
