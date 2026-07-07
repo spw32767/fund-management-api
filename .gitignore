@@ -35,6 +35,5 @@ logs/
 .idea/
 *.swp
 
-uploads/
 
 fund-api
