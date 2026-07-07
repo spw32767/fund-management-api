@@ -7,11 +7,14 @@
 ## วิธีรัน (apply ทีละไฟล์ตามลำดับ)
 
 ```bash
-for f in $(ls -1 [0-9][0-9][0-9]_*.sql | sort); do
+for f in $(ls -1 [0-9]*.sql | sort); do   # จับทั้ง 012_ และไฟล์แทรกอย่าง 012a_
   echo ">> $f"
   mysql -u <user> -p<password> <database> < "$f"
 done
 ```
+
+> หมายเหตุ: ไฟล์ที่แทรกระหว่างลำดับจะใช้ suffix ตัวอักษร เช่น `012a_` ซึ่ง `sort`
+> จะเรียงให้อยู่**หลัง** `012_` และ**ก่อน** `013_` โดยอัตโนมัติ
 
 ## ลำดับการรัน
 
@@ -29,6 +32,7 @@ done
 | 010 | 20260426_add_thaijo_author_selection_reason | ALTER thaijo_api_import_jobs (ตารางมาจาก 009) |
 | 011 | 20260426_add_thaijo_document_abstracts | ALTER thaijo_documents (ตารางมาจาก 009) |
 | 012 | 20260501_create_ai_showcase_tables | ต้องรันก่อน view 013/014/023 |
+| 012a | 20260706_add_role_to_ai_showcase_project_members | เพิ่มคอลัมน์ `role` — **ต้องรันก่อน 023** เพราะ view `unified_search_authors` เลือก `m.role` (แทรกไว้ที่นี่แทนต่อท้าย ไม่งั้น 023 จะ error `Unknown column 'm.role'`) |
 | 013 | 20260501_create_unified_search_authors_view | ดู "ปัญหาที่ยังค้าง" ข้อ 2 |
 | 014 | 20260501_create_unified_search_contents_view | |
 | 015 | 20260502_create_education_and_course_tables | สร้าง instructor_degrees/courses/educations — ต้องรันก่อน 020 |
