@@ -20,6 +20,7 @@ const (
 	scopusDashboardSummaryCacheTTL = 10 * time.Minute
 	scopusAffiliationNameKKU       = "khon kaen university"
 	scopusAffiliationNameSciKKU    = "faculty of science, khon kaen university"
+	scopusConferenceAggType        = "Conference Proceeding"
 )
 
 type scopusDashboardCacheItem struct {
@@ -298,6 +299,17 @@ func applyScopusKKUAffiliationConstraint(query *gorm.DB) *gorm.DB {
 	`, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU)
 }
 
+// isScopusConferenceAgg บอกว่าเอกสารเป็น Conference Proceeding หรือไม่
+// conference ไม่มีการจัด tier (CiteScore quartile) จึงต้องกันออกจากการนับ T1/Q1-Q4 ทุกจุด
+func isScopusConferenceAgg(aggType string) bool {
+	return strings.EqualFold(strings.TrimSpace(aggType), scopusConferenceAggType)
+}
+
+// scopusNotConferenceExpr เงื่อนไข SQL สำหรับกรอง "ไม่ใช่ conference" (ใช้ alias sd)
+func scopusNotConferenceExpr() string {
+	return "LOWER(TRIM(COALESCE(sd.aggregation_type, ''))) <> 'conference proceeding'"
+}
+
 func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
 	q := applyScopusKKUAffiliationConstraint(query)
 	pubYearExpr := scopusPublicationYearExpr()
@@ -378,6 +390,9 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 	}
 
 	if includeQuality && len(filters.QualityBuckets) > 0 {
+		// conference ไม่มี tier จึงไม่เข้าเงื่อนไข quartile ใด ๆ
+		q = q.Where(scopusNotConferenceExpr())
+
 		includeT1 := false
 		quartiles := make([]string, 0, len(filters.QualityBuckets))
 		for _, bucket := range filters.QualityBuckets {
@@ -388,12 +403,15 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 			quartiles = append(quartiles, bucket)
 		}
 
+		// T1 เป็นบัคเก็ตแยกจาก Q1 (T1 ⊂ Q1) การเลือก Q1-Q4 จึงต้องกัน T1 ออกให้ตรงกับตัวเลขที่แสดง
+		notT1QualityExpr := "(metrics.cite_score_percentile IS NULL OR metrics.cite_score_percentile NOT BETWEEN 90 AND 100)"
+		quartileInExpr := "COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?"
 		if includeT1 && len(quartiles) > 0 {
-			q = q.Where("((metrics.cite_score_percentile BETWEEN 90 AND 100) OR COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?)", quartiles)
+			q = q.Where("((metrics.cite_score_percentile BETWEEN 90 AND 100) OR ("+notT1QualityExpr+" AND "+quartileInExpr+"))", quartiles)
 		} else if includeT1 {
 			q = q.Where("metrics.cite_score_percentile BETWEEN 90 AND 100")
 		} else {
-			q = q.Where("COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?", quartiles)
+			q = q.Where(notT1QualityExpr+" AND "+quartileInExpr, quartiles)
 		}
 	}
 
@@ -466,6 +484,8 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Select("COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A') AS quartile, COUNT(DISTINCT sd.id) AS total").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
 		Scopes(applyScopusKKUAffiliationConstraint).
+		Where(scopusNotConferenceExpr()).
+		Where("(metrics.cite_score_percentile IS NULL OR metrics.cite_score_percentile NOT BETWEEN 90 AND 100)").
 		Group("quartile").
 		Scan(&qualityRows).Error; err == nil {
 		for _, row := range qualityRows {
@@ -478,6 +498,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
 		Scopes(applyScopusKKUAffiliationConstraint).
 		Where("metrics.cite_score_percentile BETWEEN 90 AND 100").
+		Where(scopusNotConferenceExpr()).
 		Distinct("sd.id").
 		Count(&t1Count).Error; err == nil {
 		qualityCounts["T1"] = t1Count
@@ -658,7 +679,12 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		if _, exists := quartileCounts[quartile]; !exists {
 			quartile = "N/A"
 		}
-		quartileCounts[quartile]++
+		isConferenceDoc := isScopusConferenceAgg(row.AggregationType)
+		isT1Doc := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
+		// T1 เป็นบัคเก็ตแยกจาก Q1 (T1 ⊂ Q1 ตาม percentile) จึงไม่นับ T1 ซ้ำในช่อง quartile
+		if !isConferenceDoc && !isT1Doc {
+			quartileCounts[quartile]++
+		}
 
 		aggLabel := strings.TrimSpace(row.AggregationType)
 		if aggLabel == "" {
@@ -709,37 +735,37 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				bucket.Journal++
 				fiscalBucket.Journal++
 			}
-			if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Conference Proceeding") {
+			if isConferenceDoc {
+				// conference นับเฉพาะช่อง Conference ไม่เข้า T1/Q1-Q4 (ไม่มี tier)
 				bucket.Conference++
 				fiscalBucket.Conference++
-			}
-
-			isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
-			if isT1 {
-				bucket.T1++
-				fiscalBucket.T1++
 			} else {
-				switch quartile {
-				case "Q1":
-					bucket.Q1++
-					fiscalBucket.Q1++
-				case "Q2":
-					bucket.Q2++
-					fiscalBucket.Q2++
-				case "Q3":
-					bucket.Q3++
-					fiscalBucket.Q3++
-				case "Q4":
-					bucket.Q4++
-					fiscalBucket.Q4++
-				default:
-					bucket.NA++
-					fiscalBucket.NA++
+				if isT1Doc {
+					bucket.T1++
+					fiscalBucket.T1++
+				} else {
+					switch quartile {
+					case "Q1":
+						bucket.Q1++
+						fiscalBucket.Q1++
+					case "Q2":
+						bucket.Q2++
+						fiscalBucket.Q2++
+					case "Q3":
+						bucket.Q3++
+						fiscalBucket.Q3++
+					case "Q4":
+						bucket.Q4++
+						fiscalBucket.Q4++
+					default:
+						bucket.NA++
+						fiscalBucket.NA++
+					}
 				}
 			}
 		}
 
-		if row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100 {
+		if !isConferenceDoc && isT1Doc {
 			t1Documents++
 		}
 	}
@@ -1011,32 +1037,34 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				agg.UniqueDocuments++
 				agg.CitedByTotal += row.CitedByCount
 
+				isConferenceDoc := isScopusConferenceAgg(row.AggregationType)
 				if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Journal") {
 					agg.JournalCount++
 				}
-				if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Conference Proceeding") {
+				if isConferenceDoc {
+					// conference นับเฉพาะช่อง Conference ไม่เข้า T1/Q1-Q4 (ไม่มี tier)
 					agg.ConferenceCount++
-				}
-
-				quartile := strings.ToUpper(strings.TrimSpace(row.Quartile))
-				if quartile == "" {
-					quartile = "N/A"
-				}
-				isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
-				if isT1 {
-					agg.T1Count++
 				} else {
-					switch quartile {
-					case "Q1":
-						agg.Q1Count++
-					case "Q2":
-						agg.Q2Count++
-					case "Q3":
-						agg.Q3Count++
-					case "Q4":
-						agg.Q4Count++
-					default:
-						agg.NACount++
+					quartile := strings.ToUpper(strings.TrimSpace(row.Quartile))
+					if quartile == "" {
+						quartile = "N/A"
+					}
+					isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
+					if isT1 {
+						agg.T1Count++
+					} else {
+						switch quartile {
+						case "Q1":
+							agg.Q1Count++
+						case "Q2":
+							agg.Q2Count++
+						case "Q3":
+							agg.Q3Count++
+						case "Q4":
+							agg.Q4Count++
+						default:
+							agg.NACount++
+						}
 					}
 				}
 
@@ -1407,11 +1435,11 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 		// เงื่อนไข bucket ให้ตรงกับ logic การนับใน AdminGetScopusDashboardSummary
 		switch bucket {
 		case "t1":
-			q = q.Where("metrics.cite_score_percentile BETWEEN 90 AND 100")
+			q = q.Where("metrics.cite_score_percentile BETWEEN 90 AND 100").Where(scopusNotConferenceExpr())
 		case "q1", "q2", "q3", "q4":
-			q = q.Where(notT1Expr).Where(quartileExpr+" = ?", strings.ToUpper(bucket))
+			q = q.Where(notT1Expr).Where(quartileExpr+" = ?", strings.ToUpper(bucket)).Where(scopusNotConferenceExpr())
 		case "na":
-			q = q.Where(notT1Expr).Where(quartileExpr + " = 'N/A'")
+			q = q.Where(notT1Expr).Where(quartileExpr + " = 'N/A'").Where(scopusNotConferenceExpr())
 		case "journal":
 			q = q.Where("sd.aggregation_type = ?", "Journal")
 		case "conference":
