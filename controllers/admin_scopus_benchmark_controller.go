@@ -18,6 +18,60 @@ import (
 
 const benchmarkHarvestTimeout = 6 * time.Hour
 
+// benchmarkYearBounds resolves the [from, to] year window from query params.
+// Range (year_from/year_to) takes precedence; otherwise years_back (defaulting to
+// defaultYearsBack) is used relative to the current year.
+func benchmarkYearBounds(c *gin.Context, defaultYearsBack int) (int, int) {
+	yf, _ := strconv.Atoi(strings.TrimSpace(c.Query("year_from")))
+	yt, _ := strconv.Atoi(strings.TrimSpace(c.Query("year_to")))
+	if yf > 0 || yt > 0 {
+		if yt == 0 {
+			yt = time.Now().Year()
+		}
+		if yf == 0 {
+			yf = yt
+		}
+		if yf > yt {
+			yf, yt = yt, yf
+		}
+		return yf, yt
+	}
+	yb := defaultYearsBack
+	if v := strings.TrimSpace(c.Query("years_back")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			yb = n
+		}
+	}
+	to := time.Now().Year()
+	return to - yb + 1, to
+}
+
+// GET /api/v1/admin/scopus/benchmark/scopes/:id/year-range
+// Detects the earliest/latest publication year for a scope via Scopus sorting.
+func AdminDetectBenchmarkYearRange(c *gin.Context) {
+	id, err := strconv.ParseUint(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid scope id"})
+		return
+	}
+	var scope models.ScopusBenchmarkScope
+	if err := config.DB.First(&scope, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "scope not found"})
+		return
+	}
+
+	svc := services.NewScopusBenchmarkService(nil, nil)
+	first, last, err := svc.DetectYearRange(c.Request.Context(), &scope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"first_year": first, "last_year": last},
+	})
+}
+
 // POST /api/v1/admin/scopus/benchmark/affiliation/lookup
 func AdminBenchmarkResolveAffiliation(c *gin.Context) {
 	var body struct {
@@ -106,15 +160,11 @@ func AdminUpdateBenchmarkScope(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": scope})
 }
 
-// POST /api/v1/admin/scopus/benchmark/counts/refresh?years_back=10
-// Counts CS totals for every active scope (all-years + per-year) and stores snapshots.
+// POST /api/v1/admin/scopus/benchmark/counts/refresh?year_from=2015&year_to=2025
+// (or ?years_back=10). Counts CS totals for every active scope (all-years total +
+// per-year within the window) and stores snapshots.
 func AdminRefreshBenchmarkCounts(c *gin.Context) {
-	yearsBack := 0
-	if v := strings.TrimSpace(c.Query("years_back")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			yearsBack = n
-		}
-	}
+	yearFrom, yearTo := benchmarkYearBounds(c, 10)
 
 	var scopes []models.ScopusBenchmarkScope
 	if err := config.DB.Where("active = 1").Order("id ASC").Find(&scopes).Error; err != nil {
@@ -138,20 +188,17 @@ func AdminRefreshBenchmarkCounts(c *gin.Context) {
 		}
 		entry["total"] = total
 
-		if yearsBack > 0 {
-			currentYear := time.Now().Year()
-			byYear := make([]gin.H, 0, yearsBack)
-			for y := currentYear; y > currentYear-yearsBack; y-- {
-				year := y
-				n, err := svc.CountScope(ctx, scope, &year)
-				if err != nil {
-					byYear = append(byYear, gin.H{"year": year, "error": err.Error()})
-					continue
-				}
-				byYear = append(byYear, gin.H{"year": year, "count": n})
+		byYear := make([]gin.H, 0, yearTo-yearFrom+1)
+		for y := yearTo; y >= yearFrom; y-- {
+			year := y
+			n, err := svc.CountScope(ctx, scope, &year)
+			if err != nil {
+				byYear = append(byYear, gin.H{"year": year, "error": err.Error()})
+				continue
 			}
-			entry["by_year"] = byYear
+			byYear = append(byYear, gin.H{"year": year, "count": n})
 		}
+		entry["by_year"] = byYear
 		results = append(results, entry)
 	}
 
@@ -277,19 +324,41 @@ func AdminListBenchmarkRuns(c *gin.Context) {
 	})
 }
 
+// POST /api/v1/admin/scopus/benchmark/runs/:id/cancel
+// Flags a running harvest as cancelled. A live run stops within one page; a stale
+// run (whose process died) is simply cleaned up.
+func AdminCancelBenchmarkRun(c *gin.Context) {
+	id, err := strconv.ParseUint(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid run id"})
+		return
+	}
+
+	now := time.Now()
+	res := config.DB.Model(&models.ScopusBenchmarkHarvestRun{}).
+		Where("id = ? AND status = ?", id, "running").
+		Updates(map[string]interface{}{
+			"status":        "cancelled",
+			"finished_at":   now,
+			"error_message": "cancelled by user",
+		})
+	if res.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": res.Error.Error()})
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "no running run to cancel"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "cancellation requested"})
+}
+
 // GET /api/v1/admin/scopus/benchmark/comparison?years_back=10
 // Compares faculty (derived, is_faculty within the university harvest) vs
 // university vs country CS counts by year, using the latest count snapshots for
 // university/country and the stored harvest for the derived faculty number.
 func AdminGetBenchmarkComparison(c *gin.Context) {
-	yearsBack := 10
-	if v := strings.TrimSpace(c.Query("years_back")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			yearsBack = n
-		}
-	}
-	currentYear := time.Now().Year()
-	minYear := currentYear - yearsBack + 1
+	yearFrom, yearTo := benchmarkYearBounds(c, 10)
 
 	var uni, country models.ScopusBenchmarkScope
 	config.DB.Where("level = ?", "university").First(&uni)
@@ -345,8 +414,8 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 		}
 	}
 
-	rows := make([]gin.H, 0, yearsBack)
-	for y := currentYear; y >= minYear; y-- {
+	rows := make([]gin.H, 0, yearTo-yearFrom+1)
+	for y := yearTo; y >= yearFrom; y-- {
 		rows = append(rows, gin.H{
 			"year":       y,
 			"faculty":    facultyByYear[y],

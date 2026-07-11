@@ -25,6 +25,10 @@ const (
 // ErrScopusBenchmarkHarvestRunning indicates a harvest run is already in progress.
 var ErrScopusBenchmarkHarvestRunning = errors.New("scopus benchmark harvest already running")
 
+// errBenchmarkCancelled is returned internally when a run's status was flipped away
+// from "running" (e.g. cancelled by an admin) so the harvest loop stops gracefully.
+var errBenchmarkCancelled = errors.New("scopus benchmark harvest cancelled")
+
 // ScopusBenchmarkHarvestSummary reports the result of a harvest run.
 type ScopusBenchmarkHarvestSummary struct {
 	TotalResultsReported int `json:"total_results_reported"`
@@ -93,10 +97,15 @@ func (s *ScopusBenchmarkService) HarvestScope(ctx context.Context, scope *models
 
 	started := time.Now()
 	var runErr error
+	cancelled := false
 	defer func() {
 		status := "success"
 		var errMsg *string
-		if runErr != nil {
+		if cancelled {
+			status = "cancelled"
+			msg := "cancelled by user"
+			errMsg = &msg
+		} else if runErr != nil {
 			status = "failed"
 			msg := runErr.Error()
 			errMsg = &msg
@@ -122,6 +131,10 @@ func (s *ScopusBenchmarkService) HarvestScope(ctx context.Context, scope *models
 	if len(years) == 0 {
 		// no year slicing — single query over all years
 		if err := s.harvestQuery(ctx, apiKey, scope, nil, facultySet, run, summary); err != nil {
+			if errors.Is(err, errBenchmarkCancelled) {
+				cancelled = true
+				return summary, nil
+			}
 			runErr = err
 			return summary, err
 		}
@@ -129,6 +142,10 @@ func (s *ScopusBenchmarkService) HarvestScope(ctx context.Context, scope *models
 		for _, y := range years {
 			year := y
 			if err := s.harvestQuery(ctx, apiKey, scope, &year, facultySet, run, summary); err != nil {
+				if errors.Is(err, errBenchmarkCancelled) {
+					cancelled = true
+					return summary, nil
+				}
 				runErr = err
 				return summary, err
 			}
@@ -136,6 +153,17 @@ func (s *ScopusBenchmarkService) HarvestScope(ctx context.Context, scope *models
 	}
 
 	return summary, nil
+}
+
+// isCancelRequested reports whether the run's status has been moved away from
+// "running" (e.g. an admin cancelled it), so the harvest loop can stop.
+func (s *ScopusBenchmarkService) isCancelRequested(ctx context.Context, runID uint64) bool {
+	var status string
+	if err := s.db.WithContext(ctx).Model(&models.ScopusBenchmarkHarvestRun{}).
+		Where("id = ?", runID).Pluck("status", &status).Error; err != nil {
+		return false
+	}
+	return status != "" && status != "running"
 }
 
 // harvestQuery runs the cursor loop for one scope query (single year or all years).
@@ -147,6 +175,9 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 
 	cursor := "*"
 	for {
+		if s.isCancelRequested(ctx, run.ID) {
+			return errBenchmarkCancelled
+		}
 		total, entries, nextCursor, err := s.searchPageWithRetry(ctx, apiKey, query, cursor)
 		if err != nil {
 			return err

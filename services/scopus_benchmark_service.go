@@ -270,6 +270,85 @@ func (s *ScopusBenchmarkService) searchPage(ctx context.Context, apiKey, query, 
 
 var errScopusRateLimited = errors.New("scopus api rate limited (429)")
 
+// DetectYearRange returns the earliest and latest publication year available for a
+// scope, using coverDate sorting (two lightweight count=1 requests).
+func (s *ScopusBenchmarkService) DetectYearRange(ctx context.Context, scope *models.ScopusBenchmarkScope) (int, int, error) {
+	apiKey, err := lookupScopusAPIKey(ctx, s.db)
+	if err != nil {
+		return 0, 0, err
+	}
+	query, err := buildScopeQuery(scope, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	first, err := s.fetchExtremeYear(ctx, apiKey, query, "+coverDate")
+	if err != nil {
+		return 0, 0, err
+	}
+	last, err := s.fetchExtremeYear(ctx, apiKey, query, "-coverDate")
+	if err != nil {
+		return 0, 0, err
+	}
+	if last == 0 {
+		last = time.Now().Year()
+	}
+	return first, last, nil
+}
+
+// fetchExtremeYear fetches the single document at the head of a sort order and
+// returns its publication year. sort="coverDate" gives the oldest, "-coverDate"
+// the newest.
+func (s *ScopusBenchmarkService) fetchExtremeYear(ctx context.Context, apiKey, query, sort string) (int, error) {
+	reqURL, err := url.Parse(scopusBaseURL)
+	if err != nil {
+		return 0, err
+	}
+	q := reqURL.Query()
+	q.Set("query", query)
+	q.Set("count", "1")
+	q.Set("view", "STANDARD")
+	q.Set("sort", sort)
+	reqURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set(scopusAPIKeyField, apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("scopus sort search error: status %d body %s", resp.StatusCode, truncateBody(body))
+	}
+
+	var decoded struct {
+		SearchResults struct {
+			Entries []json.RawMessage `json:"entry"`
+		} `json:"search-results"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return 0, err
+	}
+	if len(decoded.SearchResults.Entries) == 0 {
+		return 0, nil
+	}
+	entry, err := parseScopusEntry(decoded.SearchResults.Entries[0])
+	if err != nil {
+		return 0, err
+	}
+	if d := parseScopusDate(entry.CoverDate); d != nil {
+		return d.Year(), nil
+	}
+	return 0, nil
+}
+
 func stripScopusPrefix(v string) string {
 	v = strings.TrimSpace(v)
 	if idx := strings.LastIndex(v, ":"); idx >= 0 {
