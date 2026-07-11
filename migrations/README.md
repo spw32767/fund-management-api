@@ -50,15 +50,18 @@ done
 | 027 | 20260708_add_course_id_to_users | เพิ่มคอลัมน์ users.course_id |
 | 028 | 20260711_create_scopus_conference_fetch_runs | สร้างตารางประวัติการรันดึง conference info (Abstract Retrieval API) |
 
-## ⚠️ สิ่งที่ยังขาด — ต้องขอจาก DB intern ก่อนใช้งานจริง
+## ✅ ครบแล้ว — schema + seed
 
-schema ครบแล้ว (schema-only) แต่ยังขาด **ข้อมูล seed** ของตาราง lookup:
-`countries, faculties, mou_status, mou_partner_type, mou_activity_type,
-ranking_sources, ranking_tier_weights, ai_showcase_tracks`
-— dropdown / FK จะใช้งานไม่ได้ถ้าไม่มีข้อมูลตั้งต้น (ยังรอน้องส่ง หรือ export เอง)
+schema และข้อมูล seed ของตาราง lookup ครบทั้งหมดแล้ว:
 
-> เดิมขาด `countries`/`faculties` (เพิ่มแล้วใน 024), 7 คอลัมน์ conference ของ
-> `scopus_documents` (เพิ่มแล้วใน 026) และ `users.course_id` (เพิ่มแล้วใน 027)
+| ตาราง lookup | seed อยู่ในไฟล์ |
+|--------------|------------------|
+| `faculties`, `countries`, `mou_status`, `mou_partner_type`, `mou_activity_type` | 024 |
+| `ranking_sources`, `ranking_tier_weights` | 018 |
+| `ai_showcase_tracks` | 012 |
+
+> ประวัติที่เคยขาด: `countries`/`faculties` schema (เพิ่มใน 024), 7 คอลัมน์ conference
+> ของ `scopus_documents` (026), `users.course_id` (027), และ seed ของ mou lookup (024)
 
 ## ปัญหาที่ยังค้าง
 

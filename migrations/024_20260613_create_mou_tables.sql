@@ -1,7 +1,3 @@
--- MOU: สร้างตารางระบบ MOU ทั้งหมด
--- หมายเหตุ: ตารางเหล่านี้เดิมถูกสร้างด้วย SQL ตรงบน DB ไม่มี migration file
--- Migration นี้ใช้สำหรับ reference และตั้งค่าใน environment ใหม่เท่านั้น
--- ถ้าตารางมีอยู่แล้วจะถูกข้ามไป
 
 -- lookup tables ที่ FK ของ MOU อ้างถึง
 CREATE TABLE IF NOT EXISTS `faculties` (
@@ -14,6 +10,27 @@ CREATE TABLE IF NOT EXISTS `faculties` (
   `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO `faculties` (`id`, `name_th`, `name_en`, `is_active`) VALUES
+(1,  'คณะวิทยาศาสตร์', 'Faculty of Science', 1),
+(2,  'คณะวิศวกรรมศาสตร์', 'Faculty of Engineering', 1),
+(3,  'คณะเทคโนโลยี', 'Faculty of Technology', 1),
+(4,  'คณะเกษตรศาสตร์', 'Faculty of Agriculture', 1),
+(5,  'คณะสถาปัตยกรรมศาสตร์', 'Faculty of Architecture', 1),
+(6,  'วิทยาลัยการคอมพิวเตอร์', 'College of Computing', 1),
+(7,  'คณะแพทยศาสตร์', 'Faculty of Medicine', 1),
+(8,  'คณะทันตแพทยศาสตร์', 'Faculty of Dentistry', 1),
+(9,  'คณะเภสัชศาสตร์', 'Faculty of Pharmaceutical Sciences', 1),
+(10, 'คณะพยาบาลศาสตร์', 'Faculty of Nursing', 1),
+(11, 'คณะสาธารณสุขศาสตร์', 'Faculty of Public Health', 1),
+(12, 'คณะเทคนิคการแพทย์', 'Faculty of Associated Medical Sciences', 1),
+(13, 'คณะมนุษยศาสตร์และสังคมศาสตร์', 'Faculty of Humanities and Social Sciences', 1),
+(14, 'คณะศึกษาศาสตร์', 'Faculty of Education', 1),
+(15, 'คณะนิติศาสตร์', 'Faculty of Law', 1),
+(16, 'คณะบริหารธุรกิจและการบัญชี', 'Faculty of Business Administration and Accountancy', 1),
+(17, 'คณะเศรษฐศาสตร์', 'Faculty of Economics', 1),
+(18, 'คณะศิลปกรรมศาสตร์', 'Faculty of Fine and Applied Arts', 1),
+(19, 'วิทยาลัยนานาชาติ', 'KKU International College', 1);
+
 CREATE TABLE IF NOT EXISTS `countries` (
   `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `name_th` varchar(200) NOT NULL,
@@ -24,6 +41,38 @@ CREATE TABLE IF NOT EXISTS `countries` (
   `deleted_at` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO `countries` (`id`, `name_th`, `name_en`, `is_active`) VALUES
+(1,  'ไทย', 'Thailand', 1),
+(2,  'ญี่ปุ่น', 'Japan', 1),
+(3,  'สหรัฐอเมริกา', 'United States', 1),
+(4,  'สหราชอาณาจักร', 'United Kingdom', 1),
+(5,  'สาธารณรัฐประชาชนจีน', 'China', 1),
+(6,  'เกาหลีใต้', 'South Korea', 1),
+(7,  'ออสเตรเลีย', 'Australia', 1),
+(8,  'เยอรมนี', 'Germany', 1),
+(9,  'ฝรั่งเศส', 'France', 1),
+(10, 'แคนาดา', 'Canada', 1),
+(11, 'สิงคโปร์', 'Singapore', 1),
+(12, 'มาเลเซีย', 'Malaysia', 1),
+(13, 'อินโดนีเซีย', 'Indonesia', 1),
+(14, 'เวียดนาม', 'Vietnam', 1),
+(15, 'ฟิลิปปินส์', 'Philippines', 1),
+(16, 'อินเดีย', 'India', 1),
+(17, 'ไต้หวัน', 'Taiwan', 1),
+(18, 'ฮ่องกง', 'Hong Kong', 1),
+(19, 'เนเธอร์แลนด์', 'Netherlands', 1),
+(20, 'สวีเดน', 'Sweden', 1),
+(21, 'นิวซีแลนด์', 'New Zealand', 1),
+(22, 'รัสเซีย', 'Russia', 1),
+(23, 'บราซิล', 'Brazil', 1),
+(24, 'เม็กซิโก', 'Mexico', 1),
+(25, 'สหรัฐอาหรับเอมิเรตส์', 'United Arab Emirates', 1),
+(26, 'ฟินแลนด์', 'Finland', 1),
+(27, 'เบลเยียม', 'Belgium', 1),
+(28, 'สวิตเซอร์แลนด์', 'Switzerland', 1),
+(29, 'พม่า', 'Myanmar', 1),
+(30, 'กัมพูชา', 'Cambodia', 1);
+
 CREATE TABLE IF NOT EXISTS `mou_status` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(200) NOT NULL,
@@ -32,6 +81,14 @@ CREATE TABLE IF NOT EXISTS `mou_status` (
   `deleted_at` datetime DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `mou_status` (`id`, `name`) VALUES
+(2, 'มีผลบังคับใช้'),
+(3, 'หมดอายุ'),
+(4, 'ยกเลิก'),
+(5, 'กำลังดำเนินการ'),
+(6, 'ต่ออายุ'),
+(7, 'ใกล้หมดอายุ');
 
 CREATE TABLE IF NOT EXISTS `mou_okr` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -55,6 +112,12 @@ CREATE TABLE IF NOT EXISTS `mou_partner_type` (
   UNIQUE KEY `uk_partner_type_name` (`name_th`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO `mou_partner_type` (`id`, `name_th`, `description`, `is_active`) VALUES
+(1, 'ภาคเอกชน', NULL, 1),
+(2, 'หน่วยงานรัฐ', NULL, 1),
+(3, 'สถาบันต่างประเทศ', NULL, 1),
+(4, 'หน่วยงานการศึกษาในประเทศ', 'คณะ/สถาบันการศึกษาภายในประเทศไทย', 1);
+
 CREATE TABLE IF NOT EXISTS `mou_activity_type` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(200) NOT NULL,
@@ -65,6 +128,13 @@ CREATE TABLE IF NOT EXISTS `mou_activity_type` (
   `deleted_at` datetime DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `mou_activity_type` (`id`, `name`, `is_active`) VALUES
+(1, 'ลงนาม MOU', 1),
+(2, 'การบริการวิชาการ', 1),
+(3, 'หารือความร่วมมือ', 1),
+(4, 'อื่นๆ', 1),
+(5, 'การเรียนการสอน', 1);
 
 CREATE TABLE IF NOT EXISTS `mou_records` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
