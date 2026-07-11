@@ -26,6 +26,7 @@ const (
 	scopusLegacyAPIKeyField = "api_key"
 	citeScoreRunTimeout     = 2 * time.Hour
 	scopusBatchRunTimeout   = 2 * time.Hour
+	conferenceRunTimeout    = 2 * time.Hour
 )
 
 // POST /api/v1/admin/user-publications/import/scopus?user_id=123&scopus_id=54683571200
@@ -189,6 +190,121 @@ func AdminRefreshCiteScoreMetrics(c *gin.Context) {
 			"message": "refresh started",
 		},
 	})
+}
+
+// POST /api/v1/admin/scopus/conference/backfill
+func AdminBackfillConferenceInfo(c *gin.Context) {
+	svc := services.NewScopusConferenceService(nil, nil)
+	activeRun, err := svc.GetActiveRun(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "scopus conference fetch already running",
+			"data":    activeRun,
+		})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), conferenceRunTimeout)
+		defer cancel()
+
+		if _, err := svc.BackfillMissing(ctx); err != nil {
+			if errors.Is(err, services.ErrScopusConferenceFetchAlreadyRunning) {
+				log.Printf("scopus conference backfill skipped: job already running")
+				return
+			}
+			log.Printf("scopus conference backfill job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "conference backfill started",
+		},
+	})
+}
+
+// POST /api/v1/admin/scopus/conference/refresh
+func AdminRefreshConferenceInfo(c *gin.Context) {
+	svc := services.NewScopusConferenceService(nil, nil)
+	activeRun, err := svc.GetActiveRun(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "scopus conference fetch already running",
+			"data":    activeRun,
+		})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), conferenceRunTimeout)
+		defer cancel()
+
+		if _, err := svc.RefreshExisting(ctx); err != nil {
+			if errors.Is(err, services.ErrScopusConferenceFetchAlreadyRunning) {
+				log.Printf("scopus conference refresh skipped: job already running")
+				return
+			}
+			log.Printf("scopus conference refresh job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "conference refresh started",
+		},
+	})
+}
+
+// GET /api/v1/admin/scopus/conference/runs
+func AdminListScopusConferenceFetchRuns(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	var total int64
+	if err := config.DB.Model(&models.ScopusConferenceFetchRun{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var runs []models.ScopusConferenceFetchRun
+	offset := (page - 1) * perPage
+	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	pagination := gin.H{
+		"current_page": page,
+		"per_page":     perPage,
+		"total_count":  total,
+		"total_pages":  int((total + int64(perPage) - 1) / int64(perPage)),
+		"has_next":     int64(offset+perPage) < total,
+		"has_prev":     page > 1,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": runs, "pagination": pagination})
 }
 
 type setScopusAuthorIDRequest struct {

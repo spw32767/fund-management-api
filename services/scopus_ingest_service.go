@@ -44,9 +44,10 @@ type ScopusIngestResult struct {
 
 // ScopusIngestService fetches and stores publications from the Scopus API.
 type ScopusIngestService struct {
-	db      *gorm.DB
-	client  *http.Client
-	metrics *CiteScoreMetricsService
+	db         *gorm.DB
+	client     *http.Client
+	metrics    *CiteScoreMetricsService
+	conference *ScopusConferenceService
 }
 
 // NewScopusIngestService constructs a ScopusIngestService.
@@ -58,9 +59,10 @@ func NewScopusIngestService(db *gorm.DB, client *http.Client) *ScopusIngestServi
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &ScopusIngestService{
-		db:      db,
-		client:  client,
-		metrics: NewCiteScoreMetricsService(db, client),
+		db:         db,
+		client:     client,
+		metrics:    NewCiteScoreMetricsService(db, client),
+		conference: NewScopusConferenceService(db, client),
 	}
 }
 
@@ -147,6 +149,7 @@ func (s *ScopusIngestService) ingestAuthor(ctx context.Context, scopusAuthorID, 
 			}
 			if created && doc != nil {
 				s.enqueueMetricFetch(ctx, doc, metricsSeen)
+				s.enqueueConferenceFetch(ctx, doc)
 			}
 		}
 
@@ -375,6 +378,21 @@ func (s *ScopusIngestService) enqueueMetricFetch(ctx context.Context, doc *model
 
 	if err := s.metrics.EnsureJournalMetrics(ctx, issn, sourceID, metricYear); err != nil {
 		log.Printf("scopus ingest: failed to fetch CiteScore metrics for issn %s source %s: %v", issn, sourceID, err)
+	}
+}
+
+// enqueueConferenceFetch fetches conference event details for a newly created
+// conference document via the Abstract Retrieval API. Best-effort: failures are
+// logged and can be retried later through the manual backfill run.
+func (s *ScopusIngestService) enqueueConferenceFetch(ctx context.Context, doc *models.ScopusDocument) {
+	if doc == nil || !isConferenceDocument(doc) {
+		return
+	}
+	if s.conference == nil {
+		s.conference = NewScopusConferenceService(s.db, s.client)
+	}
+	if err := s.conference.EnsureConferenceInfo(ctx, doc); err != nil {
+		log.Printf("scopus ingest: failed to fetch conference info for doc %d: %v", doc.ID, err)
 	}
 }
 

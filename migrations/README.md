@@ -48,6 +48,7 @@ done
 | 025 | 20260619_insert_new_role_into_roles | |
 | 026 | 20260708_add_scopus_conference_columns | เพิ่ม 7 คอลัมน์ conference_* ให้ scopus_documents |
 | 027 | 20260708_add_course_id_to_users | เพิ่มคอลัมน์ users.course_id |
+| 028 | 20260711_create_scopus_conference_fetch_runs | สร้างตารางประวัติการรันดึง conference info (Abstract Retrieval API) |
 
 ## ⚠️ สิ่งที่ยังขาด — ต้องขอจาก DB intern ก่อนใช้งานจริง
 
