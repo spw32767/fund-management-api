@@ -49,6 +49,7 @@ done
 | 026 | 20260708_add_scopus_conference_columns | เพิ่ม 7 คอลัมน์ conference_* ให้ scopus_documents |
 | 027 | 20260708_add_course_id_to_users | เพิ่มคอลัมน์ users.course_id |
 | 028 | 20260711_create_scopus_conference_fetch_runs | สร้างตารางประวัติการรันดึง conference info (Abstract Retrieval API) |
+| 029 | 20260712_create_scopus_benchmark_tables | สร้างตาราง scopus_benchmark_* (เทียบผลงาน CS ระดับคณะ/มหาวิทยาลัย/ประเทศ) + seed 2 scope |
 
 ## ✅ ครบแล้ว — schema + seed
 
