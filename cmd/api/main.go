@@ -9,6 +9,7 @@ import (
 	"fund-management-api/routes"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -78,6 +79,11 @@ func main() {
 	monitor.RegisterMonitorPage(router)
 	monitor.RegisterLogsRoute(router)
 
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
 	// Setup routes
 	routes.SetupRoutes(router)
 
@@ -91,16 +97,12 @@ func main() {
 	//   - fund_forms       : blank fund application forms for download
 	//   - import_templates : import templates for download
 	// Personal-data folders (users, merge_submissions) are NOT here -> signed URL only.
-	router.Static("/uploads/email_assets", "./uploads/email_assets")
-	router.Static("/uploads/announcements", "./uploads/announcements")
-	router.Static("/uploads/fund_forms", "./uploads/fund_forms")
-	router.Static("/uploads/import_templates", "./uploads/import_templates")
+	router.Static("/uploads/email_assets", filepath.Join(uploadPath, "email_assets"))
+	router.Static("/uploads/announcements", filepath.Join(uploadPath, "announcements"))
+	router.Static("/uploads/fund_forms", filepath.Join(uploadPath, "fund_forms"))
+	router.Static("/uploads/import_templates", filepath.Join(uploadPath, "import_templates"))
 
 	// Create upload directory if not exists
-	uploadPath := os.Getenv("UPLOAD_PATH")
-	if uploadPath == "" {
-		uploadPath = "./uploads"
-	}
 	if err := os.MkdirAll(uploadPath, os.ModePerm); err != nil {
 		log.Printf("Warning: Failed to create upload directory: %v", err)
 	}
