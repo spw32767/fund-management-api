@@ -730,6 +730,14 @@ func SubmitSubmission(c *gin.Context) {
 			return fmt.Errorf("failed to prepare pdf document type: %w", err)
 		}
 
+		// Re-submitting a returned application regenerates the request-form documents.
+		// Remove the ones a PREVIOUS submit created first, so they are REPLACED rather
+		// than accumulated — otherwise the merge re-includes stale/duplicate form pages.
+		// (The merged PDF is already upserted; this brings the form docx/pdf in line.)
+		if err := deletePreviousGeneratedFormDocuments(tx, submission.SubmissionID, docType.DocumentTypeID, pdfDocType.DocumentTypeID); err != nil {
+			return fmt.Errorf("failed to remove previous generated form documents: %w", err)
+		}
+
 		uploadPath := os.Getenv("UPLOAD_PATH")
 		if uploadPath == "" {
 			uploadPath = "./uploads"
@@ -1474,6 +1482,46 @@ func nextDocumentDisplayOrder(existing []models.SubmissionDocument) int {
 		return len(existing) + 1
 	}
 	return maxOrder + 1
+}
+
+// deletePreviousGeneratedFormDocuments soft-deletes the auto-generated request-form
+// documents (DOCX/PDF) left by an earlier submit so that re-submitting a returned
+// application replaces them instead of stacking duplicates. The backing file records
+// and files are cleaned up best-effort; failures there are logged, not fatal.
+func deletePreviousGeneratedFormDocuments(tx *gorm.DB, submissionID int, typeIDs ...int) error {
+	if len(typeIDs) == 0 {
+		return nil
+	}
+
+	var oldDocs []models.SubmissionDocument
+	if err := tx.Preload("File").
+		Where("submission_id = ? AND document_type_id IN ?", submissionID, typeIDs).
+		Find(&oldDocs).Error; err != nil {
+		return err
+	}
+
+	for i := range oldDocs {
+		doc := &oldDocs[i]
+		filePath := strings.TrimSpace(doc.File.StoredPath)
+		fileID := doc.FileID
+
+		if err := tx.Delete(doc).Error; err != nil {
+			return err
+		}
+
+		if fileID > 0 {
+			if err := tx.Delete(&models.FileUpload{}, fileID).Error; err != nil {
+				log.Printf("[SubmitSubmission] failed to delete previous form file record %d: %v", fileID, err)
+			}
+			if filePath != "" {
+				if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+					log.Printf("[SubmitSubmission] failed to remove previous form file %s: %v", filePath, err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func ensurePublicationRewardFormDocumentType(tx *gorm.DB) (*models.DocumentType, error) {
