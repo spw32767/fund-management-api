@@ -80,12 +80,12 @@ func AdminGetKkuPeopleStatus(c *gin.Context) {
 
 	running, err := runSvc.GetRunning()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "kku_people", err)
 		return
 	}
 	last, err := runSvc.GetLatestCompleted()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "kku_people", err)
 		return
 	}
 
@@ -108,7 +108,7 @@ func AdminListKkuPeopleLogs(c *gin.Context) {
 	runSvc := services.NewKkuPeopleImportRunService(nil)
 	runs, total, err := runSvc.List(limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "kku_people", err)
 		return
 	}
 

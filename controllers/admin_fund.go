@@ -8,6 +8,7 @@ import (
 	"fund-management-api/config"
 	"fund-management-api/models"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -2131,8 +2132,12 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 	// Helper for rollback with response
 	rollbackWithError := func(status int, message string, debug string) {
 		tx.Rollback()
-		payload := gin.H{"error": message}
 		if debug != "" {
+			log.Printf("[InternalError] %s %s | %s: %s", c.Request.Method, c.Request.URL.Path, message, debug)
+		}
+		payload := gin.H{"error": message}
+		// Only expose raw debug detail outside production to avoid leaking internals.
+		if debug != "" && gin.Mode() != gin.ReleaseMode {
 			payload["debug"] = debug
 		}
 		c.JSON(status, payload)
@@ -2363,7 +2368,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize copy operation", "debug": err.Error()})
+		InternalError(c, "admin_fund: finalize copy", err)
 		return
 	}
 

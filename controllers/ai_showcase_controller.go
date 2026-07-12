@@ -354,13 +354,13 @@ func SyncAIShowcase(c *gin.Context) {
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("read body: %v", err)})
+		InternalError(c, "ai_showcase: read body", err)
 		return
 	}
 
 	rawProjects, err := parseSvelteKitProjects(raw)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("parse: %v", err)})
+		InternalError(c, "ai_showcase: parse", err)
 		return
 	}
 
@@ -602,7 +602,7 @@ FROM ai_showcase_project_members m;
 			continue
 		}
 		if err := config.DB.Exec(trimmed + ";").Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			InternalError(c, "ai_showcase", err)
 			return
 		}
 	}
@@ -844,7 +844,7 @@ func SyncAIShowcaseFromCSV(c *gin.Context) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fmt.Sprintf("read body: %v", err)})
+		InternalError(c, "ai_showcase: read body", err)
 		return
 	}
 

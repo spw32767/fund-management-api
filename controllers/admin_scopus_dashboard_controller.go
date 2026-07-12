@@ -450,7 +450,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Group("year_ce").
 		Order("year_ce DESC").
 		Scan(&years).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -462,7 +462,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Group("TRIM(aggregation_type)").
 		Order("total DESC, label ASC").
 		Scan(&aggregationTypes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -618,7 +618,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	query = applyScopusDashboardFilters(query, filters, true)
 
 	if err := query.Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -1452,7 +1452,7 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 
 	var total int64
 	if err := buildBase().Distinct("sd.id").Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -1489,7 +1489,7 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 		Offset((page - 1) * pageSize)
 
 	if err := dataQuery.Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 

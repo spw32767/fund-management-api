@@ -269,7 +269,7 @@ func CreateSubmission(c *gin.Context) {
 
 	statusID, err := determineInitialStatusID(req.SubmissionType, req.StatusID, roleID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "submission", err)
 		return
 	}
 
@@ -863,7 +863,7 @@ func SubmitSubmission(c *gin.Context) {
 
 		return nil
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "submission", err)
 		return
 	}
 
@@ -1291,7 +1291,7 @@ func MergeSubmissionDocuments(c *gin.Context) {
 	log.Printf("[MergeSubmissionDocuments] merging %d pdf(s) into %s", len(pdfPaths), outputPath)
 	if err := mergePDFs(pdfPaths, outputPath); err != nil {
 		log.Printf("[MergeSubmissionDocuments] merge failed for submission %d: %v", submission.SubmissionID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to merge PDF documents: %v", err)})
+		InternalError(c, "submission: merge PDF", err)
 		return
 	}
 

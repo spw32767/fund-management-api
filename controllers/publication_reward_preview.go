@@ -211,7 +211,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 
@@ -263,13 +263,13 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 
 	merged, err := mergePreviewPDFWithAttachments(pdfData, attachments)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 

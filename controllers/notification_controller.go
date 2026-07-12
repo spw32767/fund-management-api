@@ -685,7 +685,7 @@ func CreateNotification(c *gin.Context) {
 
 	nID, err := createNotificationSafe(db, req.UserID, req.Title, req.Message, req.Type, req.RelatedSubmissionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "notification", err)
 		return
 	}
 
@@ -731,7 +731,7 @@ func GetNotifications(c *gin.Context) {
 
 	var items []Notification
 	if err := q.Order("create_at DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "notification", err)
 		return
 	}
 
@@ -751,7 +751,7 @@ func GetNotificationCounter(c *gin.Context) {
 	if err := db.Model(&Notification{}).
 		Where("user_id = ? AND is_read = 0", uid).
 		Count(&n).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "notification", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"unread": n})
@@ -776,7 +776,7 @@ func MarkNotificationRead(c *gin.Context) {
 	if err := db.Model(&Notification{}).
 		Where("notification_id = ? AND user_id = ?", id, uid).
 		Update("is_read", true).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "notification", err)
 		return
 	}
 
@@ -800,7 +800,7 @@ func MarkAllNotificationsRead(c *gin.Context) {
 	if err := db.Model(&Notification{}).
 		Where("user_id = ? AND is_read = 0", uid).
 		Update("is_read", true).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "notification", err)
 		return
 	}
 
