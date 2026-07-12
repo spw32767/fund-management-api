@@ -9,6 +9,7 @@ import (
 	"fund-management-api/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -64,17 +65,20 @@ func saveFileUploadRecord(db *gorm.DB, fileUpload *models.FileUpload) error {
 }
 
 func createSubmissionDocumentRecord(db *gorm.DB, document *models.SubmissionDocument) error {
+	// Never cascade-save associations (especially File): they are persisted separately,
+	// and re-saving File here would try to write columns the DB may not have yet
+	// (e.g. file_uploads.metadata), which aborts the whole operation.
 	if !submissionDocumentSupportsOriginalName(db) {
-		return db.Omit("OriginalName").Create(document).Error
+		return db.Omit("OriginalName", clause.Associations).Create(document).Error
 	}
-	return db.Create(document).Error
+	return db.Omit(clause.Associations).Create(document).Error
 }
 
 func saveSubmissionDocumentRecord(db *gorm.DB, document *models.SubmissionDocument) error {
 	if !submissionDocumentSupportsOriginalName(db) {
-		return db.Omit("OriginalName").Save(document).Error
+		return db.Omit("OriginalName", clause.Associations).Save(document).Error
 	}
-	return db.Save(document).Error
+	return db.Omit(clause.Associations).Save(document).Error
 }
 
 func fileUploadSupportsMetadata(db *gorm.DB) bool {
