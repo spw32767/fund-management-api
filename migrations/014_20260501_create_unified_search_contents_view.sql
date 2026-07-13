@@ -14,7 +14,7 @@ CREATE OR REPLACE VIEW unified_search_contents AS
 -- 1. SCOPUS
 -- =======================
 SELECT
-    CONCAT('scopus_', d.id)                         AS id,
+    CONCAT('scopus_', d.id) COLLATE utf8mb4_general_ci AS id,
     'scopus' COLLATE utf8mb4_unicode_ci             AS source_name,
     COALESCE(d.title, 'Untitled')                   AS title,
     d.abstract                                       AS abstract,
@@ -103,7 +103,7 @@ UNION ALL
 -- 2. THAIJO 
 -- =======================
 SELECT
-    CONCAT('thaijo_', d.id)                          AS id,
+    CONCAT('thaijo_', d.id) COLLATE utf8mb4_general_ci AS id,
     'thaijo' COLLATE utf8mb4_unicode_ci              AS source_name,
     COALESCE(d.title_th, d.title_en, 'Untitled')     AS title,
     COALESCE(d.abstract_th, d.abstract_en)           AS abstract,
@@ -144,7 +144,7 @@ UNION ALL
 -- 3. AI SHOWCASE
 -- =======================
 SELECT
-    CONCAT('ai_', p.id)                             AS id,
+    CONCAT('ai_', p.id) COLLATE utf8mb4_general_ci AS id,
     'ai_showcase' COLLATE utf8mb4_unicode_ci        AS source_name,
     COALESCE(p.title_th, p.title_en, 'Untitled')     AS title,
     p.abstract                                       AS abstract,
