@@ -170,7 +170,7 @@ func (s *instructorService) UpdateInstructorProfile(ctx context.Context, user mo
 		oldJSON, _ := json.Marshal(oldHeader)
 		newJSON, _ := json.Marshal(user.Header)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: user.Header.UserID, TargetUserID: user.Header.UserID,
+			UserEditID: user.Header.UserID, TargetUserID: intPtr(user.Header.UserID),
 			Action: "UPDATE", TargetTable: "users", RecordID: user.Header.UserID,
 			OldValue: string(oldJSON), NewValue: string(newJSON),
 		}).Error
@@ -275,7 +275,7 @@ func (s *instructorService) DeleteTextbook(ctx context.Context, editorID int, id
 		}
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: old.UserID,
+			UserEditID: editorID, TargetUserID: intPtr(old.UserID),
 			Action: "DELETE", TargetTable: "instructor_textbooks",
 			FieldName: "textbook_item", RecordID: int(id),
 			OldValue: string(oldJSON), NewValue: "",
@@ -294,7 +294,7 @@ func (s *instructorService) DeleteIntellectualProperty(ctx context.Context, edit
 		}
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: old.UserID,
+			UserEditID: editorID, TargetUserID: intPtr(old.UserID),
 			Action: "DELETE", TargetTable: "instructor_intellectual_properties",
 			FieldName: "property_item", RecordID: int(id),
 			OldValue: string(oldJSON), NewValue: "",
@@ -313,7 +313,7 @@ func (s *instructorService) DeleteResearchProject(ctx context.Context, editorID 
 		}
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: old.UserID,
+			UserEditID: editorID, TargetUserID: intPtr(old.UserID),
 			Action: "DELETE", TargetTable: "instructor_research_projects",
 			FieldName: "project_item", RecordID: int(id),
 			OldValue: string(oldJSON), NewValue: "",
@@ -332,7 +332,7 @@ func (s *instructorService) DeleteExpertise(ctx context.Context, editorID int, i
 		}
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: old.UserID,
+			UserEditID: editorID, TargetUserID: intPtr(old.UserID),
 			Action: "DELETE", TargetTable: "instructor_expertises",
 			FieldName: "expertise_item", RecordID: int(id),
 			OldValue: string(oldJSON), NewValue: "",
@@ -351,7 +351,7 @@ func (s *instructorService) DeleteEducation(ctx context.Context, editorID int, i
 		}
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: old.UserID,
+			UserEditID: editorID, TargetUserID: intPtr(old.UserID),
 			Action: "DELETE", TargetTable: "instructor_educations",
 			FieldName: "education_item", RecordID: int(id),
 			OldValue: string(oldJSON), NewValue: "",
@@ -381,7 +381,7 @@ func applyEducationDiff(
 		}
 		oldJSON, _ := json.Marshal(old)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "DELETE", TargetTable: "instructor_educations",
 			FieldName: "education_item", RecordID: int(d.ID),
 			OldValue: string(oldJSON), NewValue: "",
@@ -412,7 +412,7 @@ func applyEducationDiff(
 		oldJSON, _ := json.Marshal(old)
 		newJSON, _ := json.Marshal(newVal)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "UPDATE", TargetTable: "instructor_educations",
 			FieldName: "education_item", RecordID: int(u.ID),
 			OldValue: string(oldJSON), NewValue: string(newJSON),
@@ -429,7 +429,7 @@ func applyEducationDiff(
 		}
 		newJSON, _ := json.Marshal(added[i])
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "INSERT", TargetTable: "instructor_educations",
 			FieldName: "education_item", RecordID: int(added[i].ID),
 			OldValue: "", NewValue: string(newJSON),
@@ -461,7 +461,7 @@ func applyExpertiseDiff(
 		}
 		oldJSON, _ := json.Marshal(old)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "DELETE", TargetTable: "instructor_expertises",
 			FieldName: "expertise_item", RecordID: int(d.ID),
 			OldValue: string(oldJSON), NewValue: "",
@@ -489,7 +489,7 @@ func applyExpertiseDiff(
 		oldJSON, _ := json.Marshal(old)
 		newJSON, _ := json.Marshal(newVal)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "UPDATE", TargetTable: "instructor_expertises",
 			FieldName: "expertise_item", RecordID: int(u.ID),
 			OldValue: string(oldJSON), NewValue: string(newJSON),
@@ -506,7 +506,7 @@ func applyExpertiseDiff(
 		}
 		newJSON, _ := json.Marshal(added[i])
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "INSERT", TargetTable: "instructor_expertises",
 			FieldName: "expertise_item", RecordID: int(added[i].ID),
 			OldValue: "", NewValue: string(newJSON),
@@ -538,7 +538,7 @@ func applyProjectDiff(
 		}
 		oldJSON, _ := json.Marshal(old)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "DELETE", TargetTable: "instructor_research_projects",
 			FieldName: "project_item", RecordID: int(d.ID),
 			OldValue: string(oldJSON), NewValue: "",
@@ -570,7 +570,7 @@ func applyProjectDiff(
 		oldJSON, _ := json.Marshal(old)
 		newJSON, _ := json.Marshal(newVal)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "UPDATE", TargetTable: "instructor_research_projects",
 			FieldName: "project_item", RecordID: int(u.ID),
 			OldValue: string(oldJSON), NewValue: string(newJSON),
@@ -587,7 +587,7 @@ func applyProjectDiff(
 		}
 		newJSON, _ := json.Marshal(added[i])
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "INSERT", TargetTable: "instructor_research_projects",
 			FieldName: "project_item", RecordID: int(added[i].ID),
 			OldValue: "", NewValue: string(newJSON),
@@ -619,7 +619,7 @@ func applyTextbookDiff(
 		}
 		oldJSON, _ := json.Marshal(old)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "DELETE", TargetTable: "instructor_textbooks",
 			FieldName: "textbook_item", RecordID: int(d.ID),
 			OldValue: string(oldJSON), NewValue: "",
@@ -650,7 +650,7 @@ func applyTextbookDiff(
 		oldJSON, _ := json.Marshal(old)
 		newJSON, _ := json.Marshal(newVal)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "UPDATE", TargetTable: "instructor_textbooks",
 			FieldName: "textbook_item", RecordID: int(u.ID),
 			OldValue: string(oldJSON), NewValue: string(newJSON),
@@ -667,7 +667,7 @@ func applyTextbookDiff(
 		}
 		newJSON, _ := json.Marshal(added[i])
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "INSERT", TargetTable: "instructor_textbooks",
 			FieldName: "textbook_item", RecordID: int(added[i].ID),
 			OldValue: "", NewValue: string(newJSON),
@@ -709,7 +709,7 @@ func applyPropertyDiff(
 		}
 		oldJSON, _ := json.Marshal(old)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "DELETE", TargetTable: "instructor_intellectual_properties",
 			FieldName: "property_item", RecordID: int(d.ID),
 			OldValue: string(oldJSON), NewValue: "",
@@ -745,7 +745,7 @@ func applyPropertyDiff(
 		oldJSON, _ := json.Marshal(old)
 		newJSON, _ := json.Marshal(newVal)
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "UPDATE", TargetTable: "instructor_intellectual_properties",
 			FieldName: "property_item", RecordID: int(u.ID),
 			OldValue: string(oldJSON), NewValue: string(newJSON),
@@ -765,7 +765,7 @@ func applyPropertyDiff(
 		}
 		newJSON, _ := json.Marshal(added[i])
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID,
+			UserEditID: editorID, TargetUserID: intPtr(targetID),
 			Action: "INSERT", TargetTable: "instructor_intellectual_properties",
 			FieldName: "property_item", RecordID: int(added[i].ID),
 			OldValue: "", NewValue: string(newJSON),
@@ -814,7 +814,7 @@ func applyCoursesReplace(
 	}
 
 	return tx.Create(&models.InstructorEditLog{
-		UserEditID: editorID, TargetUserID: targetID,
+		UserEditID: editorID, TargetUserID: intPtr(targetID),
 		Action: action, TargetTable: "instructor_course_responsibility",
 		FieldName: "course_ids",
 		RecordID:  targetID,
@@ -835,7 +835,7 @@ func logFieldChanges(tx *gorm.DB, editorID, targetID int, table string, recordID
 			actionType = "INSERT"
 		}
 		if err := tx.Create(&models.InstructorEditLog{
-			UserEditID: editorID, TargetUserID: targetID, Action: actionType,
+			UserEditID: editorID, TargetUserID: intPtr(targetID), Action: actionType,
 			TargetTable: table, FieldName: field,
 			RecordID: recordID,
 			OldValue: oldStr, NewValue: newStr,

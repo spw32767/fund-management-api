@@ -43,7 +43,7 @@ func (s *courseService) CreateCourse(ctx context.Context, editorID int, course m
 		newJSON, _ := json.Marshal(course)
 		return tx.Create(&models.InstructorEditLog{
 			UserEditID:   editorID,
-			TargetUserID: 0,
+			TargetUserID: nil,
 			Action:       "INSERT",
 			TargetTable:  "instructor_courses",
 			FieldName:    "course_item",
@@ -82,7 +82,7 @@ func (s *courseService) UpdateCourse(ctx context.Context, editorID int, id uint,
 
 		return tx.Create(&models.InstructorEditLog{
 			UserEditID:   editorID,
-			TargetUserID: 0,
+			TargetUserID: nil,
 			Action:       "UPDATE",
 			TargetTable:  "instructor_courses",
 			FieldName:    "course_item",
@@ -107,7 +107,7 @@ func (s *courseService) DeleteCourse(ctx context.Context, editorID int, id uint)
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
 			UserEditID:   editorID,
-			TargetUserID: 0,
+			TargetUserID: nil,
 			Action:       "DELETE",
 			TargetTable:  "instructor_courses",
 			FieldName:    "course_item",
