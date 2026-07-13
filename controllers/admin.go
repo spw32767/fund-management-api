@@ -220,7 +220,7 @@ func CleanupTempFiles(c *gin.Context) {
 
 	deletedCount, err := utils.CleanupTempFiles(uploadPath, daysOld)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Cleanup failed: " + err.Error()})
+		InternalError(c, "admin: cleanup", err)
 		return
 	}
 

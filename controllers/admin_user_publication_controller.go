@@ -44,7 +44,7 @@ func AdminImportScholarPublications(c *gin.Context) {
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": scriptErr.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func AdminImportScholarForAll(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "scholar import already running"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -141,7 +141,7 @@ func AdminSearchUsers(c *gin.Context) {
 		Where("CONCAT(COALESCE(user_fname,''),' ',COALESCE(user_lname,'')) LIKE ? OR email LIKE ?", like, like).
 		Limit(limit).
 		Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -205,13 +205,13 @@ func AdminListUsersWithScopusID(c *gin.Context) {
 
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
 	var rows []row
 	if err := base.Order("user_id ASC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -294,12 +294,12 @@ func AdminSetUserScholarAuthorID(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
 	if err := config.DB.Model(&user).Update("scholar_author_id", authorID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -326,14 +326,14 @@ func AdminListScholarImportRuns(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ScholarImportRun{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
 	var runs []models.ScholarImportRun
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 

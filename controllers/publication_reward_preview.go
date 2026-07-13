@@ -211,7 +211,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 
@@ -263,13 +263,13 @@ func handlePublicationRewardPreviewForm(c *gin.Context) {
 
 	pdfData, err := generatePublicationRewardPDF(replacements)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 
 	merged, err := mergePreviewPDFWithAttachments(pdfData, attachments)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "reward_preview", err)
 		return
 	}
 
@@ -603,7 +603,11 @@ func mergePreviewPDFWithAttachments(base []byte, files []*multipart.FileHeader) 
 			continue
 		}
 		if !bytes.HasPrefix(data, []byte("%PDF")) {
-			return nil, fmt.Errorf("attachment %s is not a PDF file", header.Filename)
+			// Skip non-PDF attachments (e.g. the auto-generated .docx form that comes
+			// back with a returned submission) instead of failing the whole preview.
+			// Mirrors MergeSubmissionDocuments, which also skips non-PDF documents.
+			log.Printf("[mergePreview] skipping non-PDF attachment %s", header.Filename)
+			continue
 		}
 
 		destPath := filepath.Join(tmpDir, fmt.Sprintf("attachment-%d.pdf", idx+1))

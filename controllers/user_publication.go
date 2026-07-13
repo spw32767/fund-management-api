@@ -43,7 +43,7 @@ func GetUserPublications(c *gin.Context) {
 	svc := services.NewPublicationService(nil)
 	items, total, err := svc.ListByUser(userID, yearPtr, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -75,7 +75,7 @@ func GetUserScopusPublications(c *gin.Context) {
 	svc := services.NewScopusPublicationService(nil)
 	items, total, meta, err := svc.ListByUser(userID, limit, offset, sortField, sortDirection, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -105,7 +105,7 @@ func GetUserScopusPublicationStats(c *gin.Context) {
 	svc := services.NewScopusPublicationService(nil)
 	stats, meta, err := svc.StatsByUser(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -130,7 +130,7 @@ func AdminListScopusPublications(c *gin.Context) {
 	svc := services.NewScopusPublicationService(nil)
 	items, total, err := svc.ListAll(limit, offset, sortField, sortDirection, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -156,7 +156,7 @@ func AdminListScopusPublicationsByUser(c *gin.Context) {
 	svc := services.NewScopusPublicationService(nil)
 	items, total, err := svc.ListByUserOwnership(limit, offset, sortField, sortDirection, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -236,7 +236,7 @@ func UpsertUserPublication(c *gin.Context) {
 	svc := services.NewPublicationService(nil)
 	created, saved, err := svc.Upsert(pub)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 
@@ -258,7 +258,7 @@ func DeleteUserPublication(c *gin.Context) {
 
 	svc := services.NewPublicationService(nil)
 	if err := svc.SoftDelete(uint(id64), userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -279,7 +279,7 @@ func RestoreUserPublication(c *gin.Context) {
 
 	svc := services.NewPublicationService(nil)
 	if err := svc.Restore(uint(id64), userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_publication", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})

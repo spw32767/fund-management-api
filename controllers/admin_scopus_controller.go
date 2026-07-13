@@ -26,6 +26,7 @@ const (
 	scopusLegacyAPIKeyField = "api_key"
 	citeScoreRunTimeout     = 2 * time.Hour
 	scopusBatchRunTimeout   = 2 * time.Hour
+	conferenceRunTimeout    = 2 * time.Hour
 )
 
 // POST /api/v1/admin/user-publications/import/scopus?user_id=123&scopus_id=54683571200
@@ -49,7 +50,7 @@ func AdminImportScopusPublications(c *gin.Context) {
 		ScopusAuthorID: scopusID,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -78,7 +79,7 @@ func AdminImportScopusForAll(c *gin.Context) {
 	job := services.NewScopusIngestJobService(nil)
 	activeRun, err := job.GetActiveBatchRun(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 	if activeRun != nil {
@@ -118,7 +119,7 @@ func AdminBackfillCiteScoreMetrics(c *gin.Context) {
 	metrics := services.NewCiteScoreMetricsService(nil, nil)
 	activeRun, err := metrics.GetActiveRun(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 	if activeRun != nil {
@@ -157,7 +158,7 @@ func AdminRefreshCiteScoreMetrics(c *gin.Context) {
 	metrics := services.NewCiteScoreMetricsService(nil, nil)
 	activeRun, err := metrics.GetActiveRun(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 	if activeRun != nil {
@@ -189,6 +190,121 @@ func AdminRefreshCiteScoreMetrics(c *gin.Context) {
 			"message": "refresh started",
 		},
 	})
+}
+
+// POST /api/v1/admin/scopus/conference/backfill
+func AdminBackfillConferenceInfo(c *gin.Context) {
+	svc := services.NewScopusConferenceService(nil, nil)
+	activeRun, err := svc.GetActiveRun(c.Request.Context())
+	if err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "scopus conference fetch already running",
+			"data":    activeRun,
+		})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), conferenceRunTimeout)
+		defer cancel()
+
+		if _, err := svc.BackfillMissing(ctx); err != nil {
+			if errors.Is(err, services.ErrScopusConferenceFetchAlreadyRunning) {
+				log.Printf("scopus conference backfill skipped: job already running")
+				return
+			}
+			log.Printf("scopus conference backfill job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "conference backfill started",
+		},
+	})
+}
+
+// POST /api/v1/admin/scopus/conference/refresh
+func AdminRefreshConferenceInfo(c *gin.Context) {
+	svc := services.NewScopusConferenceService(nil, nil)
+	activeRun, err := svc.GetActiveRun(c.Request.Context())
+	if err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "scopus conference fetch already running",
+			"data":    activeRun,
+		})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), conferenceRunTimeout)
+		defer cancel()
+
+		if _, err := svc.RefreshExisting(ctx); err != nil {
+			if errors.Is(err, services.ErrScopusConferenceFetchAlreadyRunning) {
+				log.Printf("scopus conference refresh skipped: job already running")
+				return
+			}
+			log.Printf("scopus conference refresh job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "conference refresh started",
+		},
+	})
+}
+
+// GET /api/v1/admin/scopus/conference/runs
+func AdminListScopusConferenceFetchRuns(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+
+	var total int64
+	if err := config.DB.Model(&models.ScopusConferenceFetchRun{}).Count(&total).Error; err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+
+	var runs []models.ScopusConferenceFetchRun
+	offset := (page - 1) * perPage
+	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+
+	pagination := gin.H{
+		"current_page": page,
+		"per_page":     perPage,
+		"total_count":  total,
+		"total_pages":  int((total + int64(perPage) - 1) / int64(perPage)),
+		"has_next":     int64(offset+perPage) < total,
+		"has_prev":     page > 1,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": runs, "pagination": pagination})
 }
 
 type setScopusAuthorIDRequest struct {
@@ -236,12 +352,12 @@ func AdminSetUserScopusAuthorID(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
 	if err := config.DB.Model(&user).Update("Scopus_id", scopusID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -274,7 +390,7 @@ func AdminGetScopusAPIKey(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 	row.Key = scopusAPIKeyConfigKey
@@ -300,7 +416,7 @@ func AdminUpdateScopusAPIKey(c *gin.Context) {
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"value"}),
 	}).Create(&row).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -321,14 +437,14 @@ func AdminListScopusAPIImportJobs(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ScopusAPIImportJob{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
 	var jobs []models.ScopusAPIImportJob
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&jobs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -437,14 +553,14 @@ func AdminListScopusAPIRequests(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ScopusAPIRequest{}).Where("job_id = ?", jobID).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
 	var requests []models.ScopusAPIRequest
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("created_at DESC").Where("job_id = ?", jobID).Offset(offset).Limit(perPage).Find(&requests).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -484,14 +600,14 @@ func AdminListScopusBatchImportRuns(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ScopusBatchImportRun{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
 	var runs []models.ScopusBatchImportRun
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
@@ -527,14 +643,14 @@ func AdminListCiteScoreMetricRuns(c *gin.Context) {
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 
 	var runs []models.CiteScoreMetricsRun
 	offset := (page - 1) * perPage
 	if err := query.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus", err)
 		return
 	}
 

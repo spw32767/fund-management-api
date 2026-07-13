@@ -116,6 +116,7 @@ func GetSubmissionDetails(c *gin.Context) {
 		Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
 		Select("submission_documents.*, pref.external_fund_id AS external_funding_id").
 		Where("submission_documents.submission_id = ?", sid).
+		Order("submission_documents.display_order, submission_documents.created_at").
 		Preload("DocumentType").
 		Preload("File").
 		Find(&docs).Error; err != nil {

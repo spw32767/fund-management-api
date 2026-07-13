@@ -20,6 +20,7 @@ const (
 	scopusDashboardSummaryCacheTTL = 10 * time.Minute
 	scopusAffiliationNameKKU       = "khon kaen university"
 	scopusAffiliationNameSciKKU    = "faculty of science, khon kaen university"
+	scopusConferenceAggType        = "Conference Proceeding"
 )
 
 type scopusDashboardCacheItem struct {
@@ -298,6 +299,17 @@ func applyScopusKKUAffiliationConstraint(query *gorm.DB) *gorm.DB {
 	`, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU)
 }
 
+// isScopusConferenceAgg บอกว่าเอกสารเป็น Conference Proceeding หรือไม่
+// conference ไม่มีการจัด tier (CiteScore quartile) จึงต้องกันออกจากการนับ T1/Q1-Q4 ทุกจุด
+func isScopusConferenceAgg(aggType string) bool {
+	return strings.EqualFold(strings.TrimSpace(aggType), scopusConferenceAggType)
+}
+
+// scopusNotConferenceExpr เงื่อนไข SQL สำหรับกรอง "ไม่ใช่ conference" (ใช้ alias sd)
+func scopusNotConferenceExpr() string {
+	return "LOWER(TRIM(COALESCE(sd.aggregation_type, ''))) <> 'conference proceeding'"
+}
+
 func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
 	q := applyScopusKKUAffiliationConstraint(query)
 	pubYearExpr := scopusPublicationYearExpr()
@@ -378,6 +390,9 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 	}
 
 	if includeQuality && len(filters.QualityBuckets) > 0 {
+		// conference ไม่มี tier จึงไม่เข้าเงื่อนไข quartile ใด ๆ
+		q = q.Where(scopusNotConferenceExpr())
+
 		includeT1 := false
 		quartiles := make([]string, 0, len(filters.QualityBuckets))
 		for _, bucket := range filters.QualityBuckets {
@@ -388,12 +403,15 @@ func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters,
 			quartiles = append(quartiles, bucket)
 		}
 
+		// T1 เป็นบัคเก็ตแยกจาก Q1 (T1 ⊂ Q1) การเลือก Q1-Q4 จึงต้องกัน T1 ออกให้ตรงกับตัวเลขที่แสดง
+		notT1QualityExpr := "(metrics.cite_score_percentile IS NULL OR metrics.cite_score_percentile NOT BETWEEN 90 AND 100)"
+		quartileInExpr := "COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?"
 		if includeT1 && len(quartiles) > 0 {
-			q = q.Where("((metrics.cite_score_percentile BETWEEN 90 AND 100) OR COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?)", quartiles)
+			q = q.Where("((metrics.cite_score_percentile BETWEEN 90 AND 100) OR ("+notT1QualityExpr+" AND "+quartileInExpr+"))", quartiles)
 		} else if includeT1 {
 			q = q.Where("metrics.cite_score_percentile BETWEEN 90 AND 100")
 		} else {
-			q = q.Where("COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)),''), 'N/A') IN ?", quartiles)
+			q = q.Where(notT1QualityExpr+" AND "+quartileInExpr, quartiles)
 		}
 	}
 
@@ -432,7 +450,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Group("year_ce").
 		Order("year_ce DESC").
 		Scan(&years).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -444,7 +462,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Group("TRIM(aggregation_type)").
 		Order("total DESC, label ASC").
 		Scan(&aggregationTypes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -466,6 +484,8 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Select("COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A') AS quartile, COUNT(DISTINCT sd.id) AS total").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
 		Scopes(applyScopusKKUAffiliationConstraint).
+		Where(scopusNotConferenceExpr()).
+		Where("(metrics.cite_score_percentile IS NULL OR metrics.cite_score_percentile NOT BETWEEN 90 AND 100)").
 		Group("quartile").
 		Scan(&qualityRows).Error; err == nil {
 		for _, row := range qualityRows {
@@ -478,6 +498,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr).
 		Scopes(applyScopusKKUAffiliationConstraint).
 		Where("metrics.cite_score_percentile BETWEEN 90 AND 100").
+		Where(scopusNotConferenceExpr()).
 		Distinct("sd.id").
 		Count(&t1Count).Error; err == nil {
 		qualityCounts["T1"] = t1Count
@@ -597,7 +618,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	query = applyScopusDashboardFilters(query, filters, true)
 
 	if err := query.Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "scopus_dashboard", err)
 		return
 	}
 
@@ -658,7 +679,12 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		if _, exists := quartileCounts[quartile]; !exists {
 			quartile = "N/A"
 		}
-		quartileCounts[quartile]++
+		isConferenceDoc := isScopusConferenceAgg(row.AggregationType)
+		isT1Doc := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
+		// T1 เป็นบัคเก็ตแยกจาก Q1 (T1 ⊂ Q1 ตาม percentile) จึงไม่นับ T1 ซ้ำในช่อง quartile
+		if !isConferenceDoc && !isT1Doc {
+			quartileCounts[quartile]++
+		}
 
 		aggLabel := strings.TrimSpace(row.AggregationType)
 		if aggLabel == "" {
@@ -709,37 +735,37 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				bucket.Journal++
 				fiscalBucket.Journal++
 			}
-			if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Conference Proceeding") {
+			if isConferenceDoc {
+				// conference นับเฉพาะช่อง Conference ไม่เข้า T1/Q1-Q4 (ไม่มี tier)
 				bucket.Conference++
 				fiscalBucket.Conference++
-			}
-
-			isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
-			if isT1 {
-				bucket.T1++
-				fiscalBucket.T1++
 			} else {
-				switch quartile {
-				case "Q1":
-					bucket.Q1++
-					fiscalBucket.Q1++
-				case "Q2":
-					bucket.Q2++
-					fiscalBucket.Q2++
-				case "Q3":
-					bucket.Q3++
-					fiscalBucket.Q3++
-				case "Q4":
-					bucket.Q4++
-					fiscalBucket.Q4++
-				default:
-					bucket.NA++
-					fiscalBucket.NA++
+				if isT1Doc {
+					bucket.T1++
+					fiscalBucket.T1++
+				} else {
+					switch quartile {
+					case "Q1":
+						bucket.Q1++
+						fiscalBucket.Q1++
+					case "Q2":
+						bucket.Q2++
+						fiscalBucket.Q2++
+					case "Q3":
+						bucket.Q3++
+						fiscalBucket.Q3++
+					case "Q4":
+						bucket.Q4++
+						fiscalBucket.Q4++
+					default:
+						bucket.NA++
+						fiscalBucket.NA++
+					}
 				}
 			}
 		}
 
-		if row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100 {
+		if !isConferenceDoc && isT1Doc {
 			t1Documents++
 		}
 	}
@@ -1011,32 +1037,34 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				agg.UniqueDocuments++
 				agg.CitedByTotal += row.CitedByCount
 
+				isConferenceDoc := isScopusConferenceAgg(row.AggregationType)
 				if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Journal") {
 					agg.JournalCount++
 				}
-				if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Conference Proceeding") {
+				if isConferenceDoc {
+					// conference นับเฉพาะช่อง Conference ไม่เข้า T1/Q1-Q4 (ไม่มี tier)
 					agg.ConferenceCount++
-				}
-
-				quartile := strings.ToUpper(strings.TrimSpace(row.Quartile))
-				if quartile == "" {
-					quartile = "N/A"
-				}
-				isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
-				if isT1 {
-					agg.T1Count++
 				} else {
-					switch quartile {
-					case "Q1":
-						agg.Q1Count++
-					case "Q2":
-						agg.Q2Count++
-					case "Q3":
-						agg.Q3Count++
-					case "Q4":
-						agg.Q4Count++
-					default:
-						agg.NACount++
+					quartile := strings.ToUpper(strings.TrimSpace(row.Quartile))
+					if quartile == "" {
+						quartile = "N/A"
+					}
+					isT1 := row.CiteScorePercentile != nil && *row.CiteScorePercentile >= 90 && *row.CiteScorePercentile <= 100
+					if isT1 {
+						agg.T1Count++
+					} else {
+						switch quartile {
+						case "Q1":
+							agg.Q1Count++
+						case "Q2":
+							agg.Q2Count++
+						case "Q3":
+							agg.Q3Count++
+						case "Q4":
+							agg.Q4Count++
+						default:
+							agg.NACount++
+						}
 					}
 				}
 
@@ -1327,4 +1355,203 @@ func ceToBE(value *int) *int {
 	}
 	converted := *value + 543
 	return &converted
+}
+
+type scopusDrilldownRow struct {
+	DocumentID          uint     `gorm:"column:document_id"`
+	Title               string   `gorm:"column:title"`
+	OwnersInSystem      *string  `gorm:"column:owners_in_system"`
+	PublicationYearCE   *int     `gorm:"column:publication_year_ce"`
+	PublicationMonthCE  *int     `gorm:"column:publication_month_ce"`
+	Quartile            string   `gorm:"column:quartile"`
+	CiteScorePercentile *float64 `gorm:"column:cite_score_percentile"`
+	AggregationType     string   `gorm:"column:aggregation_type"`
+	MetricYearSelected  *int     `gorm:"column:metric_year_selected"`
+	MetricStatus        *string  `gorm:"column:metric_status"`
+}
+
+// GET /api/v1/admin/scopus/dashboard/drilldown
+// แสดงรายการเอกสารที่ถูกนับในแต่ละช่อง (bucket) ของตารางภาพรวม
+// เพื่อให้ผู้ใช้ตรวจสอบได้ว่าตัวเลขในตาราง Overview มาจากผลงานชิ้นใดบ้าง
+func AdminGetScopusDashboardDrilldown(c *gin.Context) {
+	filters := parseScopusDashboardFilters(c)
+
+	yearType := strings.ToLower(strings.TrimSpace(c.DefaultQuery("year_type", "calendar")))
+	if yearType != "fiscal" {
+		yearType = "calendar"
+	}
+
+	yearBE, err := strconv.Atoi(strings.TrimSpace(c.Query("year_be")))
+	if err != nil || yearBE <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid year_be"})
+		return
+	}
+	yearCE := yearBE - 543
+
+	bucket := strings.ToLower(strings.TrimSpace(c.Query("bucket")))
+	allowedBuckets := map[string]struct{}{
+		"t1": {}, "q1": {}, "q2": {}, "q3": {}, "q4": {}, "na": {},
+		"journal": {}, "conference": {}, "total": {},
+	}
+	if _, ok := allowedBuckets[bucket]; !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid bucket"})
+		return
+	}
+
+	page, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page", "1")))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page_size", "25")))
+	if err != nil || pageSize < 1 {
+		pageSize = 25
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	pubYearExpr := scopusPublicationYearExpr()
+	metricYearExpr := scopusMetricYearExpr()
+	notT1Expr := "(metrics.cite_score_percentile IS NULL OR metrics.cite_score_percentile NOT BETWEEN 90 AND 100)"
+	quartileExpr := "COALESCE(NULLIF(UPPER(TRIM(metrics.cite_score_quartile)), ''), 'N/A')"
+
+	// buildBase สร้าง query ที่ผ่านตัวกรองแดชบอร์ด + เงื่อนไขปี + เงื่อนไข bucket
+	// (เรียกซ้ำได้เพื่อใช้ทั้งนับจำนวนและดึงข้อมูล เพราะ applyScopusDashboardFilters ผูก arg แบบ in-place)
+	buildBase := func() *gorm.DB {
+		q := config.DB.Table("scopus_documents AS sd").
+			Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
+		q = applyScopusDashboardFilters(q, filters, true)
+
+		// เงื่อนไขปี: ปีปฏิทินอิงปีตีพิมพ์, ปีงบประมาณเลื่อนขึ้น 1 ปีถ้าตีพิมพ์เดือน ต.ค.-ธ.ค.
+		if yearType == "fiscal" {
+			q = q.Where(
+				"((MONTH(sd.cover_date) >= 10 AND "+pubYearExpr+" = ?) OR ((MONTH(sd.cover_date) IS NULL OR MONTH(sd.cover_date) < 10) AND "+pubYearExpr+" = ?))",
+				yearCE-1, yearCE,
+			)
+		} else {
+			q = q.Where(pubYearExpr+" = ?", yearCE)
+		}
+
+		// เงื่อนไข bucket ให้ตรงกับ logic การนับใน AdminGetScopusDashboardSummary
+		switch bucket {
+		case "t1":
+			q = q.Where("metrics.cite_score_percentile BETWEEN 90 AND 100").Where(scopusNotConferenceExpr())
+		case "q1", "q2", "q3", "q4":
+			q = q.Where(notT1Expr).Where(quartileExpr+" = ?", strings.ToUpper(bucket)).Where(scopusNotConferenceExpr())
+		case "na":
+			q = q.Where(notT1Expr).Where(quartileExpr + " = 'N/A'").Where(scopusNotConferenceExpr())
+		case "journal":
+			q = q.Where("sd.aggregation_type = ?", "Journal")
+		case "conference":
+			q = q.Where("sd.aggregation_type = ?", "Conference Proceeding")
+		case "total":
+			// ไม่มีเงื่อนไขเพิ่ม — รวมทุกผลงานในปีนั้น
+		}
+		return q
+	}
+
+	var total int64
+	if err := buildBase().Distinct("sd.id").Count(&total).Error; err != nil {
+		InternalError(c, "scopus_dashboard", err)
+		return
+	}
+
+	ownersSubquery := fmt.Sprintf(`(
+		SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) SEPARATOR ', ')
+		FROM scopus_document_authors sda_o
+		JOIN scopus_authors sa_o ON sa_o.id = sda_o.author_id
+		JOIN users u ON TRIM(u.scopus_id) = sa_o.scopus_author_id
+		JOIN scopus_affiliations aff_o ON aff_o.id = sda_o.affiliation_id
+		WHERE sda_o.document_id = sd.id
+		  AND u.delete_at IS NULL
+		  AND u.scopus_id IS NOT NULL
+		  AND TRIM(u.scopus_id) <> ''
+		  AND LOWER(TRIM(COALESCE(aff_o.name, ''))) IN ('%s', '%s')
+	) AS owners_in_system`, scopusAffiliationNameKKU, scopusAffiliationNameSciKKU)
+
+	rows := make([]scopusDrilldownRow, 0)
+	dataQuery := buildBase().
+		Select(`
+			sd.id AS document_id,
+			COALESCE(NULLIF(TRIM(sd.title), ''), '-') AS title,
+			` + ownersSubquery + `,
+			` + pubYearExpr + ` AS publication_year_ce,
+			MONTH(sd.cover_date) AS publication_month_ce,
+			` + quartileExpr + ` AS quartile,
+			metrics.cite_score_percentile,
+			COALESCE(NULLIF(TRIM(sd.aggregation_type), ''), 'N/A') AS aggregation_type,
+			` + metricYearExpr + ` AS metric_year_selected,
+			metrics.cite_score_status AS metric_status
+		`).
+		Group("sd.id").
+		Order(pubYearExpr + " DESC, sd.id DESC").
+		Limit(pageSize).
+		Offset((page - 1) * pageSize)
+
+	if err := dataQuery.Find(&rows).Error; err != nil {
+		InternalError(c, "scopus_dashboard", err)
+		return
+	}
+
+	rowsPayload := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		var publicationYearBE *int
+		if row.PublicationYearCE != nil && *row.PublicationYearCE > 0 {
+			be := *row.PublicationYearCE + 543
+			publicationYearBE = &be
+		}
+
+		owners := "-"
+		if row.OwnersInSystem != nil && strings.TrimSpace(*row.OwnersInSystem) != "" {
+			owners = strings.TrimSpace(*row.OwnersInSystem)
+		}
+
+		status := "-"
+		if row.MetricStatus != nil && strings.TrimSpace(*row.MetricStatus) != "" {
+			status = strings.TrimSpace(*row.MetricStatus)
+		}
+
+		reason := "ไม่มีข้อมูล CiteScore"
+		if row.MetricYearSelected != nil {
+			switch {
+			case row.PublicationYearCE != nil && *row.MetricYearSelected == *row.PublicationYearCE:
+				reason = "ปีเดียวกับปีตีพิมพ์"
+			case row.PublicationYearCE != nil && *row.MetricYearSelected < *row.PublicationYearCE:
+				reason = "ใช้ปีล่าสุดก่อนปีตีพิมพ์"
+			default:
+				reason = "กำหนดจากปี CiteScore ที่มี"
+			}
+		}
+
+		rowsPayload = append(rowsPayload, map[string]interface{}{
+			"document_id":          row.DocumentID,
+			"title":                row.Title,
+			"owners_in_system":     owners,
+			"publication_year_be":  publicationYearBE,
+			"aggregation_type":     row.AggregationType,
+			"quartile":             row.Quartile,
+			"metric_year_selected": row.MetricYearSelected,
+			"metric_status":        status,
+			"metric_pick_reason":   reason,
+		})
+	}
+
+	totalPages := 1
+	if total > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": map[string]interface{}{
+			"year_type":   yearType,
+			"year_be":     yearBE,
+			"bucket":      bucket,
+			"rows":        rowsPayload,
+			"total":       total,
+			"page":        page,
+			"page_size":   pageSize,
+			"total_pages": totalPages,
+		},
+	})
 }

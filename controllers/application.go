@@ -1100,7 +1100,7 @@ func TestTargetRoles(c *gin.Context) {
 	`).Rows()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "application", err)
 		return
 	}
 	defer rows.Close()
@@ -1151,7 +1151,7 @@ func DebugUserRoleAccess(c *gin.Context) {
 
 	rows, err := config.DB.Raw(query).Rows()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "application", err)
 		return
 	}
 	defer rows.Close()

@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -645,8 +646,12 @@ func AdminCopyFundInstallmentPeriods(c *gin.Context) {
 
 	rollbackWithError := func(status int, message string, debug string) {
 		tx.Rollback()
-		payload := gin.H{"success": false, "error": message}
 		if debug != "" {
+			log.Printf("[InternalError] %s %s | %s: %s", c.Request.Method, c.Request.URL.Path, message, debug)
+		}
+		payload := gin.H{"success": false, "error": message}
+		// Only expose raw debug detail outside production to avoid leaking internals.
+		if debug != "" && gin.Mode() != gin.ReleaseMode {
 			payload["debug"] = debug
 		}
 		c.JSON(status, payload)
@@ -1104,7 +1109,7 @@ func respondConflictError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	InternalError(c, "fund_installment_periods", err)
 }
 
 func parseCalendarYearValue(value string) (int, bool) {

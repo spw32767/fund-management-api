@@ -28,7 +28,7 @@ func (c *ResearchController) GetResearchDocuments(ctx *gin.Context) {
 	//ไปเรียกใช้ service ตัวใหม่ที่เราแก้ปัญหา mismatch types ไปเมื่อกี้โดยตรง
 	docs, err := c.service.GetResearchByUserID(ctx.Request.Context(), uint(userID))
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		InternalError(ctx, "instructor_research", err)
 		return
 	}
 	
