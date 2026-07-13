@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS `mou_notification` (
   `mou_id` int(11) NOT NULL,
   `staff_id` int(11) DEFAULT NULL,
   `email` varchar(255) DEFAULT NULL,
-  `days_before` int(11) NOT NULL,
+  `days_before` int(11) NOT NULL DEFAULT 0,
   `is_sent` tinyint(1) NOT NULL DEFAULT 0,
   `sent_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
