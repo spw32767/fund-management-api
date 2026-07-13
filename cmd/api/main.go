@@ -9,6 +9,7 @@ import (
 	"fund-management-api/routes"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -78,6 +79,11 @@ func main() {
 	monitor.RegisterMonitorPage(router)
 	monitor.RegisterLogsRoute(router)
 
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "./uploads"
+	}
+
 	// Setup routes
 	routes.SetupRoutes(router)
 
@@ -91,16 +97,24 @@ func main() {
 	//   - fund_forms       : blank fund application forms for download
 	//   - import_templates : import templates for download
 	// Personal-data folders (users, merge_submissions) are NOT here -> signed URL only.
-	router.Static("/uploads/email_assets", "./uploads/email_assets")
-	router.Static("/uploads/announcements", "./uploads/announcements")
-	router.Static("/uploads/fund_forms", "./uploads/fund_forms")
-	router.Static("/uploads/import_templates", "./uploads/import_templates")
+	router.Static("/uploads/email_assets", filepath.Join(uploadPath, "email_assets"))
+	router.Static("/uploads/announcements", filepath.Join(uploadPath, "announcements"))
+	router.Static("/uploads/fund_forms", filepath.Join(uploadPath, "fund_forms"))
+	router.Static("/uploads/import_templates", filepath.Join(uploadPath, "import_templates"))
+
+	// PROD ACCESS: a reverse proxy that only forwards /api/* to this backend cannot
+	// reach the /uploads/* mounts above, so expose the SAME public folders under
+	// /api/v1/public/* as well. These stay login-free and shareable — a logged-in
+	// user can copy an announcement/form link and send it to anyone. Only these four
+	// public folders are mounted (personal-data folders are never exposed here).
+	// To move them back behind signed URLs later: delete these four mounts and set
+	// SIGN_PUBLIC_DOCS = true in the frontend (app/lib/file_access.js).
+	router.Static("/api/v1/public/email_assets", filepath.Join(uploadPath, "email_assets"))
+	router.Static("/api/v1/public/announcements", filepath.Join(uploadPath, "announcements"))
+	router.Static("/api/v1/public/fund_forms", filepath.Join(uploadPath, "fund_forms"))
+	router.Static("/api/v1/public/import_templates", filepath.Join(uploadPath, "import_templates"))
 
 	// Create upload directory if not exists
-	uploadPath := os.Getenv("UPLOAD_PATH")
-	if uploadPath == "" {
-		uploadPath = "./uploads"
-	}
 	if err := os.MkdirAll(uploadPath, os.ModePerm); err != nil {
 		log.Printf("Warning: Failed to create upload directory: %v", err)
 	}

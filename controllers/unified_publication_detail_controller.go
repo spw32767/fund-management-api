@@ -19,7 +19,7 @@ func GetPublicationDetail(c *gin.Context) {
 	// Fetch unified_search_contents row
 	var items []map[string]interface{}
 	if err := config.DB.Raw("SELECT * FROM unified_search_contents WHERE id = ?", id).Scan(&items).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "publication_detail", err)
 		return
 	}
 	if len(items) == 0 {

@@ -247,7 +247,7 @@ func SearchPublications(c *gin.Context) {
 	var total int64
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM unified_search_contents c %s", whereClause)
 	if err := config.DB.Raw(countSQL, args...).Scan(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "publication_search", err)
 		return
 	}
 
@@ -266,7 +266,7 @@ func SearchPublications(c *gin.Context) {
 	var yearStats []map[string]interface{}
 	yearStatsSQL := fmt.Sprintf("SELECT MIN(publication_year) as min_year, MAX(publication_year) as max_year FROM unified_search_contents %s", yearWhere)
 	if err := config.DB.Raw(yearStatsSQL).Scan(&yearStats).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "publication_search", err)
 		return
 	}
 	minYear := interface{}(nil)
@@ -307,14 +307,14 @@ func SearchPublications(c *gin.Context) {
 	if isExport {
 		dataSQL := fmt.Sprintf("SELECT c.* FROM unified_search_contents c %s ORDER BY %s", whereClause, orderSQL)
 		if err := config.DB.Raw(dataSQL, args...).Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			InternalError(c, "publication_search", err)
 			return
 		}
 	} else {
 		dataArgs := append(args, limit, offset)
 		dataSQL := fmt.Sprintf("SELECT c.* FROM unified_search_contents c %s ORDER BY %s LIMIT ? OFFSET ?", whereClause, orderSQL)
 		if err := config.DB.Raw(dataSQL, dataArgs...).Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			InternalError(c, "publication_search", err)
 			return
 		}
 	}
@@ -345,7 +345,7 @@ func SearchPublications(c *gin.Context) {
 				authorArgs[i] = id
 			}
 			if err := config.DB.Raw(authorSQL, authorArgs...).Scan(&authorRows).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+				InternalError(c, "publication_search", err)
 				return
 			}
 			for _, a := range authorRows {

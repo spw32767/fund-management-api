@@ -42,7 +42,7 @@ func AdminImportThaiJOPublications(c *gin.Context) {
 	job := services.NewThaiJOIngestJobService(nil)
 	res, err := job.RunForUser(c.Request.Context(), uint(id64))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "summary": res})
@@ -70,7 +70,7 @@ func AdminImportThaiJOForAll(c *gin.Context) {
 	job := services.NewThaiJOIngestJobService(nil)
 	activeRun, err := job.GetActiveBatchRun(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 	if activeRun != nil {
@@ -123,7 +123,7 @@ func AdminSetUserThaiJOAuthorID(c *gin.Context) {
 	}
 
 	if err := config.DB.Table("users").Where("user_id = ?", uint(id64)).Update("thaijo_author_id", authorID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -150,7 +150,7 @@ func AdminSetUserThaiJOSyncEnabled(c *gin.Context) {
 		enabledVal = 1
 	}
 	if err := config.DB.Table("users").Where("user_id = ?", uint(id64)).Update("thaijo_sync_enabled", enabledVal).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -191,13 +191,13 @@ func AdminListUsersWithThaiJO(c *gin.Context) {
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
 	var rows []row
 	if err := query.Order("user_id ASC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -228,14 +228,14 @@ func AdminListThaiJOAPIImportJobs(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ThaiJOAPIImportJob{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
 	var jobs []models.ThaiJOAPIImportJob
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&jobs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -263,14 +263,14 @@ func AdminListThaiJOAPIRequests(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ThaiJOAPIRequest{}).Where("job_id = ?", jobID).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
 	var requests []models.ThaiJOAPIRequest
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("created_at DESC").Where("job_id = ?", jobID).Offset(offset).Limit(perPage).Find(&requests).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -291,14 +291,14 @@ func AdminListThaiJOBatchImportRuns(c *gin.Context) {
 
 	var total int64
 	if err := config.DB.Model(&models.ThaiJOBatchImportRun{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
 	var runs []models.ThaiJOBatchImportRun
 	offset := (page - 1) * perPage
 	if err := config.DB.Order("started_at DESC").Offset(offset).Limit(perPage).Find(&runs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -321,7 +321,7 @@ func GetUserThaiJOPublications(c *gin.Context) {
 	svc := services.NewThaiJOPublicationService(nil)
 	items, total, err := svc.ListByUser(userID, limit, offset, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 
@@ -348,7 +348,7 @@ func AdminListThaiJOPublications(c *gin.Context) {
 	svc := services.NewThaiJOPublicationService(nil)
 	items, total, err := svc.ListByUser(uint(id64), limit, offset, search)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "thaijo", err)
 		return
 	}
 

@@ -149,7 +149,7 @@ func GetApprovalTotals(c *gin.Context) {
 
 	rows, err := queryApprovalTotalsRows(db, teacherID, year, yearID, catID, subID, budgetID, sort, dir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "approval_records", err)
 		return
 	}
 
@@ -198,7 +198,7 @@ func GetMyApprovalTotals(c *gin.Context) {
 
 	rows, err := queryApprovalTotalsRows(db, &uid, year, yearID, catID, subID, budgetID, sort, dir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "approval_records", err)
 		return
 	}
 
@@ -250,7 +250,7 @@ func GetApprovalRecords(c *gin.Context) {
 
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "approval_records", err)
 		return
 	}
 
@@ -264,7 +264,7 @@ func GetApprovalRecords(c *gin.Context) {
 		Limit(size).
 		Offset(offset).
 		Scan(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "approval_records", err)
 		return
 	}
 

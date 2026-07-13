@@ -15,7 +15,7 @@ func GetCourses(c *gin.Context) {
 	svc := services.NewCourseService(config.DB)
 	courses, err := svc.GetAllCourses(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ดึงข้อมูลหลักสูตรไม่ได้: " + err.Error()})
+		InternalError(c, "course: list", err)
 		return
 	}
 	c.JSON(http.StatusOK, courses)
@@ -45,7 +45,7 @@ func CreateCourse(c *gin.Context) {
 	svc := services.NewCourseService(config.DB)
 	created, err := svc.CreateCourse(c.Request.Context(), editorID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "สร้างหลักสูตรไม่สำเร็จ: " + err.Error()})
+		InternalError(c, "course: create", err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -75,7 +75,7 @@ func UpdateCourse(c *gin.Context) {
 	svc := services.NewCourseService(config.DB)
 	updated, err := svc.UpdateCourse(c.Request.Context(), editorID, id, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "แก้ไขหลักสูตรไม่สำเร็จ: " + err.Error()})
+		InternalError(c, "course: update", err)
 		return
 	}
 	c.JSON(http.StatusOK, updated)
@@ -90,7 +90,7 @@ func DeleteCourse(c *gin.Context) {
 
 	svc := services.NewCourseService(config.DB)
 	if err := svc.DeleteCourse(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบหลักสูตรไม่สำเร็จ: " + err.Error()})
+		InternalError(c, "course: delete", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบหลักสูตรสำเร็จ"})
