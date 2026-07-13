@@ -34,17 +34,17 @@ type svelteKitMember struct {
 }
 
 type mappedProject struct {
-	TitleTH      string
-	TitleEN      string
-	Abstract     string
-	Description  string
-	ProjectType  string
-	GroupCode    string
-	TrackID      string
+	TitleTH       string
+	TitleEN       string
+	Abstract      string
+	Description   string
+	ProjectType   string
+	GroupCode     string
+	TrackID       string
 	PublishedYear int
-	Link         string
-	PosterURL    string
-	Members      []svelteKitMember
+	Link          string
+	PosterURL     string
+	Members       []svelteKitMember
 }
 
 func parseSvelteKitProjects(rawJSON []byte) ([]map[string]interface{}, error) {
@@ -236,28 +236,30 @@ func ensureTracks(projects []mappedProject) int {
 
 func upsertProject(project mappedProject) (string, int64, error) {
 	var existingID int64
-
-	// Match by group_code + title_th
 	var rows []map[string]interface{}
-	err := config.DB.Raw(
-		"SELECT id FROM ai_showcase_projects WHERE group_code = ? AND title_th = ? LIMIT 1",
-		project.GroupCode, project.TitleTH,
-	).Scan(&rows).Error
-	if err != nil {
-		return "", 0, fmt.Errorf("find by group+title: %w", err)
-	}
-	if len(rows) > 0 {
-		existingID = toInt64(rows[0]["id"])
-	}
 
-	// Fallback: match by group_code + published_year
-	if existingID == 0 {
+	// Match the AI D-Day source URL first; it is the stable external project key.
+	if project.Link != "" {
 		err := config.DB.Raw(
-			"SELECT id FROM ai_showcase_projects WHERE group_code = ? AND published_year = ? LIMIT 1",
-			project.GroupCode, project.PublishedYear,
+			"SELECT id FROM ai_showcase_projects WHERE ai_showcase_link = ? LIMIT 1",
+			project.Link,
 		).Scan(&rows).Error
 		if err != nil {
-			return "", 0, fmt.Errorf("find by group+year: %w", err)
+			return "", 0, fmt.Errorf("find by ai_showcase_link: %w", err)
+		}
+		if len(rows) > 0 {
+			existingID = toInt64(rows[0]["id"])
+		}
+	}
+
+	// Fallback for legacy rows that may not have a link yet.
+	if existingID == 0 {
+		err := config.DB.Raw(
+			"SELECT id FROM ai_showcase_projects WHERE group_code = ? AND title_th = ? LIMIT 1",
+			project.GroupCode, project.TitleTH,
+		).Scan(&rows).Error
+		if err != nil {
+			return "", 0, fmt.Errorf("find by group+title: %w", err)
 		}
 		if len(rows) > 0 {
 			existingID = toInt64(rows[0]["id"])
@@ -401,12 +403,12 @@ func SyncAIShowcase(c *gin.Context) {
 	}
 
 	stats := struct {
-		Total        int   `json:"total"`
-		Inserted     int   `json:"inserted"`
-		Updated      int   `json:"updated"`
-		Errors       int   `json:"errors"`
-		MembersAdded int   `json:"members_added"`
-		TracksAdded  int   `json:"tracks_added"`
+		Total        int `json:"total"`
+		Inserted     int `json:"inserted"`
+		Updated      int `json:"updated"`
+		Errors       int `json:"errors"`
+		MembersAdded int `json:"members_added"`
+		TracksAdded  int `json:"tracks_added"`
 	}{Total: len(projects)}
 
 	stats.TracksAdded = ensureTracks(projects)
@@ -924,11 +926,11 @@ func SyncAIShowcaseFromCSV(c *gin.Context) {
 	}
 
 	stats := struct {
-		Inserted       int `json:"inserted"`
-		Updated        int `json:"updated"`
-		Errors         int `json:"errors"`
-		StudentsAdded  int `json:"students_added"`
-		AdvisorsAdded  int `json:"advisors_added"`
+		Inserted      int `json:"inserted"`
+		Updated       int `json:"updated"`
+		Errors        int `json:"errors"`
+		StudentsAdded int `json:"students_added"`
+		AdvisorsAdded int `json:"advisors_added"`
 	}{}
 
 	for _, row := range dataRows {
