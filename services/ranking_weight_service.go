@@ -59,7 +59,7 @@ func (s *RankingWeightService) UpdateWeights(
                 newJSON, _ := json.Marshal(weights[i])
                 if err := tx.Create(&models.InstructorEditLog{
                     UserEditID:   editorID,
-                    TargetUserID: 0,
+                    TargetUserID: nil,
                     Action:       "INSERT",
                     TargetTable:  "ranking_tier_weights",
                     FieldName:    "weight_item",
@@ -97,7 +97,7 @@ func (s *RankingWeightService) UpdateWeights(
             newJSON, _ := json.Marshal(weights[i])
             if err := tx.Create(&models.InstructorEditLog{
                 UserEditID:   editorID,
-                TargetUserID: 0,
+                TargetUserID: nil,
                 Action:       "UPDATE",
                 TargetTable:  "ranking_tier_weights",
                 FieldName:    "weight_item",
@@ -129,7 +129,7 @@ func (s *RankingWeightService) DeleteWeight(ctx context.Context, id uint, editor
         oldJSON, _ := json.Marshal(old)
         return tx.Create(&models.InstructorEditLog{
             UserEditID:   editorID,
-            TargetUserID: 0,
+            TargetUserID: nil,
             Action:       "DELETE",
             TargetTable:  "ranking_tier_weights",
             FieldName:    "weight_item",
