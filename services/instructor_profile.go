@@ -184,7 +184,7 @@ func (s *instructorService) GetInstructorList(ctx context.Context) ([]models.Ins
 	err := s.db.WithContext(ctx).Model(&models.InstructorProfileHeader{}).
 		Preload("InstructorCourseResponsibility").
 		Preload("InstructorCourseResponsibility.Course").
-		Where("role_id = ?", 1).Find(&list).Error
+		Where("role_id = ? AND delete_at IS NULL", 1).Find(&list).Error
 	return list, err
 }
 
