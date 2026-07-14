@@ -64,14 +64,14 @@ func TestStatsByUserDeduplicatesDocumentsAndUsesMaxCitations(t *testing.T) {
 		{
 			kind:    kindQuery,
 			pattern: userQueryPattern,
-			args:    []driver.Value{int64(1)},
+			args:    []driver.Value{int64(1), int64(1)},
 			columns: []string{"Scopus_id"},
 			rows:    [][]driver.Value{{"12345"}},
 		},
 		{
 			kind:    kindQuery,
 			pattern: authorQueryPattern,
-			args:    []driver.Value{"12345"},
+			args:    []driver.Value{"12345", int64(1)},
 			columns: []string{"id"},
 			rows:    [][]driver.Value{{int64(1)}},
 		},
@@ -141,22 +141,22 @@ func TestStatsByUserDeduplicatesDocumentsAndUsesMaxCitations(t *testing.T) {
 }
 
 func TestStatsByUserWithoutAuthorDoesNotSetAuthorMeta(t *testing.T) {
-	userQueryPattern := regexp.MustCompile(`SELECT .*Scopus_id.*FROM .*users.*user_id = \\?`)
-	authorQueryPattern := regexp.MustCompile(`SELECT .*id.*FROM .*scopus_authors.*scopus_author_id = \\?`)
+	userQueryPattern := regexp.MustCompile(`SELECT .*Scopus_id.*FROM .*users.*user_id = \?`)
+	authorQueryPattern := regexp.MustCompile(`SELECT .*id.*FROM .*scopus_authors.*scopus_author_id = \?`)
 	dedupCountPattern := regexp.MustCompile(`.*`)
 
 	steps := []*queryStep{
 		{
 			kind:    kindQuery,
 			pattern: userQueryPattern,
-			args:    []driver.Value{int64(1)},
+			args:    []driver.Value{int64(1), int64(1)},
 			columns: []string{"Scopus_id"},
 			rows:    [][]driver.Value{{"12345"}},
 		},
 		{
 			kind:    kindQuery,
 			pattern: authorQueryPattern,
-			args:    []driver.Value{"12345"},
+			args:    []driver.Value{"12345", int64(1)},
 			columns: []string{"id"},
 			rows:    [][]driver.Value{},
 		},
@@ -190,6 +190,104 @@ func TestStatsByUserWithoutAuthorDoesNotSetAuthorMeta(t *testing.T) {
 		t.Fatalf("expected empty stats for missing author, got %+v", stats)
 	}
 
+	if err := state.verifyComplete(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestListByUserBuildsCompleteSubqueries(t *testing.T) {
+	userQueryPattern := regexp.MustCompile(`SELECT .*Scopus_id.*FROM .*users.*user_id = \?`)
+	authorQueryPattern := regexp.MustCompile(`SELECT .*id.*FROM .*scopus_authors.*scopus_author_id = \?`)
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT MIN\(sd\.id\) AS doc_id.*scopus_document_authors.*GROUP BY.*sd.*eid.*\) AS doc_ids`)
+	listPattern := regexp.MustCompile(`(?is)SELECT sd\.id.*FROM scopus_documents AS sd INNER JOIN \(SELECT MIN\(sd\.id\) AS doc_id.*scopus_document_authors.*GROUP BY.*sd.*eid.*\) AS doc_ids ON doc_ids\.doc_id = sd\.id.*LIMIT \?`)
+
+	steps := []*queryStep{
+		{
+			kind:    kindQuery,
+			pattern: userQueryPattern,
+			args:    []driver.Value{int64(1), int64(1)},
+			columns: []string{"Scopus_id"},
+			rows:    [][]driver.Value{{"12345"}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: authorQueryPattern,
+			args:    []driver.Value{"12345", int64(1)},
+			columns: []string{"id"},
+			rows:    [][]driver.Value{{int64(1)}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: countPattern,
+			args:    []driver.Value{int64(1)},
+			columns: []string{"count"},
+			rows:    [][]driver.Value{{int64(1)}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: listPattern,
+			args:    []driver.Value{int64(1), int64(1)},
+			columns: []string{"id"},
+			rows:    [][]driver.Value{},
+		},
+	}
+
+	db, state, cleanup := newScriptedGormDB(t, steps)
+	defer cleanup()
+
+	items, total, meta, err := NewScopusPublicationService(db).
+		ListByUser(1, 1, 0, "year", "desc", "")
+	if err != nil {
+		t.Fatalf("ListByUser returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total 1, got %d", total)
+	}
+	if !meta.HasScopusID || !meta.HasAuthor {
+		t.Fatalf("expected Scopus ID and author metadata, got %#v", meta)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no mapped rows from the empty result set, got %d", len(items))
+	}
+	if err := state.verifyComplete(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestListByUserOwnershipBuildsCompleteSubqueries(t *testing.T) {
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
+	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
+
+	steps := []*queryStep{
+		{
+			kind:    kindQuery,
+			pattern: countPattern,
+			columns: []string{"count"},
+			rows:    [][]driver.Value{{int64(1)}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: listPattern,
+			args:    []driver.Value{int64(1)},
+			columns: []string{"user_id", "document_id"},
+			rows:    [][]driver.Value{},
+		},
+	}
+
+	db, state, cleanup := newScriptedGormDB(t, steps)
+	defer cleanup()
+
+	items, total, err := NewScopusPublicationService(db).
+		ListByUserOwnership(1, 0, "year", "desc", "")
+	if err != nil {
+		t.Fatalf("ListByUserOwnership returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total 1, got %d", total)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no mapped rows from the empty result set, got %d", len(items))
+	}
 	if err := state.verifyComplete(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

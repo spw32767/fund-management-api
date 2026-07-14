@@ -295,7 +295,9 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 		docIDs = docIDs.Where("sd.title LIKE ? OR sd.conference_location LIKE ?", like, like)
 	}
 
-	countQuery := s.db.Table("(?) AS doc_ids", docIDs.Session(&gorm.Session{NewDB: true}))
+	// Pass the built query directly. NewDB starts without the existing clauses,
+	// which would turn this subquery into an empty SELECT on newer GORM versions.
+	countQuery := s.db.Table("(?) AS doc_ids", docIDs)
 	var total int64
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, meta, err
@@ -308,7 +310,7 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("scopus_documents AS sd").
 		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
-		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
+		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs).
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	var rows []scopusPublicationRow
@@ -416,7 +418,7 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 	pairQuery = pairQuery.Group("u.user_id, sd.id")
 
 	var total int64
-	if err := s.db.Table("(?) AS user_doc_pairs", pairQuery.Session(&gorm.Session{NewDB: true})).Count(&total).Error; err != nil {
+	if err := s.db.Table("(?) AS user_doc_pairs", pairQuery).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	if total == 0 {
@@ -424,7 +426,7 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 	}
 
 	metricYearExpr := metricYearForDocumentExpression(s.db)
-	base := s.db.Table("(?) AS pairs", pairQuery.Session(&gorm.Session{NewDB: true})).
+	base := s.db.Table("(?) AS pairs", pairQuery).
 		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
@@ -934,7 +936,7 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	var dedupCount int64
 	dedupCountQuery := s.db.Raw(
 		"SELECT COUNT(*) FROM (?) AS doc_ids",
-		docIDs.Session(&gorm.Session{NewDB: true}),
+		docIDs,
 	)
 	if err := dedupCountQuery.Scan(&dedupCount).Error; err != nil {
 		return stats, meta, err
@@ -971,7 +973,7 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 
 	documentsSubquery := s.db.Table("scopus_documents AS sd").
 		Select(fmt.Sprintf("%s AS year, doc_ids.citations AS citations", yearExpr)).
-		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs.Session(&gorm.Session{NewDB: true})).
+		Joins("INNER JOIN (?) AS doc_ids ON doc_ids.doc_id = sd.id", docIDs).
 		Where(yearCondition)
 
 	var rows []trendRow
