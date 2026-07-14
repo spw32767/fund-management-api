@@ -349,6 +349,9 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
 				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
 
+				// Approval evidence is read-only for the submission owner.
+				submissions.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
+
 				// === Co-authors Management (ใหม่) ===
 				// submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
 				// submissions.GET("/:id/coauthors", controllers.GetCoauthors)               // ดู co-authors
@@ -385,6 +388,10 @@ func SetupRoutes(router *gin.Engine) {
 				files.GET("/sign", SignFileViewURL)
 			}
 
+			// Download endpoint for approval evidence. Authorization is checked by
+			// the controller against the attachment's submission owner/manager.
+			protected.GET("/approval-attachments/:attachment_id/download", controllers.DownloadSubmissionApprovalAttachment)
+
 			// Documents
 			documents := protected.Group("/documents")
 			{
@@ -416,6 +423,11 @@ func SetupRoutes(router *gin.Engine) {
 				submissionsAdmin.GET("/:id/research-fund/events", controllers.ListResearchFundEvents)
 				submissionsAdmin.POST("/:id/research-fund/events", middleware.RequirePermission("fund.request.approve"), controllers.CreateResearchFundEvent)
 				submissionsAdmin.POST("/:id/research-fund/toggle-closure", middleware.RequirePermission("fund.request.approve"), controllers.ToggleResearchFundClosure)
+				submissionsAdmin.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
+				submissionsAdmin.POST("/:id/approval-attachments", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.CreateSubmissionApprovalAttachment)
+				submissionsAdmin.PATCH("/:id/approval-attachments/:attachment_id", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.UpdateSubmissionApprovalAttachment)
+				submissionsAdmin.DELETE("/:id/approval-attachments/:attachment_id", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.DeleteSubmissionApprovalAttachment)
+				submissionsAdmin.GET("/:id/approval-attachments/:attachment_id/download", controllers.DownloadSubmissionApprovalAttachment)
 			}
 
 			// Publication Rewards
