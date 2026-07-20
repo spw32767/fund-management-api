@@ -97,7 +97,9 @@ CREATE TABLE IF NOT EXISTS `mou_okr` (
   `category` varchar(100) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`)
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_mou_okr_deleted_at` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `mou_partner_type` (
@@ -139,6 +141,7 @@ INSERT IGNORE INTO `mou_activity_type` (`id`, `name`, `is_active`) VALUES
 CREATE TABLE IF NOT EXISTS `mou_records` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `mou_code` varchar(50) DEFAULT NULL,
+  `parent_mou_id` int(11) DEFAULT NULL,
   `title` varchar(500) NOT NULL,
   `description` text DEFAULT NULL,
   `Status_id` int(11) NOT NULL,
@@ -160,6 +163,7 @@ CREATE TABLE IF NOT EXISTS `mou_records` (
   `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
+  KEY `parent_mou_id` (`parent_mou_id`),
   KEY `Status_id` (`Status_id`),
   KEY `Country_id` (`Country_id`),
   KEY `coordinator_id` (`coordinator_id`),
@@ -169,7 +173,8 @@ CREATE TABLE IF NOT EXISTS `mou_records` (
   CONSTRAINT `mou_records_ibfk_2` FOREIGN KEY (`Country_id`) REFERENCES `countries` (`id`) ON DELETE SET NULL,
   CONSTRAINT `mou_records_ibfk_3` FOREIGN KEY (`coordinator_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
   CONSTRAINT `mou_records_ibfk_4` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`),
-  CONSTRAINT `mou_records_ibfk_5` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`)
+  CONSTRAINT `mou_records_ibfk_5` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`),
+  CONSTRAINT `mou_records_ibfk_6` FOREIGN KEY (`parent_mou_id`) REFERENCES `mou_records` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `mou_partner` (
@@ -228,7 +233,7 @@ CREATE TABLE IF NOT EXISTS `mou_notification` (
   `mou_id` int(11) NOT NULL,
   `staff_id` int(11) DEFAULT NULL,
   `email` varchar(255) DEFAULT NULL,
-  `days_before` int(11) NOT NULL,
+  `days_before` int(11) NOT NULL DEFAULT 0,
   `is_sent` tinyint(1) NOT NULL DEFAULT 0,
   `sent_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
@@ -243,7 +248,7 @@ CREATE TABLE IF NOT EXISTS `mou_notification_log` (
   `mou_id` int(11) NOT NULL,
   `action` varchar(255) NOT NULL,
   `actor_id` int(11) NOT NULL,
-  `notification_id` int(11) NOT NULL,
+  `notification_id` int(11) DEFAULT NULL,
   `sent_to` int(11) NOT NULL,
   `channel` varchar(50) NOT NULL,
   `success` tinyint(1) NOT NULL,
