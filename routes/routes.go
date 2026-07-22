@@ -690,6 +690,13 @@ func SetupRoutes(router *gin.Engine) {
 					installments.PATCH("/:id/restore", controllers.AdminRestoreFundInstallmentPeriod)
 				}
 
+				sdgs := admin.Group("/sdgs")
+				{
+					sdgs.GET("", controllers.GetAdminSDGs)
+					sdgs.POST("", controllers.CreateAdminSDG)
+					sdgs.PUT("/:id", controllers.UpdateAdminSDG)
+				}
+
 				// ========== FUND CATEGORIES MANAGEMENT ==========
 				categories := admin.Group("/categories")
 				{
