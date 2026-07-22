@@ -1004,6 +1004,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				Q4Count          int
 				NACount          int
 				JournalCount     int
+				BookCount        int
 				ConferenceCount  int
 				FirstYearCE      int
 				LatestYearCE     int
@@ -1037,9 +1038,13 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				agg.UniqueDocuments++
 				agg.CitedByTotal += row.CitedByCount
 
-				isConferenceDoc := isScopusConferenceAgg(row.AggregationType)
-				if strings.EqualFold(strings.TrimSpace(row.AggregationType), "Journal") {
+				aggregationType := strings.TrimSpace(row.AggregationType)
+				isConferenceDoc := isScopusConferenceAgg(aggregationType)
+				if strings.EqualFold(aggregationType, "Journal") {
 					agg.JournalCount++
+				}
+				if strings.EqualFold(aggregationType, "Book") || strings.EqualFold(aggregationType, "Book Series") {
+					agg.BookCount++
 				}
 				if isConferenceDoc {
 					// conference นับเฉพาะช่อง Conference ไม่เข้า T1/Q1-Q4 (ไม่มี tier)
@@ -1082,16 +1087,20 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			}
 
 			type personSortable struct {
-				Data          map[string]interface{}
-				UniqueDocs    int
-				CitedByTotal  int
-				UserName      string
-				FirstYearCE   int
-				LatestYearCE  int
-				UserID        int
-				UserEmail     string
-				UserScopusID  string
-				YearDocCounts map[int]int
+				Data            map[string]interface{}
+				T1Count         int
+				Q1Count         int
+				Q2Count         int
+				Q3Count         int
+				Q4Count         int
+				ConferenceCount int
+				UserName        string
+				FirstYearCE     int
+				LatestYearCE    int
+				UserID          int
+				UserEmail       string
+				UserScopusID    string
+				YearDocCounts   map[int]int
 			}
 			sortableRows := make([]personSortable, 0, len(aggByUser))
 			allYearsSet := map[int]struct{}{}
@@ -1125,6 +1134,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"q4_count":         agg.Q4Count,
 					"quartile_na":      agg.NACount,
 					"journal_count":    agg.JournalCount,
+					"book_count":       agg.BookCount,
 					"conference_count": agg.ConferenceCount,
 					"first_year":       firstYearBE,
 					"latest_year":      latestYearBE,
@@ -1132,16 +1142,20 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				}
 
 				sortableRows = append(sortableRows, personSortable{
-					Data:          data,
-					UniqueDocs:    agg.UniqueDocuments,
-					CitedByTotal:  agg.CitedByTotal,
-					UserName:      agg.UserName,
-					FirstYearCE:   agg.FirstYearCE,
-					LatestYearCE:  agg.LatestYearCE,
-					UserID:        agg.UserID,
-					UserEmail:     agg.UserEmail,
-					UserScopusID:  agg.UserScopusID,
-					YearDocCounts: agg.yearDocCounts,
+					Data:            data,
+					T1Count:         agg.T1Count,
+					Q1Count:         agg.Q1Count,
+					Q2Count:         agg.Q2Count,
+					Q3Count:         agg.Q3Count,
+					Q4Count:         agg.Q4Count,
+					ConferenceCount: agg.ConferenceCount,
+					UserName:        agg.UserName,
+					FirstYearCE:     agg.FirstYearCE,
+					LatestYearCE:    agg.LatestYearCE,
+					UserID:          agg.UserID,
+					UserEmail:       agg.UserEmail,
+					UserScopusID:    agg.UserScopusID,
+					YearDocCounts:   agg.yearDocCounts,
 				})
 
 				for y := range agg.activeYears {
@@ -1150,13 +1164,16 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			}
 
 			sort.Slice(sortableRows, func(i, j int) bool {
-				if sortableRows[i].UniqueDocs == sortableRows[j].UniqueDocs {
-					if sortableRows[i].CitedByTotal == sortableRows[j].CitedByTotal {
-						return sortableRows[i].UserName < sortableRows[j].UserName
+				left := sortableRows[i]
+				right := sortableRows[j]
+				priorityCountsLeft := [...]int{left.T1Count, left.Q1Count, left.Q2Count, left.Q3Count, left.Q4Count, left.ConferenceCount}
+				priorityCountsRight := [...]int{right.T1Count, right.Q1Count, right.Q2Count, right.Q3Count, right.Q4Count, right.ConferenceCount}
+				for index := range priorityCountsLeft {
+					if priorityCountsLeft[index] != priorityCountsRight[index] {
+						return priorityCountsLeft[index] > priorityCountsRight[index]
 					}
-					return sortableRows[i].CitedByTotal > sortableRows[j].CitedByTotal
 				}
-				return sortableRows[i].UniqueDocs > sortableRows[j].UniqueDocs
+				return left.UserName < right.UserName
 			})
 
 			personSummaryRows = make([]map[string]interface{}, 0, len(sortableRows))
