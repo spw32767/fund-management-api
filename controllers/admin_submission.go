@@ -66,7 +66,8 @@ func GetSubmissionDetails(c *gin.Context) {
 		Preload("Category").
 		Preload("Subcategory").
 		Preload("Subcategory.SubcategoryBudget"). // เผื่อ UI ต้องใช้
-		Preload("FundApplicationDetail").         // FA detail
+		Preload("SubmissionSDGs").
+		Preload("FundApplicationDetail"). // FA detail
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
 		Preload("PublicationRewardDetail"). // PR detail
@@ -270,6 +271,7 @@ func GetSubmissionDetails(c *gin.Context) {
 			"status":                          s.Status,
 			"category":                        s.Category,
 			"subcategory":                     s.Subcategory,
+			"sdgs":                            s.SubmissionSDGs,
 		},
 		"details":           details,   // gin.H หรือ nil
 		"submission_users":  suOut,     // []gin.H
