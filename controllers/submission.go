@@ -130,6 +130,7 @@ func GetSubmission(c *gin.Context) {
 		Preload("Documents.File").
 		Preload("Documents.DocumentType").
 		Preload("SubmissionUsers.User")
+	query = query.Preload("SubmissionSDGs")
 
 	// Check permission
 	if roleID.(int) != 3 { // Not admin

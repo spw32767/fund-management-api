@@ -14,7 +14,7 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 		{
 			kind:    kindQuery,
 			pattern: regexp.MustCompile(`SELECT .* FROM ` + "`scopus_authors`"),
-			args:    []driver.Value{"123"},
+			args:    []driver.Value{"123", int64(1)},
 			columns: []string{"id", "scopus_author_id", "full_name", "given_name", "surname", "initials", "orcid", "author_url"},
 			rows:    [][]driver.Value{},
 		},
@@ -27,7 +27,7 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 		{
 			kind:    kindQuery,
 			pattern: regexp.MustCompile(`SELECT .* FROM ` + "`scopus_document_authors`"),
-			args:    []driver.Value{int64(1), int64(1)},
+			args:    []driver.Value{int64(1), int64(1), int64(1)},
 			columns: []string{"id", "document_id", "author_id", "author_seq", "affiliation_id"},
 			rows:    [][]driver.Value{},
 		},
@@ -40,7 +40,7 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 		{
 			kind:    kindQuery,
 			pattern: regexp.MustCompile(`SELECT .* FROM ` + "`scopus_authors`"),
-			args:    []driver.Value{"123"},
+			args:    []driver.Value{"123", int64(1)},
 			columns: []string{"id", "scopus_author_id", "full_name", "given_name", "surname", "initials", "orcid", "author_url"},
 			rows: [][]driver.Value{{
 				int64(1), "123", "Example Author", nil, nil, nil, "0000-0001-2345-6789", nil,
@@ -55,7 +55,7 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 		{
 			kind:    kindQuery,
 			pattern: regexp.MustCompile(`SELECT .* FROM ` + "`scopus_document_authors`"),
-			args:    []driver.Value{int64(1), int64(1)},
+			args:    []driver.Value{int64(1), int64(1), int64(1)},
 			columns: []string{"id", "document_id", "author_id", "author_seq", "affiliation_id"},
 			rows: [][]driver.Value{{
 				int64(1), int64(1), int64(1), int64(1), nil,

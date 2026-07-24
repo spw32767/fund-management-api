@@ -162,6 +162,7 @@ func SetupRoutes(router *gin.Engine) {
 			protected.GET("/application-status", controllers.GetApplicationStatuses)
 			protected.GET("/system-config/current-year", controllers.GetSystemConfigCurrentYear)
 			protected.GET("/system-config/submission-usage", controllers.GetSubmissionUsageLimit)
+			protected.GET("/sdgs", controllers.GetActiveSDGs)
 			protected.GET("/system-config/window", controllers.GetSystemConfigWindow)
 			protected.GET("/system-config/dept-head/eligible-roles", controllers.GetDeptHeadEligibleRoles)
 
@@ -215,25 +216,25 @@ func SetupRoutes(router *gin.Engine) {
 				mou.DELETE("/activities/:id", controllers.DeleteMouActivity)                                 // Delete activity
 				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
 
-				mou.GET("/:id", controllers.GetMouDetail)                                                    // Get MOU detail
-				mou.GET("/:id/download", controllers.DownloadMouAttachments)                                 // Download MOU attachments as ZIP
-				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                          // View/download single attachment
-				mou.PUT("/:id", controllers.UpdateMou)                                                       // Update MOU
-				mou.PUT("/:id/renew", controllers.RenewMou)                                                  // Renew MOU
-				mou.GET("/export", controllers.ExportMouCsv)                                                 // Export MOU list as CSV
-				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)               // List all potential recipients
-				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)                      // Preview notification email
-				mou.POST("/send-notifications", controllers.SendMouNotifications)                            // Trigger sending email notifications
-				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)                     // Get notification settings
-				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)                  // Update notification settings
-				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients)           // Get notification recipients
-				mou.DELETE("/:id", controllers.DeleteMou)                                                    // Delete MOU
+				mou.GET("/:id", controllers.GetMouDetail)                                          // Get MOU detail
+				mou.GET("/:id/download", controllers.DownloadMouAttachments)                       // Download MOU attachments as ZIP
+				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                // View/download single attachment
+				mou.PUT("/:id", controllers.UpdateMou)                                             // Update MOU
+				mou.PUT("/:id/renew", controllers.RenewMou)                                        // Renew MOU
+				mou.GET("/export", controllers.ExportMouCsv)                                       // Export MOU list as CSV
+				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)     // List all potential recipients
+				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)            // Preview notification email
+				mou.POST("/send-notifications", controllers.SendMouNotifications)                  // Trigger sending email notifications
+				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)           // Get notification settings
+				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)        // Update notification settings
+				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients) // Get notification recipients
+				mou.DELETE("/:id", controllers.DeleteMou)                                          // Delete MOU
 			}
 
 			// Researcher management routes for academic designer
 			researcherManagement := protected.Group("/researcher-management")
 
-			researcherManagement.Use(middleware.RequireRole(3,6))
+			researcherManagement.Use(middleware.RequireRole(3, 6))
 			{
 				researcherManagement.GET("/instructors", controllers.GetInstructors)
 				researcherManagement.GET("/instructors/:id", controllers.GetInstructorByID)
@@ -332,6 +333,8 @@ func SetupRoutes(router *gin.Engine) {
 				// Basic CRUD
 				submissions.POST("", controllers.CreateSubmission)
 				submissions.GET("/:id", controllers.GetSubmission)
+				submissions.GET("/:id/sdgs", controllers.GetSubmissionSDGs)
+				submissions.PUT("/:id/sdgs", controllers.UpdateSubmissionSDGs)
 				submissions.PUT("/:id", controllers.UpdateSubmission)
 				submissions.DELETE("/:id", controllers.DeleteSubmission)
 				submissions.DELETE("/:id/hard", controllers.HardDeleteSubmission)
@@ -348,6 +351,9 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.POST("/:id/documents", controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
 				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
+
+				// Approval evidence is read-only for the submission owner.
+				submissions.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
 
 				// === Co-authors Management (ใหม่) ===
 				// submissions.POST("/:id/coauthors", controllers.AddCoauthor)               // เพิ่ม co-author
@@ -385,6 +391,10 @@ func SetupRoutes(router *gin.Engine) {
 				files.GET("/sign", SignFileViewURL)
 			}
 
+			// Download endpoint for approval evidence. Authorization is checked by
+			// the controller against the attachment's submission owner/manager.
+			protected.GET("/approval-attachments/:attachment_id/download", controllers.DownloadSubmissionApprovalAttachment)
+
 			// Documents
 			documents := protected.Group("/documents")
 			{
@@ -416,6 +426,11 @@ func SetupRoutes(router *gin.Engine) {
 				submissionsAdmin.GET("/:id/research-fund/events", controllers.ListResearchFundEvents)
 				submissionsAdmin.POST("/:id/research-fund/events", middleware.RequirePermission("fund.request.approve"), controllers.CreateResearchFundEvent)
 				submissionsAdmin.POST("/:id/research-fund/toggle-closure", middleware.RequirePermission("fund.request.approve"), controllers.ToggleResearchFundClosure)
+				submissionsAdmin.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
+				submissionsAdmin.POST("/:id/approval-attachments", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.CreateSubmissionApprovalAttachment)
+				submissionsAdmin.PATCH("/:id/approval-attachments/:attachment_id", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.UpdateSubmissionApprovalAttachment)
+				submissionsAdmin.DELETE("/:id/approval-attachments/:attachment_id", middleware.RequirePermission("submission.approval_attachment.manage"), controllers.DeleteSubmissionApprovalAttachment)
+				submissionsAdmin.GET("/:id/approval-attachments/:attachment_id/download", controllers.DownloadSubmissionApprovalAttachment)
 			}
 
 			// Publication Rewards
@@ -676,6 +691,13 @@ func SetupRoutes(router *gin.Engine) {
 					installments.PATCH("/:id", controllers.AdminUpdateFundInstallmentPeriod)
 					installments.DELETE("/:id", controllers.AdminDeleteFundInstallmentPeriod)
 					installments.PATCH("/:id/restore", controllers.AdminRestoreFundInstallmentPeriod)
+				}
+
+				sdgs := admin.Group("/sdgs")
+				{
+					sdgs.GET("", controllers.GetAdminSDGs)
+					sdgs.POST("", controllers.CreateAdminSDG)
+					sdgs.PUT("/:id", controllers.UpdateAdminSDG)
 				}
 
 				// ========== FUND CATEGORIES MANAGEMENT ==========
