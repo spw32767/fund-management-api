@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -55,6 +56,18 @@ func InitDB() {
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
+
+	// Configure the connection pool so idle connections are recycled before
+	// MySQL/MariaDB drops them (prevents "connection was aborted" errors when a
+	// dead pooled connection gets reused).
+	sqlDB, err := DB.DB()
+	if err != nil {
+		log.Fatal("Failed to get database instance:", err)
+	}
+	sqlDB.SetConnMaxLifetime(time.Minute * 3) // recycle before MySQL wait_timeout
+	sqlDB.SetConnMaxIdleTime(time.Minute * 1)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
 
 	log.Println("Database connected successfully")
 }

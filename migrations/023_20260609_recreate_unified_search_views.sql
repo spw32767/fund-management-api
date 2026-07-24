@@ -10,7 +10,7 @@ CREATE INDEX IF NOT EXISTS idx_metrics_lookup
 CREATE OR REPLACE VIEW unified_search_contents AS
 
 SELECT
-    CONCAT('scopus_', d.id)                         AS id,
+    CONCAT('scopus_', d.id) COLLATE utf8mb4_general_ci AS id,
     'scopus' COLLATE utf8mb4_general_ci             AS source_name,
     COALESCE(d.title, 'Untitled')                   AS title,
     NULL                                             AS title_en,
@@ -86,7 +86,7 @@ LEFT JOIN (
 UNION ALL
 
 SELECT
-    CONCAT('thaijo_', d.id)                          AS id,
+    CONCAT('thaijo_', d.id) COLLATE utf8mb4_general_ci AS id,
     'thaijo' COLLATE utf8mb4_general_ci              AS source_name,
     COALESCE(d.title_th, d.title_en, 'Untitled')     AS title,
     NULL                                             AS title_en,
@@ -115,7 +115,7 @@ FROM thaijo_documents d
 UNION ALL
 
 SELECT
-    CONCAT('ai_', p.id)                             AS id,
+    CONCAT('ai_', p.id) COLLATE utf8mb4_general_ci AS id,
     'ai_showcase' COLLATE utf8mb4_general_ci        AS source_name,
     COALESCE(p.title_th, p.title_en, 'Untitled')   AS title,
     p.title_en                                       AS title_en,

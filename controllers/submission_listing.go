@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -285,6 +286,282 @@ func GetStaffSubmissions(c *gin.Context) {
 	})
 }
 
+// enrichAdminSubmissionListDetails adds only the compact form fields required
+// by the admin table. It deliberately avoids the full details endpoint shape
+// (documents, events, co-authors, external funds, etc.).
+func enrichAdminSubmissionListDetails(submissions []models.Submission) error {
+	if len(submissions) == 0 {
+		return nil
+	}
+
+	ids := make([]int, 0, len(submissions))
+	userIDs := make([]int, 0, len(submissions))
+	seenUserIDs := make(map[int]struct{}, len(submissions))
+	for _, submission := range submissions {
+		ids = append(ids, submission.SubmissionID)
+		if submission.UserID > 0 {
+			if _, seen := seenUserIDs[submission.UserID]; !seen {
+				seenUserIDs[submission.UserID] = struct{}{}
+				userIDs = append(userIDs, submission.UserID)
+			}
+		}
+	}
+
+	// Do not rely solely on GORM's User preload here. Some existing databases
+	// have legacy user soft-delete columns, which can make that preload return
+	// nil even though submissions.user_id is valid. One compact batch lookup is
+	// deterministic and avoids an N+1 fallback.
+	var users []models.User
+	if len(userIDs) > 0 {
+		if err := config.DB.Select("user_id, user_fname, user_lname, email").
+			Where("user_id IN ?", userIDs).Find(&users).Error; err != nil {
+			return err
+		}
+	}
+	usersByID := make(map[int]*models.User, len(users))
+	for i := range users {
+		usersByID[users[i].UserID] = &users[i]
+	}
+
+	// The category relation can be returned as a zero-value object on legacy
+	// records even though submissions.category_id is valid. Resolve the
+	// display category explicitly from the IDs in this page, in one batch.
+	categoryIDs := make([]int, 0, len(submissions))
+	seenCategoryIDs := make(map[int]struct{}, len(submissions))
+	for _, submission := range submissions {
+		categoryID := 0
+		if submission.CategoryID != nil {
+			categoryID = *submission.CategoryID
+		}
+		if categoryID == 0 && submission.Subcategory != nil {
+			categoryID = submission.Subcategory.CategoryID
+		}
+		if categoryID > 0 {
+			if _, seen := seenCategoryIDs[categoryID]; !seen {
+				seenCategoryIDs[categoryID] = struct{}{}
+				categoryIDs = append(categoryIDs, categoryID)
+			}
+		}
+	}
+
+	var categories []models.FundCategory
+	if len(categoryIDs) > 0 {
+		if err := config.DB.Select("category_id, category_name, status, year_id").
+			Where("category_id IN ?", categoryIDs).Find(&categories).Error; err != nil {
+			return err
+		}
+	}
+	categoriesByID := make(map[int]models.FundCategory, len(categories))
+	for _, category := range categories {
+		categoriesByID[category.CategoryID] = category
+	}
+
+	var fundDetails []models.FundApplicationDetail
+	if err := config.DB.Select(
+		"submission_id, project_title, requested_amount, approved_amount",
+	).Where("submission_id IN ?", ids).Find(&fundDetails).Error; err != nil {
+		return err
+	}
+	fundBySubmission := make(map[int]*models.FundApplicationDetail, len(fundDetails))
+	for i := range fundDetails {
+		fundBySubmission[fundDetails[i].SubmissionID] = &fundDetails[i]
+	}
+
+	var publicationDetails []models.PublicationRewardDetail
+	if err := config.DB.Select(
+		"submission_id, paper_title, journal_name, publication_date, volume_issue, page_numbers, indexing, quartile, "+
+			"reward_amount, reward_approve_amount, revision_fee, revision_fee_approve_amount, "+
+			"publication_fee, publication_fee_approve_amount, external_funding_amount, total_amount, total_approve_amount",
+	).Where("submission_id IN ?", ids).Find(&publicationDetails).Error; err != nil {
+		return err
+	}
+	publicationBySubmission := make(map[int]*models.PublicationRewardDetail, len(publicationDetails))
+	for i := range publicationDetails {
+		publicationBySubmission[publicationDetails[i].SubmissionID] = &publicationDetails[i]
+	}
+
+	for i := range submissions {
+		submission := &submissions[i]
+		categoryID := 0
+		if submission.CategoryID != nil {
+			categoryID = *submission.CategoryID
+		}
+		if categoryID == 0 && submission.Subcategory != nil {
+			categoryID = submission.Subcategory.CategoryID
+		}
+		if category, ok := categoriesByID[categoryID]; ok {
+			categoryCopy := category
+			submission.Category = &categoryCopy
+			categoryName := strings.TrimSpace(category.CategoryName)
+			submission.CategoryName = &categoryName
+		}
+		if submission.User == nil {
+			submission.User = usersByID[submission.UserID]
+		}
+		if submission.User != nil {
+			name := strings.TrimSpace(strings.TrimSpace(submission.User.UserFname) + " " + strings.TrimSpace(submission.User.UserLname))
+			if name == "" {
+				name = strings.TrimSpace(submission.User.Email)
+			}
+			if name != "" {
+				submission.ApplicantName = &name
+			}
+		}
+		if detail, ok := fundBySubmission[submission.SubmissionID]; ok {
+			submission.FundApplicationDetail = detail
+		}
+		if detail, ok := publicationBySubmission[submission.SubmissionID]; ok {
+			submission.PublicationRewardDetail = detail
+		}
+	}
+
+	return nil
+}
+
+type adminSubmissionListFundDetail struct {
+	ProjectTitle    string  `json:"project_title,omitempty"`
+	RequestedAmount float64 `json:"requested_amount"`
+	ApprovedAmount  float64 `json:"approved_amount"`
+}
+
+type adminSubmissionListPublicationDetail struct {
+	PaperTitle                  string    `json:"paper_title,omitempty"`
+	JournalName                 string    `json:"journal_name,omitempty"`
+	PublicationDate             time.Time `json:"publication_date,omitempty"`
+	VolumeIssue                 string    `json:"volume_issue,omitempty"`
+	PageNumbers                 string    `json:"page_numbers,omitempty"`
+	Indexing                    string    `json:"indexing,omitempty"`
+	Quartile                    string    `json:"quartile,omitempty"`
+	RewardAmount                float64   `json:"reward_amount"`
+	RewardApproveAmount         float64   `json:"reward_approve_amount"`
+	RevisionFee                 float64   `json:"revision_fee"`
+	RevisionFeeApproveAmount    float64   `json:"revision_fee_approve_amount"`
+	PublicationFee              float64   `json:"publication_fee"`
+	PublicationFeeApproveAmount float64   `json:"publication_fee_approve_amount"`
+	ExternalFundingAmount       float64   `json:"external_funding_amount"`
+	TotalAmount                 float64   `json:"total_amount"`
+	TotalApproveAmount          float64   `json:"total_approve_amount"`
+}
+
+type adminSubmissionListItem struct {
+	SubmissionID            int                                   `json:"submission_id"`
+	SubmissionNumber        string                                `json:"submission_number"`
+	SubmissionType          string                                `json:"submission_type"`
+	UserID                  int                                   `json:"user_id"`
+	YearID                  int                                   `json:"year_id"`
+	CategoryID              *int                                  `json:"category_id,omitempty"`
+	SubcategoryID           *int                                  `json:"subcategory_id,omitempty"`
+	SubcategoryBudgetID     *int                                  `json:"subcategory_budget_id,omitempty"`
+	StatusID                int                                   `json:"status_id"`
+	SubmittedAt             *time.Time                            `json:"submitted_at,omitempty"`
+	ApprovedAt              *time.Time                            `json:"approved_at,omitempty"`
+	AdminApprovedAt         *time.Time                            `json:"admin_approved_at,omitempty"`
+	CreatedAt               time.Time                             `json:"created_at"`
+	UpdatedAt               time.Time                             `json:"updated_at"`
+	ApplicantName           string                                `json:"applicant_name,omitempty"`
+	ApplicantEmail          string                                `json:"applicant_email,omitempty"`
+	CategoryName            string                                `json:"category_name,omitempty"`
+	SubcategoryName         string                                `json:"subcategory_name,omitempty"`
+	Title                   string                                `json:"title,omitempty"`
+	PaperTitle              string                                `json:"paper_title,omitempty"`
+	RequestedAmount         float64                               `json:"requested_amount"`
+	ApprovedAmount          float64                               `json:"approved_amount"`
+	TotalAmount             float64                               `json:"total_amount"`
+	TotalApproveAmount      float64                               `json:"total_approve_amount"`
+	User                    map[string]any                        `json:"user,omitempty"`
+	Year                    *models.Year                          `json:"year,omitempty"`
+	Status                  *models.ApplicationStatus             `json:"status,omitempty"`
+	Category                *models.FundCategory                  `json:"category,omitempty"`
+	Subcategory             *models.FundSubcategory               `json:"subcategory,omitempty"`
+	FundApplicationDetail   *adminSubmissionListFundDetail        `json:"fund_application_detail,omitempty"`
+	PublicationRewardDetail *adminSubmissionListPublicationDetail `json:"publication_reward_detail,omitempty"`
+}
+
+func toAdminSubmissionListItems(submissions []models.Submission) []adminSubmissionListItem {
+	items := make([]adminSubmissionListItem, 0, len(submissions))
+	for _, submission := range submissions {
+		item := adminSubmissionListItem{
+			SubmissionID:        submission.SubmissionID,
+			SubmissionNumber:    submission.SubmissionNumber,
+			SubmissionType:      submission.SubmissionType,
+			UserID:              submission.UserID,
+			YearID:              submission.YearID,
+			CategoryID:          submission.CategoryID,
+			SubcategoryID:       submission.SubcategoryID,
+			SubcategoryBudgetID: submission.SubcategoryBudgetID,
+			StatusID:            submission.StatusID,
+			SubmittedAt:         submission.SubmittedAt,
+			ApprovedAt:          submission.ApprovedAt,
+			AdminApprovedAt:     submission.AdminApprovedAt,
+			CreatedAt:           submission.CreatedAt,
+			UpdatedAt:           submission.UpdatedAt,
+			Year:                &submission.Year,
+			Status:              &submission.Status,
+			Category:            submission.Category,
+			Subcategory:         submission.Subcategory,
+		}
+		if submission.CategoryName != nil {
+			item.CategoryName = strings.TrimSpace(*submission.CategoryName)
+		}
+		if item.CategoryName == "" && item.Category != nil {
+			item.CategoryName = item.Category.CategoryName
+		}
+		if submission.Subcategory != nil {
+			item.SubcategoryName = submission.Subcategory.SubcategoryName
+		}
+		if submission.User != nil {
+			item.ApplicantName = strings.TrimSpace(strings.TrimSpace(submission.User.UserFname) + " " + strings.TrimSpace(submission.User.UserLname))
+			item.ApplicantEmail = submission.User.Email
+			item.User = map[string]any{
+				"user_id":    submission.User.UserID,
+				"user_fname": submission.User.UserFname,
+				"user_lname": submission.User.UserLname,
+				"email":      submission.User.Email,
+			}
+		}
+		if submission.FundApplicationDetail != nil {
+			detail := submission.FundApplicationDetail
+			item.Title = detail.ProjectTitle
+			item.RequestedAmount = detail.RequestedAmount
+			item.ApprovedAmount = detail.ApprovedAmount
+			item.FundApplicationDetail = &adminSubmissionListFundDetail{
+				ProjectTitle:    detail.ProjectTitle,
+				RequestedAmount: detail.RequestedAmount,
+				ApprovedAmount:  detail.ApprovedAmount,
+			}
+		}
+		if submission.PublicationRewardDetail != nil {
+			detail := submission.PublicationRewardDetail
+			item.Title = detail.PaperTitle
+			item.PaperTitle = detail.PaperTitle
+			item.TotalAmount = detail.TotalAmount
+			item.TotalApproveAmount = detail.TotalApproveAmount
+			item.RequestedAmount = detail.TotalAmount
+			item.ApprovedAmount = detail.TotalApproveAmount
+			item.PublicationRewardDetail = &adminSubmissionListPublicationDetail{
+				PaperTitle:                  detail.PaperTitle,
+				JournalName:                 detail.JournalName,
+				PublicationDate:             detail.PublicationDate,
+				VolumeIssue:                 detail.VolumeIssue,
+				PageNumbers:                 detail.PageNumbers,
+				Indexing:                    detail.Indexing,
+				Quartile:                    detail.Quartile,
+				RewardAmount:                detail.RewardAmount,
+				RewardApproveAmount:         detail.RewardApproveAmount,
+				RevisionFee:                 detail.RevisionFee,
+				RevisionFeeApproveAmount:    detail.RevisionFeeApproveAmount,
+				PublicationFee:              detail.PublicationFee,
+				PublicationFeeApproveAmount: detail.PublicationFeeApproveAmount,
+				ExternalFundingAmount:       detail.ExternalFundingAmount,
+				TotalAmount:                 detail.TotalAmount,
+				TotalApproveAmount:          detail.TotalApproveAmount,
+			}
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
 // GetAdminSubmissions returns admin list + stats with consistent filters
 func GetAdminSubmissions(c *gin.Context) {
 	hasReadAll := false
@@ -367,6 +644,8 @@ func GetAdminSubmissions(c *gin.Context) {
 
 	// ---------- Base list query (with preloads) ----------
 	var submissions []models.Submission
+	// Keep the list query lightweight. Form details are loaded below with two
+	// explicit batch queries selecting only fields required by the table.
 	listQ := config.DB.Preload("User").Preload("Year").Preload("Status").Preload("Category").Preload("Subcategory").
 		Where("submissions.deleted_at IS NULL")
 
@@ -375,6 +654,7 @@ func GetAdminSubmissions(c *gin.Context) {
 	approvedStatusID, errApproved := utils.GetStatusIDByCode(utils.StatusCodeApproved)
 	rejectedStatusID, errRejected := utils.GetStatusIDByCode(utils.StatusCodeRejected)
 	revisionStatusID, errRevision := utils.GetStatusIDByCode(utils.StatusCodeNeedsMoreInfo)
+	deptHeadPendingStatusID, errDeptHeadPending := utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending)
 
 	// Apply filters (identical set used later for stats)
 	if hasYearFilter {
@@ -408,20 +688,19 @@ func GetAdminSubmissions(c *gin.Context) {
 		}
 	}
 	if dateFrom != "" {
-		listQ = listQ.Where("DATE(submissions.created_at) >= ?", dateFrom)
+		listQ = listQ.Where("submissions.created_at >= ?", dateFrom)
 	}
 	if dateTo != "" {
-		listQ = listQ.Where("DATE(submissions.created_at) <= ?", dateTo)
+		listQ = listQ.Where("submissions.created_at < DATE_ADD(?, INTERVAL 1 DAY)", dateTo)
 	}
 	if search != "" {
 		st := "%" + search + "%"
 		listQ = listQ.Where(`
             submissions.submission_number LIKE ? OR
-            submissions.title LIKE ? OR
             submissions.submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR
             submissions.submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
             submissions.user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?)`,
-			st, st, st, st, st, st, st,
+			st, st, st, st, st, st,
 		)
 	}
 
@@ -436,47 +715,18 @@ func GetAdminSubmissions(c *gin.Context) {
 		return
 	}
 
-	if len(submissions) > 0 {
-		mergedDocumentType, err := resolveDocumentTypeByCode(config.DB, mergedSubmissionDocumentTypeCode)
-		if err != nil {
-			log.Printf("GetAdminSubmissions: failed to resolve merged document type: %v", err)
-		} else if mergedDocumentType != nil && mergedDocumentType.DocumentTypeID > 0 {
-			submissionIndex := make(map[int]int, len(submissions))
-			submissionIDs := make([]int, 0, len(submissions))
-			for idx, submission := range submissions {
-				submissionIndex[submission.SubmissionID] = idx
-				submissionIDs = append(submissionIDs, submission.SubmissionID)
-			}
-
-			var mergedDocs []models.SubmissionDocument
-			if err := config.DB.Preload("File").
-				Where("submission_id IN ? AND document_type_id = ?", submissionIDs, mergedDocumentType.DocumentTypeID).
-				Order("created_at DESC").
-				Find(&mergedDocs).Error; err != nil {
-				log.Printf("GetAdminSubmissions: failed to load merged documents: %v", err)
-			} else if len(mergedDocs) > 0 {
-				enrichSubmissionDocumentsWithFileMetadata(mergedDocs)
-				for i := range mergedDocs {
-					idx, ok := submissionIndex[mergedDocs[i].SubmissionID]
-					if !ok {
-						continue
-					}
-					if submissions[idx].MergedDocument != nil {
-						continue
-					}
-					submissions[idx].MergedDocument = &mergedDocs[i]
-				}
-			}
-		}
+	if err := enrichAdminSubmissionListDetails(submissions); err != nil {
+		log.Printf("GetAdminSubmissions list detail enrichment error: %v", err)
 	}
 
 	// ---------- Statistics (clone filters, count by status) ----------
 	type Stats struct {
-		TotalSubmissions int64 `json:"total_submissions"`
-		PendingCount     int64 `json:"pending_count"`
-		ApprovedCount    int64 `json:"approved_count"`
-		RejectedCount    int64 `json:"rejected_count"`
-		RevisionCount    int64 `json:"revision_count"`
+		TotalSubmissions     int64 `json:"total_submissions"`
+		DeptHeadPendingCount int64 `json:"dept_head_pending_count"`
+		PendingCount         int64 `json:"pending_count"`
+		ApprovedCount        int64 `json:"approved_count"`
+		RejectedCount        int64 `json:"rejected_count"`
+		RevisionCount        int64 `json:"revision_count"`
 	}
 	stats := Stats{TotalSubmissions: totalCount}
 
@@ -505,20 +755,19 @@ func GetAdminSubmissions(c *gin.Context) {
 			}
 		}
 		if dateFrom != "" {
-			q = q.Where("DATE(submissions.created_at) >= ?", dateFrom)
+			q = q.Where("submissions.created_at >= ?", dateFrom)
 		}
 		if dateTo != "" {
-			q = q.Where("DATE(submissions.created_at) <= ?", dateTo)
+			q = q.Where("submissions.created_at < DATE_ADD(?, INTERVAL 1 DAY)", dateTo)
 		}
 		if search != "" {
 			st := "%" + search + "%"
 			q = q.Where(`
                 submissions.submission_number LIKE ? OR
-                submissions.title LIKE ? OR
                 submissions.submission_id IN (SELECT submission_id FROM fund_application_details WHERE project_title LIKE ?) OR
                 submissions.submission_id IN (SELECT submission_id FROM publication_reward_details WHERE paper_title LIKE ? OR paper_title_en LIKE ?) OR
                 submissions.user_id IN (SELECT user_id FROM users WHERE CONCAT(user_fname, ' ', user_lname) LIKE ? OR email LIKE ?)`,
-				st, st, st, st, st, st, st,
+				st, st, st, st, st, st,
 			)
 		}
 		if status == "" && errDraft == nil && draftStatusID > 0 {
@@ -527,24 +776,40 @@ func GetAdminSubmissions(c *gin.Context) {
 		return q
 	}
 
-	if errPending == nil && pendingStatusID > 0 {
-		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", pendingStatusID).Count(&stats.PendingCount)
-	}
-	if errApproved == nil && approvedStatusID > 0 {
-		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", approvedStatusID).Count(&stats.ApprovedCount)
-	}
-	if errRejected == nil && rejectedStatusID > 0 {
-		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", rejectedStatusID).Count(&stats.RejectedCount)
-	}
-	if errRevision == nil && revisionStatusID > 0 {
-		baseStats().Session(&gorm.Session{}).Where("submissions.status_id = ?", revisionStatusID).Count(&stats.RevisionCount)
+	// Count all status buckets in one pass. The previous implementation ran a
+	// separate COUNT query for every status on every list request.
+	if errPending == nil || errApproved == nil || errRejected == nil || errRevision == nil || errDeptHeadPending == nil {
+		var aggregate struct {
+			DeptHeadPending int64 `gorm:"column:dept_head_pending_count"`
+			Pending         int64 `gorm:"column:pending_count"`
+			Approved        int64 `gorm:"column:approved_count"`
+			Rejected        int64 `gorm:"column:rejected_count"`
+			Revision        int64 `gorm:"column:revision_count"`
+		}
+		statsQ := baseStats().Select(
+			"COALESCE(SUM(CASE WHEN submissions.status_id = ? THEN 1 ELSE 0 END), 0) AS dept_head_pending_count, "+
+				"COALESCE(SUM(CASE WHEN submissions.status_id = ? THEN 1 ELSE 0 END), 0) AS pending_count, "+
+				"COALESCE(SUM(CASE WHEN submissions.status_id = ? THEN 1 ELSE 0 END), 0) AS approved_count, "+
+				"COALESCE(SUM(CASE WHEN submissions.status_id = ? THEN 1 ELSE 0 END), 0) AS rejected_count, "+
+				"COALESCE(SUM(CASE WHEN submissions.status_id = ? THEN 1 ELSE 0 END), 0) AS revision_count",
+			deptHeadPendingStatusID, pendingStatusID, approvedStatusID, rejectedStatusID, revisionStatusID,
+		)
+		if err := statsQ.Scan(&aggregate).Error; err != nil {
+			log.Printf("GetAdminSubmissions statistics error: %v", err)
+		} else {
+			stats.DeptHeadPendingCount = aggregate.DeptHeadPending
+			stats.PendingCount = aggregate.Pending
+			stats.ApprovedCount = aggregate.Approved
+			stats.RejectedCount = aggregate.Rejected
+			stats.RevisionCount = aggregate.Revision
+		}
 	}
 
 	// ---------- Response ----------
 	totalPages := (totalCount + int64(limit) - 1) / int64(limit)
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
-		"submissions": submissions,
+		"submissions": toAdminSubmissionListItems(submissions),
 		"pagination": gin.H{
 			"current_page": page,
 			"per_page":     limit,
