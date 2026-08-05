@@ -186,7 +186,7 @@ func (s *ScopusBenchmarkService) CountScope(ctx context.Context, scope *models.S
 		return 0, err
 	}
 
-	total, _, _, err := s.searchPage(ctx, apiKey, query, "", 1, "STANDARD")
+	total, _, err := s.searchPage(ctx, apiKey, query, 0, 1, "STANDARD")
 	if err != nil {
 		return 0, err
 	}
@@ -208,64 +208,62 @@ func (s *ScopusBenchmarkService) CountScope(ctx context.Context, scope *models.S
 }
 
 // ---------------------------------------------------------------------------
-// Search page fetch (cursor-based, view=COMPLETE for harvest)
+// Search page fetch (offset-based, view=COMPLETE for harvest)
 // ---------------------------------------------------------------------------
 
-// searchPage performs one Scopus Search request. Pass cursor="" for the first
-// page with a "*" cursor, or a previous @next value to continue. Returns total
-// results, the entries, and the next cursor ("" when exhausted).
-func (s *ScopusBenchmarkService) searchPage(ctx context.Context, apiKey, query, cursor string, count int, view string) (int, []json.RawMessage, string, error) {
+// benchmarkOffsetCap is the maximum start+count the Scopus Search API allows
+// without the (restricted) cursor parameter. Harvests are sliced per year to
+// stay under this cap.
+const benchmarkOffsetCap = 5000
+
+// searchPage performs one Scopus Search request using offset (start) pagination.
+// The cursor parameter is intentionally NOT used — it requires a special API-key
+// entitlement that is not available. Returns total results and the page entries.
+func (s *ScopusBenchmarkService) searchPage(ctx context.Context, apiKey, query string, start, count int, view string) (int, []json.RawMessage, error) {
 	reqURL, err := url.Parse(scopusBaseURL)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	q := reqURL.Query()
 	q.Set("query", query)
 	q.Set("count", strconv.Itoa(count))
+	q.Set("start", strconv.Itoa(start))
 	q.Set("view", view)
-	if cursor != "" {
-		q.Set("cursor", cursor)
-	} else {
-		q.Set("cursor", "*")
-	}
 	reqURL.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set(scopusAPIKeyField, apiKey)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return 0, nil, "", errScopusRateLimited
+		return 0, nil, errScopusRateLimited
 	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, nil, "", fmt.Errorf("scopus search error: status %d body %s", resp.StatusCode, truncateBody(body))
+		return 0, nil, fmt.Errorf("scopus search error: status %d body %s", resp.StatusCode, truncateBody(body))
 	}
 
 	var decoded struct {
 		SearchResults struct {
-			TotalResults string `json:"opensearch:totalResults"`
-			Cursor       struct {
-				Next string `json:"@next"`
-			} `json:"cursor"`
-			Entries []json.RawMessage `json:"entry"`
+			TotalResults string            `json:"opensearch:totalResults"`
+			Entries      []json.RawMessage `json:"entry"`
 		} `json:"search-results"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return 0, nil, "", fmt.Errorf("decode scopus search response: %w", err)
+		return 0, nil, fmt.Errorf("decode scopus search response: %w", err)
 	}
 
 	total := parseIntSafe(decoded.SearchResults.TotalResults)
-	return total, decoded.SearchResults.Entries, decoded.SearchResults.Cursor.Next, nil
+	return total, decoded.SearchResults.Entries, nil
 }
 
 var errScopusRateLimited = errors.New("scopus api rate limited (429)")
