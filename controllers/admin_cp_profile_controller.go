@@ -21,7 +21,7 @@ func AdminTriggerCpProfile(c *gin.Context) {
 	svc := services.NewCpProfileService(nil)
 	sum, err := svc.Import(c.Request.Context(), debug)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "cp_profile", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

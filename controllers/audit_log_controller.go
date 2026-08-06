@@ -34,7 +34,7 @@ func GetAuditLogs(c *gin.Context) {
 	svc := services.NewAuditLogService(config.DB)
 	logs, err := svc.GetLogs(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ดึงข้อมูล audit log ไม่ได้: " + err.Error()})
+		InternalError(c, "audit_log: list logs", err)
 		return
 	}
 	c.JSON(http.StatusOK, logs)
@@ -63,7 +63,7 @@ func GetAuditLogTables(c *gin.Context) {
 	svc := services.NewAuditLogService(config.DB)
 	tables, err := svc.GetDistinctTables(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ดึงข้อมูลตารางไม่ได้: " + err.Error()})
+		InternalError(c, "audit_log: list tables", err)
 		return
 	}
 	c.JSON(http.StatusOK, tables)

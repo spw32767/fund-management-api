@@ -73,7 +73,7 @@ func AdminListAccessRoles(c *gin.Context) {
 		ORDER BY r.role_id ASC
 	`).Scan(&roles).Error
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func AdminListAccessPermissions(c *gin.Context) {
 		ORDER BY resource ASC, action ASC, code ASC
 	`).Scan(&permissions).Error
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -113,13 +113,13 @@ func AdminGetRolePermissions(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "role not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
 	permissions, codes, err := getRolePermissions(roleID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -144,7 +144,7 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "role not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -157,7 +157,7 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 	codes := normalizeCodeList(req.PermissionCodes)
 	permissionIDByCode, missingCodes, err := getPermissionIDsByCode(codes)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 	if len(missingCodes) > 0 {
@@ -196,13 +196,13 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
 	permissions, assignedCodes, err := getRolePermissions(roleID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -228,13 +228,13 @@ func AdminGetUserPermissionOverrides(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
 	overrides, err := getUserPermissionOverrides(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -262,7 +262,7 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -297,7 +297,7 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 
 	permissionIDByCode, missingCodes, err := getPermissionIDsByCode(overrideCodes)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 	if len(missingCodes) > 0 {
@@ -338,13 +338,13 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
 	overrides, err := getUserPermissionOverrides(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -373,7 +373,7 @@ func AdminGetUserEffectivePermissions(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "access_control", err)
 		return
 	}
 

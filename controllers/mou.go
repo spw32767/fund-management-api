@@ -516,7 +516,7 @@ func CreateMou(c *gin.Context) {
 		}
 		if err := tx.Create(&partner).Error; err != nil {
 			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create MOU partner: " + err.Error()})
+			InternalError(c, "mou: create partner", err)
 			return
 		}
 	}

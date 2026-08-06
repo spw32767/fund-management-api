@@ -621,6 +621,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		Preload("FundApplicationDetail").
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
+		Preload("SubmissionSDGs").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID).
 		First(&submission).Error; err != nil {
 		return nil, err
@@ -904,6 +905,7 @@ func buildSubmissionDetailPayload(submissionID int) (gin.H, error) {
 		"user":   submission.User,
 		"year":   submission.Year,
 		"status": submission.Status,
+		"sdgs":   submission.SubmissionSDGs,
 	}
 
 	// (ตอนสร้าง resp)

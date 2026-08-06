@@ -66,7 +66,8 @@ func GetSubmissionDetails(c *gin.Context) {
 		Preload("Category").
 		Preload("Subcategory").
 		Preload("Subcategory.SubcategoryBudget"). // เผื่อ UI ต้องใช้
-		Preload("FundApplicationDetail").         // FA detail
+		Preload("SubmissionSDGs").
+		Preload("FundApplicationDetail"). // FA detail
 		Preload("FundApplicationDetail.Subcategory").
 		Preload("FundApplicationDetail.Subcategory.Category").
 		Preload("PublicationRewardDetail"). // PR detail
@@ -116,6 +117,7 @@ func GetSubmissionDetails(c *gin.Context) {
 		Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
 		Select("submission_documents.*, pref.external_fund_id AS external_funding_id").
 		Where("submission_documents.submission_id = ?", sid).
+		Order("submission_documents.display_order, submission_documents.created_at").
 		Preload("DocumentType").
 		Preload("File").
 		Find(&docs).Error; err != nil {
@@ -269,6 +271,7 @@ func GetSubmissionDetails(c *gin.Context) {
 			"status":                          s.Status,
 			"category":                        s.Category,
 			"subcategory":                     s.Subcategory,
+			"sdgs":                            s.SubmissionSDGs,
 		},
 		"details":           details,   // gin.H หรือ nil
 		"submission_users":  suOut,     // []gin.H

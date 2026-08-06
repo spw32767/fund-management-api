@@ -32,7 +32,7 @@ func GetUserInnovations(c *gin.Context) {
 	svc := services.NewInnovationService(nil)
 	items, total, err := svc.ListByUser(userID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		InternalError(c, "user_innovation", err)
 		return
 	}
 

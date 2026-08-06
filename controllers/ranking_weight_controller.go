@@ -39,7 +39,7 @@ func UpdateRankingWeights(c *gin.Context) {
 	weightService := services.NewRankingWeightService(config.DB)
 	result, err := weightService.UpdateWeights(c.Request.Context(), body.Weights, editorID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "ranking_weight", err)
 		return
 	}
 

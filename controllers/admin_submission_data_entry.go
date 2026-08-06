@@ -290,7 +290,7 @@ func AdminLegacyCreateSubmission(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "submission_data_entry", err)
 	}
 }
 
@@ -364,7 +364,7 @@ func AdminLegacyUpdateSubmission(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "submission_data_entry", err)
 	}
 }
 
@@ -402,7 +402,7 @@ func AdminLegacyDeleteSubmission(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		InternalError(c, "submission_data_entry", err)
 		return
 	}
 

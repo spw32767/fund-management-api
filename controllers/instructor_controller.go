@@ -25,7 +25,7 @@ func GetMyProfile(c *gin.Context) {
 	svc := services.NewInstructorService(config.DB)
 	profile, err := svc.GetFullProfile(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ดึงข้อมูลไม่ได้: " + err.Error()})
+		InternalError(c, "instructor: fetch", err)
 		return
 	}
 	c.JSON(http.StatusOK, profile)
@@ -42,7 +42,7 @@ func UpdateMyProfile(c *gin.Context) {
 	input.Header.UserID = userID
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.UpdateInstructorProfile(c.Request.Context(), input); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "บันทึกไม่สำเร็จ: " + err.Error()})
+		InternalError(c, "instructor: save", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "บันทึกข้อมูลเรียบร้อยแล้ว"})
@@ -244,7 +244,7 @@ func DeleteInstructorTextbook(c *gin.Context) {
 	}
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.DeleteTextbook(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบข้อมูลตำราได้: " + err.Error()})
+		InternalError(c, "instructor: delete textbook", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบข้อมูลตำราสำเร็จ"})
@@ -257,7 +257,7 @@ func DeleteInstructorIntellectualProperty(c *gin.Context) {
 	}
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.DeleteIntellectualProperty(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบข้อมูลทรัพย์สินทางปัญญาได้: " + err.Error()})
+		InternalError(c, "instructor: delete IP", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบข้อมูลทรัพย์สินทางปัญญาสำเร็จ"})
@@ -270,7 +270,7 @@ func DeleteInstructorResearchProject(c *gin.Context) {
 	}
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.DeleteResearchProject(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบข้อมูลโครงการวิจัยได้: " + err.Error()})
+		InternalError(c, "instructor: delete research project", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบข้อมูลโครงการวิจัยสำเร็จ"})
@@ -283,7 +283,7 @@ func DeleteInstructorExpertise(c *gin.Context) {
 	}
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.DeleteExpertise(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบข้อมูลความเชี่ยวชาญได้: " + err.Error()})
+		InternalError(c, "instructor: delete expertise", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบข้อมูลความเชี่ยวชาญสำเร็จ"})
@@ -296,7 +296,7 @@ func DeleteInstructorEducation(c *gin.Context) {
 	}
 	svc := services.NewInstructorService(config.DB)
 	if err := svc.DeleteEducation(c.Request.Context(), editorID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถลบข้อมูลประวัติการศึกษาได้: " + err.Error()})
+		InternalError(c, "instructor: delete education", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบข้อมูลประวัติการศึกษาสำเร็จ"})
@@ -311,7 +311,7 @@ func GetFullProfile(c *gin.Context) {
 	svc := services.NewInstructorService(config.DB)
 	profile, err := svc.GetFullProfile(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ดึงข้อมูลโปรไฟล์ไม่ได้: " + err.Error()})
+		InternalError(c, "instructor: fetch profile", err)
 		return
 	}
 	c.JSON(http.StatusOK, profile)

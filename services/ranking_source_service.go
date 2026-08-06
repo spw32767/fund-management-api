@@ -45,7 +45,7 @@ func (s *RankingSourceService) UpdateSources(ctx context.Context, sources []mode
 				newJSON, _ := json.Marshal(sources[i])
 				if err := tx.Create(&models.InstructorEditLog{
 					UserEditID:   editorID,
-					TargetUserID: 0,
+					TargetUserID: nil,
 					Action:       "INSERT",
 					TargetTable:  "ranking_sources",
 					FieldName:    "source_item",
@@ -82,7 +82,7 @@ newJSON, _ := json.Marshal(sources[i])
 
 if err := tx.Create(&models.InstructorEditLog{
     UserEditID:   editorID,
-    TargetUserID: 0,
+    TargetUserID: nil,
     Action:       "UPDATE",
     TargetTable:  "ranking_sources",
     FieldName:    "source_item",
@@ -114,7 +114,7 @@ func (s *RankingSourceService) DeleteSource(ctx context.Context, id uint, editor
 		oldJSON, _ := json.Marshal(old)
 		return tx.Create(&models.InstructorEditLog{
 			UserEditID:   editorID,
-			TargetUserID: 0,
+			TargetUserID: nil,
 			Action:       "DELETE",
 			TargetTable:  "ranking_sources",
 			FieldName:    "source_item",
