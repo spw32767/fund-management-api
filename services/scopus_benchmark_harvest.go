@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -174,12 +173,12 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		return err
 	}
 
-	start := 0
+	cursor := "*"
 	for {
 		if s.isCancelRequested(ctx, run.ID) {
 			return errBenchmarkCancelled
 		}
-		total, entries, err := s.searchPageWithRetry(ctx, apiKey, query, start)
+		total, entries, nextCursor, err := s.searchPageWithRetry(ctx, apiKey, query, cursor)
 		if err != nil {
 			return err
 		}
@@ -199,50 +198,44 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 			}
 		}
 
-		start += len(entries)
-
-		// persist progress for observability
+		// persist progress / resume cursor
 		s.db.WithContext(ctx).Model(run).Updates(map[string]interface{}{
-			"cursor_state":       strconv.Itoa(start),
+			"cursor_state":       nextCursor,
 			"pages_fetched":      summary.PagesFetched,
 			"documents_upserted": summary.DocumentsUpserted,
 			"requests_made":      summary.RequestsMade,
 		})
 
-		if start >= total {
+		// cursor is exhausted when it stops advancing (no 5000-result cap)
+		if nextCursor == "" || nextCursor == cursor {
 			break
 		}
-		if start >= benchmarkOffsetCap {
-			// Offset pagination is capped without the (restricted) cursor param.
-			// Year slicing normally keeps a single query under this cap.
-			log.Printf("scopus benchmark: reached offset cap (%d) for query %q — results may be truncated", benchmarkOffsetCap, query)
-			break
-		}
+		cursor = nextCursor
 		time.Sleep(benchmarkPageDelay)
 	}
 	return nil
 }
 
-// searchPageWithRetry wraps searchPage (offset-based) with 429 backoff.
-func (s *ScopusBenchmarkService) searchPageWithRetry(ctx context.Context, apiKey, query string, start int) (int, []json.RawMessage, error) {
+// searchPageWithRetry wraps searchPageCursor (cursor-based) with 429 backoff.
+func (s *ScopusBenchmarkService) searchPageWithRetry(ctx context.Context, apiKey, query, cursor string) (int, []json.RawMessage, string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= benchmarkMaxRateLimitRetries; attempt++ {
-		total, entries, err := s.searchPage(ctx, apiKey, query, start, benchmarkHarvestPageSize, benchmarkHarvestView)
+		total, entries, next, err := s.searchPageCursor(ctx, apiKey, query, cursor, benchmarkHarvestPageSize, benchmarkHarvestView)
 		if err == nil {
-			return total, entries, nil
+			return total, entries, next, nil
 		}
 		if !errors.Is(err, errScopusRateLimited) {
-			return 0, nil, err
+			return 0, nil, "", err
 		}
 		lastErr = err
 		log.Printf("scopus benchmark: rate limited, backing off (attempt %d)", attempt+1)
 		select {
 		case <-ctx.Done():
-			return 0, nil, ctx.Err()
+			return 0, nil, "", ctx.Err()
 		case <-time.After(benchmarkRateLimitBackoff):
 		}
 	}
-	return 0, nil, lastErr
+	return 0, nil, "", lastErr
 }
 
 // upsertBenchmarkEntry stores one search entry + its authors + scope membership.

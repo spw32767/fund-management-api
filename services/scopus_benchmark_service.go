@@ -278,17 +278,13 @@ func (s *ScopusBenchmarkService) CountScope(ctx context.Context, scope *models.S
 }
 
 // ---------------------------------------------------------------------------
-// Search page fetch (offset-based, view=COMPLETE for harvest)
+// Search page fetch
 // ---------------------------------------------------------------------------
 
-// benchmarkOffsetCap is the maximum start+count the Scopus Search API allows
-// without the (restricted) cursor parameter. Harvests are sliced per year to
-// stay under this cap.
-const benchmarkOffsetCap = 5000
-
 // searchPage performs one Scopus Search request using offset (start) pagination.
-// The cursor parameter is intentionally NOT used — it requires a special API-key
-// entitlement that is not available. Returns total results and the page entries.
+// Used by CountScope (count=1, start=0) — no pagination needed there, so it works
+// even off-VPN where the cursor entitlement is unavailable. Note: the Scopus API
+// caps offset at 5000; harvests use searchPageCursor instead to avoid that cap.
 func (s *ScopusBenchmarkService) searchPage(ctx context.Context, apiKey, query string, start, count int, view string) (int, []json.RawMessage, error) {
 	reqURL, err := url.Parse(scopusBaseURL)
 	if err != nil {
@@ -334,6 +330,64 @@ func (s *ScopusBenchmarkService) searchPage(ctx context.Context, apiKey, query s
 
 	total := parseIntSafe(decoded.SearchResults.TotalResults)
 	return total, decoded.SearchResults.Entries, nil
+}
+
+// searchPageCursor performs one Scopus Search request using cursor pagination.
+// Pass cursor="*" for the first page, then the returned @next value to continue.
+// Cursor removes the 5000-result offset cap but requires the institutional
+// entitlement (i.e. the request must originate from the KKU network / VPN).
+// Used by the harvest (view=COMPLETE), which needs VPN anyway.
+func (s *ScopusBenchmarkService) searchPageCursor(ctx context.Context, apiKey, query, cursor string, count int, view string) (int, []json.RawMessage, string, error) {
+	reqURL, err := url.Parse(scopusBaseURL)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	if cursor == "" {
+		cursor = "*"
+	}
+	q := reqURL.Query()
+	q.Set("query", query)
+	q.Set("count", strconv.Itoa(count))
+	q.Set("view", view)
+	q.Set("cursor", cursor)
+	reqURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set(scopusAPIKeyField, apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return 0, nil, "", errScopusRateLimited
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, nil, "", fmt.Errorf("scopus search error: status %d body %s", resp.StatusCode, truncateBody(body))
+	}
+
+	var decoded struct {
+		SearchResults struct {
+			TotalResults string `json:"opensearch:totalResults"`
+			Cursor       struct {
+				Next string `json:"@next"`
+			} `json:"cursor"`
+			Entries []json.RawMessage `json:"entry"`
+		} `json:"search-results"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return 0, nil, "", fmt.Errorf("decode scopus search response: %w", err)
+	}
+
+	total := parseIntSafe(decoded.SearchResults.TotalResults)
+	return total, decoded.SearchResults.Entries, decoded.SearchResults.Cursor.Next, nil
 }
 
 var errScopusRateLimited = errors.New("scopus api rate limited (429)")
