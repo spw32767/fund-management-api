@@ -174,6 +174,71 @@ func buildScopeQuery(scope *models.ScopusBenchmarkScope, year *int) (string, err
 	return strings.Join(parts, " AND "), nil
 }
 
+// buildFacultyQuery builds the "faculty" query: CS papers affiliated with KKU that
+// were authored by any of our registered faculty (users.scopus_id). This works with
+// a STANDARD-only key (count=1) — it does not need the COMPLETE view.
+func (s *ScopusBenchmarkService) buildFacultyQuery(ctx context.Context, scope *models.ScopusBenchmarkScope, year *int) (string, error) {
+	var uni models.ScopusBenchmarkScope
+	if err := s.db.WithContext(ctx).Where("level = ?", "university").First(&uni).Error; err != nil {
+		return "", fmt.Errorf("faculty query needs the university scope: %w", err)
+	}
+	if uni.AfID == nil || strings.TrimSpace(*uni.AfID) == "" {
+		return "", errors.New("set the KKU AF-ID first (step 1)")
+	}
+
+	ids, err := s.facultyAuthorIDs(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(ids) == 0 {
+		return "", errors.New("no faculty scopus ids in the system")
+	}
+	au := make([]string, 0, len(ids))
+	for _, id := range ids {
+		au = append(au, "AU-ID("+id+")")
+	}
+
+	subject := strings.TrimSpace(scope.SubjectArea)
+	if subject == "" {
+		subject = benchmarkSubjectDefault
+	}
+
+	parts := []string{
+		fmt.Sprintf("AF-ID(%s)", strings.TrimSpace(*uni.AfID)),
+		fmt.Sprintf("SUBJAREA(%s)", subject),
+	}
+	if year != nil {
+		parts = append(parts, fmt.Sprintf("PUBYEAR = %d", *year))
+	}
+	parts = append(parts, "("+strings.Join(au, " OR ")+")")
+	return strings.Join(parts, " AND "), nil
+}
+
+// facultyAuthorIDs returns the de-duplicated, normalized Scopus author ids of users
+// registered in our system.
+func (s *ScopusBenchmarkService) facultyAuthorIDs(ctx context.Context) ([]string, error) {
+	var raw []string
+	if err := s.db.WithContext(ctx).Table("users").
+		Where("scopus_id IS NOT NULL AND scopus_id <> ''").
+		Pluck("scopus_id", &raw).Error; err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(raw))
+	ids := make([]string, 0, len(raw))
+	for _, id := range raw {
+		norm := normalizeScopusID(id)
+		if norm == "" {
+			continue
+		}
+		if _, ok := seen[norm]; ok {
+			continue
+		}
+		seen[norm] = struct{}{}
+		ids = append(ids, norm)
+	}
+	return ids, nil
+}
+
 // CountScope returns the Scopus totalResults for a scope (optionally a single year)
 // using a lightweight count=1 search, and records a count snapshot.
 func (s *ScopusBenchmarkService) CountScope(ctx context.Context, scope *models.ScopusBenchmarkScope, year *int) (int, error) {
@@ -181,7 +246,12 @@ func (s *ScopusBenchmarkService) CountScope(ctx context.Context, scope *models.S
 	if err != nil {
 		return 0, err
 	}
-	query, err := buildScopeQuery(scope, year)
+	var query string
+	if strings.EqualFold(strings.TrimSpace(scope.Level), "faculty") {
+		query, err = s.buildFacultyQuery(ctx, scope, year)
+	} else {
+		query, err = buildScopeQuery(scope, year)
+	}
 	if err != nil {
 		return 0, err
 	}

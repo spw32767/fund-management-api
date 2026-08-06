@@ -354,13 +354,13 @@ func AdminCancelBenchmarkRun(c *gin.Context) {
 }
 
 // GET /api/v1/admin/scopus/benchmark/comparison?years_back=10
-// Compares faculty (derived, is_faculty within the university harvest) vs
-// university vs country CS counts by year, using the latest count snapshots for
-// university/country and the stored harvest for the derived faculty number.
+// Compares faculty vs university (KKU) vs country (Thailand) CS counts by year,
+// all sourced from the latest count snapshots per scope.
 func AdminGetBenchmarkComparison(c *gin.Context) {
 	yearFrom, yearTo := benchmarkYearBounds(c, 10)
 
-	var uni, country models.ScopusBenchmarkScope
+	var faculty, uni, country models.ScopusBenchmarkScope
+	config.DB.Where("level = ?", "faculty").First(&faculty)
 	config.DB.Where("level = ?", "university").First(&uni)
 	config.DB.Where("level = ?", "country").First(&country)
 
@@ -390,29 +390,9 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 		return out
 	}
 
+	facultyByYear := latestSnapshotByYear(faculty.ID)
 	uniByYear := latestSnapshotByYear(uni.ID)
 	countryByYear := latestSnapshotByYear(country.ID)
-
-	// derived faculty CS docs per year (distinct docs with a faculty author in the university scope)
-	facultyByYear := map[int]int{}
-	{
-		type row struct {
-			PubYear *int
-			Cnt     int
-		}
-		var rows []row
-		config.DB.Raw(`
-			SELECT ms.pub_year AS pub_year, COUNT(DISTINCT da.document_id) AS cnt
-			FROM scopus_benchmark_document_authors da
-			JOIN scopus_benchmark_document_scopes ms ON ms.document_id = da.document_id
-			WHERE da.is_faculty = 1 AND ms.scope_id = ?
-			GROUP BY ms.pub_year`, uni.ID).Scan(&rows)
-		for _, r := range rows {
-			if r.PubYear != nil {
-				facultyByYear[*r.PubYear] = r.Cnt
-			}
-		}
-	}
 
 	rows := make([]gin.H, 0, yearTo-yearFrom+1)
 	for y := yearTo; y >= yearFrom; y-- {
@@ -428,6 +408,7 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 		"success": true,
 		"data": gin.H{
 			"years":            rows,
+			"faculty_scope":    faculty,
 			"university_scope": uni,
 			"country_scope":    country,
 		},
