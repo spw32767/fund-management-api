@@ -30,11 +30,16 @@
 ทุก scope intersect กับ `SUBJAREA(COMP)`:
 - **country** = `AFFILCOUNTRY(Thailand) AND SUBJAREA(COMP)`
 - **university** = `AF-ID(<KKU_AFID>) AND SUBJAREA(COMP)`  (KKU = **60017165**)
-- **faculty (derived)** = docs ใน university harvest ที่มี author `authid` ตรงกับ `users.scopus_id` (flag `is_faculty=1`)
-  → **ไม่ยิง query เพิ่ม** คำนวณจากข้อมูลที่ harvest มา
+- **faculty** = `AF-ID(<KKU>) AND SUBJAREA(COMP) AND (AU-ID(a) OR AU-ID(b) ...)` โดย `a,b,...` = `users.scopus_id`
+  ของอาจารย์ในระบบ → นับด้วย **author-set count** (scope `faculty_cs`, level=`faculty`, migration 030)
 
-**ตัวเลข KKU/Thailand** มาจาก **count query** (`count=1` → `opensearch:totalResults`) เก็บเป็น snapshot รายปี — เร็ว ไม่ต้องดึงเอกสารจริง
-**ตัวเลขคณะ** มาจาก **harvest จริง** ของ scope KKU เท่านั้น (ต้อง harvest KKU ก่อน คอลัมน์คณะจึงจะมีเลข)
+**ทั้งสามคอลัมน์** มาจาก **count query** (`count=1` → `opensearch:totalResults`) เก็บเป็น snapshot รายปี — เร็ว ไม่ต้องดึงเอกสารจริง
+กด "อัปเดตตัวเลข" ครั้งเดียวเติมครบทั้ง คณะ/KKU/Thailand
+
+> **⚠️ API key entitlement (สำคัญ):** key ปัจจุบันถูกลดสิทธิ์ ใช้ได้แค่ **STANDARD view** —
+> `cursor` และ `view=COMPLETE` ถูกจำกัด (403/401) จึง (1) ใช้ **offset pagination** แทน cursor
+> และ (2) เปลี่ยนการนับคณะเป็น **author-set count** แทนการ derive จาก COMPLETE harvest
+> การ **harvest เอกสารเต็ม** (ต้องใช้ COMPLETE + author list) จึง**ใช้ไม่ได้จนกว่าจะได้สิทธิ์คืน** — เป็น optional/ขั้นสูง
 
 ## 4. โครงสร้างข้อมูล (migration `029_20260712_create_scopus_benchmark_tables.sql`)
 
