@@ -20,15 +20,42 @@
 ## นิยามการเทียบ
 - **country** = `AFFILCOUNTRY(Thailand) AND SUBJAREA(COMP)`
 - **university** = `AF-ID(<KKU>) AND SUBJAREA(COMP)`
-- **faculty (derived)** = docs ใน university harvest ที่มี author `authid` ตรงกับ `users.scopus_id` (`is_faculty=1`)
-  → CS-consistent, เซตซ้อน `faculty ⊆ university ⊆ country`, ไม่ต้องยิง query เพิ่ม
+- **faculty** = `AF-ID(<KKU>) AND SUBJAREA(COMP) AND (AU-ID(a) OR AU-ID(b) ...)` โดย `a,b,...` = `users.scopus_id`
+  → นับด้วย **author-set count** (STANDARD, `count=1`) เป็นเซตย่อยของ university โดยโครงสร้าง query → `faculty ⊆ university ⊆ country`
 
 ## Scopus API ที่ใช้
-- Affiliation Search: `GET /content/search/affiliation?query=AFFIL(<name>)` → หา AF-ID
-- Search (count): `GET /content/search/scopus?query=<...>&count=1` → อ่าน `opensearch:totalResults`
-- Search (harvest): `view=COMPLETE`, `count=25`, **cursor pagination** (`cursor=*` → อ่าน `search-results.cursor.@next`)
-  ทะลุ limit 5,000 ต่อ query · quota 20,000 req/7 วัน · 429 → backoff
-- API key อ่านจาก `scopus_config` (`X-ELS-APIKey`) — ต้องอยู่ใน VPN KKU
+
+ทุกตัวเรียก `api.elsevier.com` · auth: header `X-ELS-APIKey` (key จาก `scopus_config`)
+
+### 1) Affiliation Search API — หา AF-ID
+```
+GET /content/search/affiliation?query=AFFIL(<ชื่อสถาบัน>)
+```
+คืน `dc:identifier` (AFFILIATION_ID), `affiliation-name`, `city`, `country`, `document-count` · view=STANDARD
+
+### 2) Scopus Search API — ตัวหลัก
+```
+GET /content/search/scopus
+```
+| ใช้ทำอะไร | params | ผลลัพธ์ |
+|---|---|---|
+| **นับจำนวน** (counts) | `count=1&view=STANDARD` | `search-results.opensearch:totalResults` |
+| **หาปีแรก/ล่าสุด** | `count=1&view=STANDARD&sort=+coverDate` (หรือ `-coverDate`) | `prism:coverDate` ของเอกสารเก่า/ใหม่สุด |
+| **ดึงเอกสารเต็ม** (harvest) | `view=COMPLETE&count=25&cursor=*` | entry เต็ม + `author[]` + `dc:description` (abstract) |
+
+**query operators:** `AF-ID(x)` · `AFFILCOUNTRY(Thailand)` · `SUBJAREA(COMP)` · `PUBYEAR = y` · `AU-ID(x)` · `AND`/`OR`
+
+### views / limits / entitlement
+- **STANDARD** (≤200/หน้า, ฟิลด์พื้นฐาน) vs **COMPLETE** (≤25/หน้า, มี author list + abstract + keywords)
+- **offset (`start`)** ตันที่ 5,000/query → **cursor** (`cursor=*` → `search-results.cursor.@next`) ทะลุ limit
+- **สิทธิ์ผูกกับ IP สถาบัน:** STANDARD ใช้ได้ทุกที่ · **COMPLETE + cursor ต้องอยู่ใน VPN KKU** (นอก VPN → 401/403)
+- **quota** 20,000 req/7 วัน · เกิน throttle → 429 (มี backoff)
+
+### วิธีใช้ในระบบนี้
+- **counts** ใช้ offset `start=0, count=1` (ไม่ paginate, ทำงานได้แม้ไม่มี VPN)
+- **harvest** ใช้ cursor + COMPLETE (ต้องมี VPN)
+
+> (ฟีเจอร์อื่นของโปรเจกต์ยังใช้ **Abstract Retrieval API** สำหรับ conference และ **Serial Title API** สำหรับ CiteScore — คนละส่วนกับ benchmark นี้)
 
 ## Endpoints (admin, guard: `ui.page.admin.scopus.view`)
 | Method | Path | หน้าที่ |

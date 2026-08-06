@@ -151,9 +151,11 @@ func buildScopeQuery(scope *models.ScopusBenchmarkScope, year *int) (string, err
 		}
 		parts = append(parts, fmt.Sprintf("AFFILCOUNTRY(%s)", strings.TrimSpace(*scope.AffilCountry)))
 	default:
+		// custom / unknown level: the extra_query IS the base constraint
 		if scope.ExtraQuery == nil || strings.TrimSpace(*scope.ExtraQuery) == "" {
 			return "", fmt.Errorf("scope %q has unsupported level %q and no extra_query", scope.Code, scope.Level)
 		}
+		parts = append(parts, "("+strings.TrimSpace(*scope.ExtraQuery)+")")
 	}
 
 	subject := strings.TrimSpace(scope.SubjectArea)
@@ -166,8 +168,11 @@ func buildScopeQuery(scope *models.ScopusBenchmarkScope, year *int) (string, err
 		parts = append(parts, fmt.Sprintf("PUBYEAR = %d", *year))
 	}
 
-	if scope.ExtraQuery != nil && strings.TrimSpace(*scope.ExtraQuery) != "" &&
-		!strings.EqualFold(strings.TrimSpace(scope.Level), "custom") {
+	// university/country may carry an OPTIONAL extra filter on top of their base;
+	// custom/unknown levels already used extra_query as their base above.
+	lvl := strings.ToLower(strings.TrimSpace(scope.Level))
+	if (lvl == "university" || lvl == "country") &&
+		scope.ExtraQuery != nil && strings.TrimSpace(*scope.ExtraQuery) != "" {
 		parts = append(parts, fmt.Sprintf("(%s)", strings.TrimSpace(*scope.ExtraQuery)))
 	}
 

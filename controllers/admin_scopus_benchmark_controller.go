@@ -371,15 +371,17 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 			Total   int
 		}
 		var rows []row
+		// pick the newest snapshot per year using MAX(id) — deterministic even if
+		// two snapshots land in the same second (id is a monotonic autoincrement).
 		config.DB.Raw(`
 			SELECT s.pub_year AS pub_year, s.total_results AS total
 			FROM scopus_benchmark_count_snapshots s
 			JOIN (
-				SELECT pub_year, MAX(captured_at) AS mx
+				SELECT pub_year, MAX(id) AS mx
 				FROM scopus_benchmark_count_snapshots
 				WHERE scope_id = ? AND pub_year IS NOT NULL
 				GROUP BY pub_year
-			) latest ON latest.pub_year = s.pub_year AND latest.mx = s.captured_at
+			) latest ON latest.pub_year = s.pub_year AND latest.mx = s.id
 			WHERE s.scope_id = ?`, scopeID, scopeID).Scan(&rows)
 		out := map[int]int{}
 		for _, r := range rows {
