@@ -31,7 +31,7 @@
 - **country** = `AFFILCOUNTRY(Thailand) AND SUBJAREA(COMP)`
 - **university** = `AF-ID(<KKU_AFID>) AND SUBJAREA(COMP)`  (KKU = **60017165**)
 - **faculty** = `AF-ID(<KKU>) AND SUBJAREA(COMP) AND (AU-ID(a) OR AU-ID(b) ...)` โดย `a,b,...` = `users.scopus_id`
-  ของอาจารย์ในระบบ → นับด้วย **author-set count** (scope `faculty_cs`, level=`faculty`, migration 030)
+  ของอาจารย์ในระบบ → นับด้วย **author-set count** (scope `faculty_cs`, level=`faculty`, migration 034)
 
 **ทั้งสามคอลัมน์** มาจาก **count query** (`count=1` → `opensearch:totalResults`) เก็บเป็น snapshot รายปี — เร็ว ไม่ต้องดึงเอกสารจริง
 กด "อัปเดตตัวเลข" ครั้งเดียวเติมครบทั้ง คณะ/KKU/Thailand
@@ -41,7 +41,7 @@
 > และ (2) เปลี่ยนการนับคณะเป็น **author-set count** แทนการ derive จาก COMPLETE harvest
 > การ **harvest เอกสารเต็ม** (ต้องใช้ COMPLETE + author list) จึง**ใช้ไม่ได้จนกว่าจะได้สิทธิ์คืน** — เป็น optional/ขั้นสูง
 
-## 4. โครงสร้างข้อมูล (migration `029_20260712_create_scopus_benchmark_tables.sql`)
+## 4. โครงสร้างข้อมูล (migration `033_..._create_scopus_benchmark_tables.sql` + `034_..._add_faculty_benchmark_scope.sql`)
 
 | ตาราง | หน้าที่ | key |
 |---|---|---|
@@ -53,7 +53,7 @@
 | `scopus_benchmark_harvest_runs` | ประวัติ run (+ `cursor_state` resume, status: running/success/failed/cancelled) | |
 | `scopus_benchmark_count_snapshots` | จำนวนต่อ (scope, ปี) ณ เวลาหนึ่ง | |
 
-> หมายเหตุ: run tables ทั้งโปรเจกต์สร้างแบบ out-of-band — migration 029 ต้องรันบน DB จริงเองตอน deploy
+> หมายเหตุ: run tables ทั้งโปรเจกต์สร้างแบบ out-of-band — migration 033 ต้องรันบน DB จริงเองตอน deploy
 
 ## 5. โค้ดหลัก (backend `fund-management-api`)
 
@@ -117,10 +117,10 @@ KKU CS ทั้งหมด ≈ 2,501 · Thailand CS ≈ 53,736 · **KKU CS เ
 ### TODO ก่อน merge ขึ้นจริง
 1. **Sync feature branch กับ main ล่าสุด** (merge/rebase) — แก้ conflict `routes/routes.go`
 2. **rebuild + restart backend** — bug ที่เจอครั้งก่อน (route 404) เกิดจาก backend ที่รันเป็น build เก่า ไม่ใช่บั๊กโค้ด
-3. **ตรวจ DB** — ตาราง benchmark (migration 029) อาจต้องรันซ้ำถ้า intern DB ถูก reset
+3. **ตรวจ DB** — ตาราง benchmark (migration 033) อาจต้องรันซ้ำถ้า intern DB ถูก reset
 4. **verify ใน browser จริง** — ที่ทำไปคือ parse + เช็ก route (401) ยังไม่เคยคลิกทั้ง flow หลัง login
 5. **(UX) ปุ่ม "ตรวจปีแรก"** โผล่เฉพาะโหมดช่วงปี — ผู้ใช้เคยบอกว่างง อาจย้ายให้เห็นตลอด/เปลี่ยนชื่อ
-6. deploy: รัน migration 029 บน prod + ตั้ง af_id KKU + (optional) cron
+6. deploy: รัน migration 033 + 034 บน prod + ตั้ง af_id KKU + (optional) cron
 
 ## 10. Gotchas สำหรับ agent
 

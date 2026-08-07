@@ -9,7 +9,7 @@
 และ stamp เป็น `'faculty'` → ถ้าใส่ docs ระดับ KKU/Thailand เข้าไป จะรั่วเข้า public search + over-count
 จึงเก็บใน `scopus_benchmark_*` แยกทั้งหมด (dashboard คณะเดิมปลอดภัยอยู่แล้วเพราะ join ผ่าน `users.scopus_id`)
 
-## ตาราง (migration 029)
+## ตาราง (migration 033; faculty scope = 034)
 - `scopus_benchmark_scopes` — ทะเบียน scope (`university_kku` มี `af_id`, `country_thailand` มี `affil_country`)
 - `scopus_benchmark_documents` — mirror `scopus_documents` + `raw_json` (view=COMPLETE) · unique `eid`
 - `scopus_benchmark_authors` / `scopus_benchmark_document_authors` — author list (COMPLETE) + `is_faculty`
@@ -75,7 +75,7 @@ scopus-benchmark -scope country_thailand                # harvest Thailand ท�
 ```
 
 ## Deploy checklist
-1. รัน migration `029` บน prod DB (สร้างตาราง benchmark + seed 2 scope)
+1. รัน migration `033` + `034` บน prod DB (สร้างตาราง benchmark + seed scope คณะ/มหาลัย/ประเทศ)
 2. ตั้ง AF-ID ของ KKU ผ่าน affiliation lookup (หน้า admin) — ปัจจุบัน `60017165`
 3. harvest `university_kku` (จำเป็นต่อการ derive คณะ) แล้วค่อย `country_thailand`
 4. (optional) ตั้ง cron เดือนละครั้ง
