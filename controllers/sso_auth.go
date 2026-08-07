@@ -46,6 +46,16 @@ func SSOLoginRedirect(c *gin.Context) {
 		return
 	}
 
+	// Cross-app handoff (opt-in): if a sibling app asked us to return the user to it
+	// after login, remember a validated return_to in a short-lived cookie. Invalid or
+	// disallowed targets are silently ignored, so the normal flow (redirect to "/")
+	// still applies. See sso_handoff.go.
+	if target := validateReturnTo(c.Query("return_to")); target != "" {
+		setReturnToCookie(c, target)
+	} else {
+		clearReturnToCookie(c)
+	}
+
 	c.Redirect(http.StatusFound, services.BuildSSOLoginURLFromEnv())
 }
 
@@ -178,6 +188,17 @@ func SSOCallback(c *gin.Context) {
 	}
 
 	setAuthTokenCookie(c, token, expiresIn)
+
+	// Cross-app handoff: if this SSO login was initiated on behalf of a sibling app
+	// (return_to cookie present + still valid), mint a one-time ticket and send the user
+	// back to that app instead of our own home page. Any failure falls through to "/".
+	if target := consumeReturnToCookie(c); target != "" {
+		if ticket, ticketErr := issueHandoffTicket(user.UserID, extractDeviceInfo(c).IPAddress); ticketErr == nil {
+			c.Redirect(http.StatusFound, appendTicketToURL(target, ticket))
+			return
+		}
+	}
+
 	c.Redirect(http.StatusFound, "/")
 }
 

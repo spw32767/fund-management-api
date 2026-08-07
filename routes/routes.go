@@ -36,6 +36,9 @@ func SetupRoutes(router *gin.Engine) {
 	router.GET("/api/auth/sso/login", controllers.SSOLoginRedirect)
 	router.GET("/api/auth/sso/callback", controllers.SSOCallback)
 	router.GET("/api/auth/logout", controllers.LogoutWithSSORedirect)
+	// Cross-app SSO handoff: sibling apps exchange a one-time ticket for user identity.
+	// Server-to-server; guarded by SSO_HANDOFF_CLIENT_SECRET when set. See sso_handoff.go.
+	router.POST("/api/auth/sso/handoff/verify", controllers.VerifyHandoffTicket)
 
 	// API v1 group
 	v1 := router.Group("/api/v1")
