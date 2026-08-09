@@ -453,6 +453,72 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 	return mapScopusRowsByUser(rows, affiliationByDocument, authorsByDocument), total, nil
 }
 
+// ListForPartner returns paginated Scopus publications for a fixed set of users, filtered by
+// a cover-year range. It powers the external /api/ext partner API. It reuses the exact
+// (user, document) join core used by ListByUserOwnership, adding a `user_id IN (...)` filter
+// and an inclusive year-range bound. userIDs must be non-empty; yearFrom/yearTo are inclusive.
+func (s *ScopusPublicationService) ListForPartner(userIDs []uint, yearFrom, yearTo, limit, offset int) ([]ScopusPublicationByUser, int64, error) {
+	if len(userIDs) == 0 {
+		return []ScopusPublicationByUser{}, 0, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	yearExpr := yearExpression(s.db)
+
+	pairQuery := s.db.Table("users AS u").
+		Select("u.user_id, sd.id AS document_id, MIN(sda.affiliation_id) AS user_affiliation_id").
+		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
+		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
+		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''").
+		Where("u.user_id IN ?", userIDs).
+		Where(fmt.Sprintf("%s >= ? AND %s <= ?", yearExpr, yearExpr), yearFrom, yearTo).
+		Group("u.user_id, sd.id")
+
+	var total int64
+	if err := s.db.Table("(?) AS user_doc_pairs", pairQuery).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []ScopusPublicationByUser{}, 0, nil
+	}
+
+	metricYearExpr := metricYearForDocumentExpression(s.db)
+	base := s.db.Table("(?) AS pairs", pairQuery).
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
+		Joins("LEFT JOIN scopus_affiliations AS owner_aff ON owner_aff.id = pairs.user_affiliation_id").
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
+
+	orderClause := orderForScopusByUser("year", "desc")
+	var rows []scopusPublicationByUserRow
+	if err := base.Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	documentIDs := collectDocumentIDsByUser(rows)
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	authorsByDocument, err := s.loadDocumentAuthorAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRowsByUser(rows, affiliationByDocument, authorsByDocument), total, nil
+}
+
 func mapScopusRows(rows []scopusPublicationRow, affiliationByDocument map[uint]scopusAffiliationAggregate, authorsByDocument map[uint]*string) []ScopusPublication {
 	publications := make([]ScopusPublication, 0, len(rows))
 	for _, row := range rows {
