@@ -71,6 +71,22 @@ type ScopusPublicationByUser struct {
 	DocumentID             uint       `json:"document_id"`
 	Title                  string     `json:"title"`
 	PublicationName        *string    `json:"publication_name,omitempty"`
+	Abstract               *string    `json:"abstract,omitempty"`
+	AggregationType        *string    `json:"aggregation_type,omitempty"`
+	Subtype                *string    `json:"subtype,omitempty"`
+	SubtypeDescription     *string    `json:"subtype_description,omitempty"`
+	ISSN                   *string    `json:"issn,omitempty"`
+	EISSN                  *string    `json:"eissn,omitempty"`
+	ISBN                   *string    `json:"isbn,omitempty"`
+	Volume                 *string    `json:"volume,omitempty"`
+	Issue                  *string    `json:"issue,omitempty"`
+	PageRange              *string    `json:"page_range,omitempty"`
+	ArticleNumber          *string    `json:"article_number,omitempty"`
+	AuthKeywords           *string    `json:"authkeywords,omitempty"`
+	FundAcr                *string    `json:"fund_acr,omitempty"`
+	FundSponsor            *string    `json:"fund_sponsor,omitempty"`
+	OpenAccess             *int       `json:"openaccess,omitempty"`
+	OpenAccessFlag         *int       `json:"openaccess_flag,omitempty"`
 	AffiliationAFID        *string    `json:"affiliation_afid,omitempty"`
 	AffiliationName        *string    `json:"affiliation_name,omitempty"`
 	AffiliationCity        *string    `json:"affiliation_city,omitempty"`
@@ -170,6 +186,22 @@ type scopusPublicationByUserRow struct {
 	DocumentID             uint    `gorm:"column:document_id"`
 	Title                  *string
 	PublicationName        *string
+	Abstract               *string
+	AggregationType        *string
+	Subtype                *string
+	SubtypeDescription     *string `gorm:"column:subtype_description"`
+	ISSN                   *string
+	EISSN                  *string
+	ISBN                   *string
+	Volume                 *string
+	Issue                  *string
+	PageRange              *string
+	ArticleNumber          *string
+	AuthKeywords           []byte  `gorm:"column:authkeywords"`
+	FundAcr                *string `gorm:"column:fund_acr"`
+	FundSponsor            *string `gorm:"column:fund_sponsor"`
+	OpenAccess             *int    `gorm:"column:openaccess"`
+	OpenAccessFlag         *int    `gorm:"column:openaccess_flag"`
 	UserAffiliationAFID    *string `gorm:"column:user_affiliation_afid"`
 	UserAffiliationName    *string `gorm:"column:user_affiliation_name"`
 	UserAffiliationCity    *string `gorm:"column:user_affiliation_city"`
@@ -493,7 +525,7 @@ func (s *ScopusPublicationService) ListForPartner(userIDs []uint, yearFrom, year
 
 	metricYearExpr := metricYearForDocumentExpression(s.db)
 	base := s.db.Table("(?) AS pairs", pairQuery).
-		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_acr, sd.fund_sponsor, sd.openaccess, sd.openaccess_flag, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
 		Joins("LEFT JOIN scopus_affiliations AS owner_aff ON owner_aff.id = pairs.user_affiliation_id").
@@ -645,6 +677,29 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 			CiteScoreQuartile:      normalizeNullable(row.CiteScoreQuartile),
 			CiteScoreStatus:        normalizeNullable(row.CiteScoreStatus),
 			CiteScoreRank:          row.CiteScoreRank,
+		}
+
+		// Bibliographic fields (populated only when the caller SELECTs them, e.g. the
+		// partner endpoint; nil/omitted for the internal dashboard which does not).
+		pub.Abstract = normalizeNullable(row.Abstract)
+		pub.AggregationType = normalizeNullable(row.AggregationType)
+		pub.Subtype = normalizeNullable(row.Subtype)
+		pub.SubtypeDescription = normalizeNullable(row.SubtypeDescription)
+		pub.ISSN = normalizeNullable(row.ISSN)
+		pub.EISSN = normalizeNullable(row.EISSN)
+		pub.ISBN = normalizeNullable(row.ISBN)
+		pub.Volume = normalizeNullable(row.Volume)
+		pub.Issue = normalizeNullable(row.Issue)
+		pub.PageRange = normalizeNullable(row.PageRange)
+		pub.ArticleNumber = normalizeNullable(row.ArticleNumber)
+		pub.FundAcr = normalizeNullable(row.FundAcr)
+		pub.FundSponsor = normalizeNullable(row.FundSponsor)
+		pub.OpenAccess = row.OpenAccess
+		pub.OpenAccessFlag = row.OpenAccessFlag
+		if len(row.AuthKeywords) > 0 {
+			if kw := strings.TrimSpace(string(row.AuthKeywords)); kw != "" {
+				pub.AuthKeywords = &kw
+			}
 		}
 
 		if affiliation, ok := affiliationByDocument[row.DocumentID]; ok {
