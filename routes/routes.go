@@ -585,6 +585,19 @@ func SetupRoutes(router *gin.Engine) {
 					accessControl.GET("/users/:id/effective", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserEffectivePermissions)
 				}
 
+				// External API client & key management (guarded by api.clients.manage)
+				apiClients := admin.Group("/api-clients")
+				apiClients.Use(middleware.RequirePermission("api.clients.manage"))
+				{
+					apiClients.GET("", controllers.AdminListAPIClients)
+					apiClients.POST("", controllers.AdminCreateAPIClient)
+					apiClients.GET("/:id", controllers.AdminGetAPIClient)
+					apiClients.PATCH("/:id", controllers.AdminUpdateAPIClient)
+					apiClients.POST("/:id/keys", controllers.AdminIssueAPIKey)
+					apiClients.DELETE("/:id/keys/:keyId", controllers.AdminRevokeAPIKey)
+					apiClients.GET("/:id/logs", controllers.AdminListAPIClientLogs)
+				}
+
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
@@ -885,6 +898,21 @@ func SetupRoutes(router *gin.Engine) {
 			staff.GET("/funds/structure", controllers.GetFundStructure)
 
 		}
+	}
+
+	// External / partner API group (/api/ext/v1).
+	// Authenticated by API key (not the internal JWT), so it hangs off `router` directly and
+	// does NOT inherit AuthMiddleware. Middleware order: log everything -> optional HTTPS guard
+	// -> API-key auth -> per-client rate limit -> per-route scope check -> handler.
+	ext := router.Group("/api/ext/v1")
+	ext.Use(middleware.ExtRequestLog())
+	ext.Use(middleware.RequireHTTPS())
+	ext.Use(middleware.APIKeyAuthMiddleware())
+	ext.Use(middleware.ExtRateLimit())
+	{
+		ext.GET("/scopus/publications",
+			middleware.RequireScope("scopus.publications.read"),
+			controllers.ExtListScopusPublications)
 	}
 
 	// Catch-all route for 404
