@@ -15,6 +15,21 @@ guide.
   join as the internal dashboard, adding a `user_id IN (...)` and inclusive cover-year filter.
   Existing service methods are untouched.
 
+## Endpoints & scopes
+
+| Endpoint | Scope | Consumer doc | Notes |
+|---|---|---|---|
+| `GET /api/ext/v1/scopus/publications` | `scopus.publications.read` | `EXTERNAL_API_SCOPUS.md` | seeded by migration 035 |
+| `GET /api/ext/v1/users` | `users.read` | `EXTERNAL_USERS_API.md` | seeded by migration 036; faculty directory sync |
+
+**Adding an external API = new endpoint + a new scope row (seed migration), reusing the
+api_clients/api_keys/middleware here — no new tables.**
+
+⚠️ **PII:** the `/users` endpoint returns `email` and `tel` (personal contact data). Grant
+`users.read` only to clients authorized to receive it, and record that in the client's contact
+notes. The faculty directory (`ListForPartner` in `services/user_directory_service.go`) excludes
+soft-deleted users (`delete_at IS NULL`) and never returns passwords.
+
 ## Database schema (migration `035_20260809_create_api_client_tables.sql`)
 
 | Table               | Purpose |

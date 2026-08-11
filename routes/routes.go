@@ -913,6 +913,10 @@ func SetupRoutes(router *gin.Engine) {
 		ext.GET("/scopus/publications",
 			middleware.RequireScope("scopus.publications.read"),
 			controllers.ExtListScopusPublications)
+
+		ext.GET("/users",
+			middleware.RequireScope("users.read"),
+			controllers.ExtListUsers)
 	}
 
 	// Catch-all route for 404
