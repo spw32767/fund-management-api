@@ -7,8 +7,8 @@ import (
 )
 
 func TestUserDirectoryListForPartnerBuildsQueries(t *testing.T) {
-	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM users AS u LEFT JOIN roles AS r.*u\.delete_at IS NULL`)
-	listPattern := regexp.MustCompile(`(?is)SELECT u\.user_id.*FROM users AS u LEFT JOIN roles AS r.*u\.delete_at IS NULL.*LIMIT \?`)
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM users AS u LEFT JOIN roles AS r.*u\.delete_at IS NULL.*u\.is_test = 0`)
+	listPattern := regexp.MustCompile(`(?is)SELECT u\.user_id.*FROM users AS u LEFT JOIN roles AS r.*u\.delete_at IS NULL.*u\.is_test = 0.*LIMIT \?`)
 
 	steps := []*queryStep{
 		{

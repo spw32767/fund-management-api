@@ -63,8 +63,9 @@ func NewUserDirectoryService(db *gorm.DB) *UserDirectoryService {
 }
 
 // ListForPartner returns paginated faculty records for the external users endpoint. It
-// excludes soft-deleted users (delete_at IS NULL). When updatedSince is non-nil, only users
-// modified at/after that time are returned (incremental sync). Returns rows + total count.
+// excludes soft-deleted users (delete_at IS NULL) and test/system accounts (is_test = 0).
+// When updatedSince is non-nil, only users modified at/after that time are returned
+// (incremental sync). Returns rows + total count.
 func (s *UserDirectoryService) ListForPartner(updatedSince *time.Time, limit, offset int) ([]PartnerUser, int64, error) {
 	if limit <= 0 {
 		limit = 100
@@ -80,7 +81,8 @@ func (s *UserDirectoryService) ListForPartner(updatedSince *time.Time, limit, of
 	buildBase := func() *gorm.DB {
 		q := s.db.Table("users AS u").
 			Joins("LEFT JOIN roles AS r ON r.role_id = u.role_id").
-			Where("u.delete_at IS NULL")
+			Where("u.delete_at IS NULL").
+			Where("u.is_test = 0")
 		if updatedSince != nil {
 			q = q.Where("u.update_at >= ?", *updatedSince)
 		}
