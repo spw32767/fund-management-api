@@ -35,8 +35,8 @@ Authorization: Bearer <your-api-key>
 GET /api/ext/v1/users
 ```
 
-Returns a **flat, paginated** list of faculty. Soft-deleted (removed) users are excluded. Each
-record's stable key is `user_id`.
+Returns a **flat, paginated** list of faculty. Soft-deleted users and internal test/system
+accounts are excluded automatically. Each record's stable key is `user_id`.
 
 ### Query parameters
 

@@ -28,7 +28,16 @@ api_clients/api_keys/middleware here — no new tables.**
 ⚠️ **PII:** the `/users` endpoint returns `email` and `tel` (personal contact data). Grant
 `users.read` only to clients authorized to receive it, and record that in the client's contact
 notes. The faculty directory (`ListForPartner` in `services/user_directory_service.go`) excludes
-soft-deleted users (`delete_at IS NULL`) and never returns passwords.
+soft-deleted users (`delete_at IS NULL`), **test/system accounts (`is_test = 0`)**, and never
+returns passwords.
+
+**Hiding test/system accounts:** migration 037 adds `users.is_test` (tinyint, default 0). The
+`/users` endpoint returns only `is_test = 0` rows. Flag accounts to hide them, e.g.:
+```sql
+UPDATE users SET is_test = 1 WHERE email IN ('testteacher@cpkku.ac.th', 'testadmin@cpkku.ac.th', ...);
+```
+This marker is currently consumed only by the external `/users` endpoint; other parts of the
+system are not yet filtering on it.
 
 ## Database schema (migration `035_20260809_create_api_client_tables.sql`)
 
