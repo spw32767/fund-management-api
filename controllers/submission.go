@@ -452,14 +452,26 @@ func UpdateSubmission(c *gin.Context) {
 	if phone := normalizeOptionalString(req.ContactPhone); phone != nil {
 		updates["contact_phone"] = *phone
 	}
-	if bankAccount := normalizeOptionalString(req.BankAccount); bankAccount != nil {
-		updates["bank_account"] = *bankAccount
+	if req.BankAccount != nil {
+		if bankAccount := normalizeOptionalString(req.BankAccount); bankAccount != nil {
+			updates["bank_account"] = *bankAccount
+		} else {
+			updates["bank_account"] = nil
+		}
 	}
-	if bankName := normalizeOptionalString(req.BankName); bankName != nil {
-		updates["bank_name"] = *bankName
+	if req.BankName != nil {
+		if bankName := normalizeOptionalString(req.BankName); bankName != nil {
+			updates["bank_name"] = *bankName
+		} else {
+			updates["bank_name"] = nil
+		}
 	}
-	if bankAccountName := normalizeOptionalString(req.BankAccountName); bankAccountName != nil {
-		updates["bank_account_name"] = *bankAccountName
+	if req.BankAccountName != nil {
+		if bankAccountName := normalizeOptionalString(req.BankAccountName); bankAccountName != nil {
+			updates["bank_account_name"] = *bankAccountName
+		} else {
+			updates["bank_account_name"] = nil
+		}
 	}
 
 	if err := config.DB.Model(&submission).Updates(updates).Error; err != nil {
