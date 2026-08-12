@@ -491,7 +491,12 @@ func GetCategories(c *gin.Context) {
 	})
 }
 
-// GetSubcategories - Fixed version without semicolon
+// GetSubcategories returns one row per fund subcategory.
+//
+// Budgets are intentionally not joined here. A subcategory can have one overall
+// budget and multiple rule budgets, so joining subcategory_budgets makes the
+// same subcategory appear once per budget row. Callers that need budget details
+// should load them from the budget endpoint instead.
 func GetSubcategories(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	userID, _ := c.Get("userID")
@@ -502,12 +507,13 @@ func GetSubcategories(c *gin.Context) {
 	fmt.Printf("userID: %v\n", userID)
 	fmt.Printf("roleID: %v\n", roleID)
 
-	// Use query builder - เพิ่ม form_type, form_url ใน SELECT
+	// Select only subcategory columns to preserve the endpoint's one-row-per-
+	// subcategory contract.
 	query := config.DB.Table("fund_subcategories fs").
-		Select("fs.*, fs.form_type, fs.form_url, sb.*"). // เพิ่มฟิลด์ใหม่
-		Joins("LEFT JOIN subcategory_budgets sb ON fs.subcategory_id = sb.subcategory_id AND sb.delete_at IS NULL AND sb.status = 'active'").
+		Select("fs.*").
 		Where("fs.status = ?", "active").
-		Where("fs.delete_at IS NULL")
+		Where("fs.delete_at IS NULL").
+		Order("fs.subcategory_id")
 
 	if categoryID != "" {
 		query = query.Where("fs.category_id = ?", categoryID)

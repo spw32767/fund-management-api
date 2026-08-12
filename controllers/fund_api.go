@@ -100,6 +100,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
         SELECT
             fs.subcategory_id,
             fs.subcategory_name,
+            fs.subcategory_code,
             fs.fund_condition,
             fs.target_roles,
             fs.form_type,
@@ -129,7 +130,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
             AND sb.status = 'active'
             AND sb.record_scope = 'rule'
         WHERE fs.delete_at IS NULL
-            AND fs.status = 'active'
+            AND fs.status IN ('active', 'disable')
             AND fs.category_id = ?`
 
 	var args []interface{}
@@ -142,7 +143,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
 	}
 
-	query += ` GROUP BY fs.subcategory_id, fs.subcategory_name, 
+	query += ` GROUP BY fs.subcategory_id, fs.subcategory_name, fs.subcategory_code,
                fs.fund_condition, fs.target_roles, fs.form_type, 
                fs.form_url, fs.status
                ORDER BY fs.subcategory_id`
@@ -159,6 +160,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 		var (
 			subID           int
 			subName         string
+			subcategoryCode *string
 			fundCondition   *string
 			targetRoles     *string
 			formType        *string
@@ -174,6 +176,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 		err := rows.Scan(
 			&subID,
 			&subName,
+			&subcategoryCode,
 			&fundCondition,
 			&targetRoles,
 			&formType,
@@ -208,6 +211,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 		subcategory := map[string]interface{}{
 			"subcategory_id":      subID,
 			"subcategory_name":    subName,
+			"subcategory_code":    subcategoryCode,
 			"fund_condition":      fundCondition,
 			"target_roles":        targetRolesList,
 			"form_type":           formType,
