@@ -330,27 +330,28 @@ func SetupRoutes(router *gin.Engine) {
 
 			submissions := protected.Group("/submissions")
 			{
+				openFundOnly := middleware.RequireOpenSubmissionFund()
 				// Basic CRUD
 				submissions.POST("", controllers.CreateSubmission)
 				submissions.GET("/:id", controllers.GetSubmission)
 				submissions.GET("/:id/sdgs", controllers.GetSubmissionSDGs)
-				submissions.PUT("/:id/sdgs", controllers.UpdateSubmissionSDGs)
-				submissions.PUT("/:id", controllers.UpdateSubmission)
+				submissions.PUT("/:id/sdgs", openFundOnly, controllers.UpdateSubmissionSDGs)
+				submissions.PUT("/:id", openFundOnly, controllers.UpdateSubmission)
 				submissions.DELETE("/:id", controllers.DeleteSubmission)
 				submissions.DELETE("/:id/hard", controllers.HardDeleteSubmission)
 
 				// Submit submission
-				submissions.POST("/:id/submit", controllers.SubmitSubmission)
-				submissions.POST("/:id/merge-documents", controllers.MergeSubmissionDocuments)
+				submissions.POST("/:id/submit", openFundOnly, controllers.SubmitSubmission)
+				submissions.POST("/:id/merge-documents", openFundOnly, controllers.MergeSubmissionDocuments)
 
 				// Add specific details
-				submissions.POST("/:id/publication-details", controllers.AddPublicationDetails)
-				submissions.POST("/:id/fund-details", controllers.AddFundDetails)
+				submissions.POST("/:id/publication-details", openFundOnly, controllers.AddPublicationDetails)
+				submissions.POST("/:id/fund-details", openFundOnly, controllers.AddFundDetails)
 
 				// Documents management
-				submissions.POST("/:id/documents", controllers.AttachDocument)
+				submissions.POST("/:id/documents", openFundOnly, controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
-				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
+				submissions.DELETE("/:id/documents/:doc_id", openFundOnly, controllers.DetachDocument)
 
 				// Approval evidence is read-only for the submission owner.
 				submissions.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
@@ -362,21 +363,21 @@ func SetupRoutes(router *gin.Engine) {
 				// submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
 
 				// === NEW: Submission Users Management (ให้ตรงกับ Frontend) ===
-				submissions.POST("/:id/users", controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
-				submissions.GET("/:id/users", controllers.GetSubmissionUsers)               // ดู users ใน submission
-				submissions.PUT("/:id/users/:user_id", controllers.UpdateSubmissionUser)    // แก้ไข user ใน submission
-				submissions.DELETE("/:id/users/:user_id", controllers.RemoveSubmissionUser) // ลบ user จาก submission
+				submissions.POST("/:id/users", openFundOnly, controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
+				submissions.GET("/:id/users", controllers.GetSubmissionUsers)                             // ดู users ใน submission
+				submissions.PUT("/:id/users/:user_id", openFundOnly, controllers.UpdateSubmissionUser)    // แก้ไข user ใน submission
+				submissions.DELETE("/:id/users/:user_id", openFundOnly, controllers.RemoveSubmissionUser) // ลบ user จาก submission
 
 				// === NEW: Batch Operations for Frontend ===
-				submissions.POST("/:id/users/batch", controllers.AddMultipleUsers)     // เพิ่ม users หลายคนพร้อมกัน
-				submissions.POST("/:id/users/set-coauthors", controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
+				submissions.POST("/:id/users/batch", openFundOnly, controllers.AddMultipleUsers)     // เพิ่ม users หลายคนพร้อมกัน
+				submissions.POST("/:id/users/set-coauthors", openFundOnly, controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
 
 				// Enhanced submission details with co-authors
 				//submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
 
 				// เพิ่ม route ใหม่สำหรับแนบไฟล์
-				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
-				submissions.DELETE("/:id/detach-document/:doc_id", controllers.DetachDocument)
+				submissions.POST("/:id/attach-document", openFundOnly, controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
+				submissions.DELETE("/:id/detach-document/:doc_id", openFundOnly, controllers.DetachDocument)
 			}
 
 			// Files management

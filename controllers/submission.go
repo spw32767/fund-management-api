@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
+	"fund-management-api/services"
 	"fund-management-api/utils"
 	"io"
 	"log"
@@ -121,6 +122,7 @@ func GetSubmission(c *gin.Context) {
 		Preload("User").
 		Preload("Year").
 		Preload("Status").
+		Preload("Subcategory").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("LEFT JOIN document_types dt ON dt.document_type_id = submission_documents.document_type_id").
 				Joins("LEFT JOIN publication_reward_external_funds pref ON pref.document_id = submission_documents.document_id AND (pref.deleted_at IS NULL OR pref.deleted_at = '0000-00-00 00:00:00')").
@@ -261,6 +263,13 @@ func CreateSubmission(c *gin.Context) {
 		return
 	}
 
+	if roleID != 3 && req.SubcategoryID != nil {
+		if err := services.EnsureSubcategoryOpen(config.DB, *req.SubcategoryID); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
+			return
+		}
+	}
+
 	// Validate year exists
 	var year models.Year
 	if err := config.DB.Where("year_id = ? AND delete_at IS NULL", req.YearID).First(&year).Error; err != nil {
@@ -397,6 +406,13 @@ func UpdateSubmission(c *gin.Context) {
 	if err := query.First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
+	}
+
+	if roleID.(int) != 3 && req.SubcategoryID != nil {
+		if err := services.EnsureSubcategoryOpen(config.DB, *req.SubcategoryID); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
+			return
+		}
 	}
 
 	updates := map[string]interface{}{"updated_at": time.Now()}
@@ -2897,6 +2913,15 @@ func AddFundDetails(c *gin.Context) {
 	if err := config.DB.Where("submission_id = ? AND user_id = ?", submissionID, userID).First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
+	}
+
+	roleID, _ := c.Get("roleID")
+	isAdmin, _ := roleID.(int)
+	if isAdmin != 3 {
+		if err := services.EnsureSubcategoryOpen(config.DB, req.SubcategoryID); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
+			return
+		}
 	}
 
 	contactUpdates := map[string]interface{}{}
