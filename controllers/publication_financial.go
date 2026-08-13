@@ -35,3 +35,10 @@ func calculatePublicationRequestAmounts(
 
 	return rewardAmount, totalAmount, nil
 }
+
+func formatPriorRewardStatus(hasReceivedReward bool) string {
+	if hasReceivedReward {
+		return "เคยขอเงินรางวัลแล้ว (ไม่คำนวณเงินรางวัล)"
+	}
+	return "ไม่เคยขอเงินรางวัล"
+}
