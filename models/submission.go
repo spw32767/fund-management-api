@@ -127,6 +127,7 @@ type PublicationRewardDetail struct {
 
 	// === เงินรางวัลและการคำนวณ ===
 	RewardAmount                float64 `gorm:"column:reward_amount" json:"reward_amount"`                 // เงินรางวัลฐาน (อ้างอิงจาก Author และ Quartile)
+	HasReceivedReward           bool    `gorm:"column:has_received_reward" json:"has_received_reward"`     // เคยขอเงินรางวัลแล้วและไม่ขอซ้ำในรายการนี้
 	RewardApproveAmount         float64 `gorm:"column:reward_approve_amount" json:"reward_approve_amount"` // จำนวนเงินรางวัลที่อนุมัติ
 	RevisionFee                 float64 `gorm:"column:revision_fee" json:"revision_fee"`                   // ค่าปรับปรุง
 	RevisionFeeApproveAmount    float64 `gorm:"column:revision_fee_approve_amount" json:"revision_fee_approve_amount"`

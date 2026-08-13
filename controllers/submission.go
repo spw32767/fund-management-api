@@ -2551,6 +2551,7 @@ func AddPublicationDetails(c *gin.Context) {
 
 		// === เงินรางวัลและการคำนวณ ===
 		RewardAmount                float64 `json:"publication_reward"`
+		HasReceivedReward           bool    `json:"has_received_reward"`
 		RewardApproveAmount         float64 `json:"reward_approve_amount"`
 		RevisionFee                 float64 `json:"revision_fee"`
 		RevisionFeeApproveAmount    float64 `json:"revision_fee_approve_amount"`
@@ -2646,9 +2647,63 @@ func AddPublicationDetails(c *gin.Context) {
 	var externalTotal float64
 	if len(req.ExternalFundings) > 0 {
 		for _, fund := range req.ExternalFundings {
+			if fund.Amount < 0 && !allowIncomplete {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "external funding amounts must be non-negative"})
+				return
+			}
 			externalTotal += fund.Amount
 		}
 	}
+
+	configuredReward := req.RewardAmount
+	if !req.HasReceivedReward && !allowIncomplete {
+		var year models.Year
+		if err := config.DB.Where("year_id = ? AND delete_at IS NULL", submission.YearID).First(&year).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid submission year"})
+			return
+		}
+
+		var rate models.PublicationRewardRate
+		rateQuery := config.DB.Where(
+			"year = ? AND author_status = ? AND journal_quartile = ? AND is_active = ?",
+			year.Year,
+			strings.TrimSpace(req.AuthorType),
+			strings.ToUpper(strings.TrimSpace(req.Quartile)),
+			true,
+		).First(&rate)
+		if errors.Is(rateQuery.Error, gorm.ErrRecordNotFound) {
+			rateQuery = config.DB.Where(
+				"author_status = ? AND journal_quartile = ? AND is_active = ?",
+				strings.TrimSpace(req.AuthorType),
+				strings.ToUpper(strings.TrimSpace(req.Quartile)),
+				true,
+			).Order("year DESC").First(&rate)
+		}
+		if rateQuery.Error != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "publication reward rate not found"})
+			return
+		}
+		configuredReward = rate.RewardAmount
+	}
+
+	effectiveExternalTotal := req.ExternalFundingAmount
+	if len(req.ExternalFundings) > 0 {
+		effectiveExternalTotal = externalTotal
+	}
+	resolvedReward, resolvedTotal, amountErr := calculatePublicationRequestAmounts(
+		req.HasReceivedReward,
+		configuredReward,
+		req.RevisionFee,
+		req.PublicationFee,
+		effectiveExternalTotal,
+		!allowIncomplete,
+	)
+	if amountErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": amountErr.Error()})
+		return
+	}
+	req.RewardAmount = resolvedReward
+	req.TotalAmount = resolvedTotal
 
 	authorNameList := strings.TrimSpace(req.AuthorNameList)
 	signature := strings.TrimSpace(req.Signature)
@@ -2726,6 +2781,7 @@ func AddPublicationDetails(c *gin.Context) {
 	detail.Indexing = req.Indexing
 
 	detail.RewardAmount = req.RewardAmount
+	detail.HasReceivedReward = req.HasReceivedReward
 	detail.RewardApproveAmount = req.RewardApproveAmount
 	detail.RevisionFee = req.RevisionFee
 	detail.RevisionFeeApproveAmount = req.RevisionFeeApproveAmount
