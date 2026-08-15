@@ -476,7 +476,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 	config.DB.Table("publication_reward_details prd").
 		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
 		Where("s.user_id = ? AND s.deleted_at IS NULL", userID).
-		Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN prd.reward_approve_amount ELSE 0 END),0) AS approved", approvedStatusID).
+		Select("COALESCE(SUM(COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id = ? THEN prd.reward_approve_amount ELSE 0 END),0) AS approved", approvedStatusID).
 		Scan(&rewardAmounts)
 
 	submissionStats.TotalAmount = fundAmounts.Requested + rewardAmounts.Requested
@@ -508,7 +508,7 @@ func getUserDashboard(userID int) map[string]interface{} {
 	config.DB.Table("submissions s").
 		Select(`s.submission_id, s.submission_number, s.submission_type,
                         COALESCE(fad.project_title, prd.paper_title) as title,
-                        COALESCE(fad.requested_amount, prd.reward_amount) as amount,
+                        COALESCE(fad.requested_amount, NULLIF(prd.total_amount, 0), prd.reward_amount) as amount,
                         s.status_id, s.submitted_at,
                         (SELECT status_name FROM application_status WHERE application_status_id = s.status_id) as status_name`).
 		Joins("LEFT JOIN fund_application_details fad ON s.submission_id = fad.submission_id").
@@ -744,7 +744,7 @@ func buildAdminOverview(filter dashboardFilter, statuses dashboardStatusSets) ma
 		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
 		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward")
 	rewardQuery = applyFilterToSubmissions(rewardQuery, "s", filter)
-	rewardQuery.Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved", approvedIDs).
+	rewardQuery.Select("COALESCE(SUM(COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved", approvedIDs).
 		Scan(&rewardAmounts)
 
 	totalRequested := fundAmounts.Requested + rewardAmounts.Requested
@@ -980,7 +980,7 @@ func buildAdminCategoryBudgets(filter dashboardFilter, statuses dashboardStatusS
             COUNT(*) AS total_applications,
             SUM(CASE WHEN s.status_id IN ? THEN 1 ELSE 0 END) AS approved_applications,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
-                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)
                      ELSE 0 END) AS requested_amount,
             SUM(CASE WHEN s.status_id IN ? THEN CASE
                      WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
@@ -1125,7 +1125,7 @@ func buildAdminPendingApplications(filter dashboardFilter, statuses dashboardSta
                     s.submission_number,
                     s.submission_type,
                     COALESCE(fad.project_title, prd.paper_title) AS title,
-                    CASE WHEN s.submission_type = 'fund_application' THEN fad.requested_amount ELSE prd.reward_amount END AS requested_amount,
+                    CASE WHEN s.submission_type = 'fund_application' THEN fad.requested_amount ELSE COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0) END AS requested_amount,
                     s.submitted_at,
                     s.status_id,
                     ast.status_name,
@@ -1856,7 +1856,7 @@ func buildAdminFinancialOverview(filter dashboardFilter, statuses dashboardStatu
 		Joins("JOIN submissions s ON prd.submission_id = s.submission_id").
 		Where("s.submission_type = ? AND s.deleted_at IS NULL", "publication_reward")
 	rewardQuery = applyFilterToSubmissions(rewardQuery, "s", filter)
-	rewardQuery.Select("COALESCE(SUM(prd.reward_amount),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN prd.reward_amount ELSE 0 END),0) AS rejected", approvedIDs, pendingIDs, rejectedIDs).
+	rewardQuery.Select("COALESCE(SUM(COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)),0) AS requested, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(prd.total_approve_amount, prd.reward_approve_amount, prd.reward_amount) ELSE 0 END),0) AS approved, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0) ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN s.status_id IN ? THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0) ELSE 0 END),0) AS rejected", approvedIDs, pendingIDs, rejectedIDs).
 		Scan(&rewardAmounts)
 
 	var fundCount, fundApprovedCount, fundPendingCount, fundRejectedCount int64
@@ -2263,7 +2263,7 @@ func buildMonthlyTrend(filter dashboardFilter, statuses dashboardStatusSets) []m
             SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id IN ? THEN 1 ELSE 0 END) AS fund_approved,
             SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id IN ? THEN 1 ELSE 0 END) AS reward_approved,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
-                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)
                      ELSE 0 END) AS total_requested,
             SUM(CASE WHEN s.status_id IN ? THEN
                         CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
@@ -2375,7 +2375,7 @@ func buildYearlyTrend(filter dashboardFilter, statuses dashboardStatusSets) []ma
             SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id IN ? THEN 1 ELSE 0 END) AS fund_approved,
             SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id IN ? THEN 1 ELSE 0 END) AS reward_approved,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
-                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)
                      ELSE 0 END) AS total_requested,
             SUM(CASE WHEN s.status_id IN ? THEN
                         CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
@@ -2437,7 +2437,7 @@ func buildQuarterlyTrend(filter dashboardFilter, statuses dashboardStatusSets) [
             SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id IN ? THEN 1 ELSE 0 END) AS fund_approved,
             SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id IN ? THEN 1 ELSE 0 END) AS reward_approved,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
-                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)
                      ELSE 0 END) AS total_requested,
             SUM(CASE WHEN s.status_id IN ? THEN
                         CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)
@@ -2501,7 +2501,7 @@ func buildInstallmentTrend(filter dashboardFilter, statuses dashboardStatusSets)
             SUM(CASE WHEN s.submission_type = 'fund_application' AND s.status_id IN ? THEN 1 ELSE 0 END) AS fund_approved,
             SUM(CASE WHEN s.submission_type = 'publication_reward' AND s.status_id IN ? THEN 1 ELSE 0 END) AS reward_approved,
             SUM(CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.requested_amount,0)
-                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(prd.reward_amount,0)
+                     WHEN s.submission_type = 'publication_reward' THEN COALESCE(NULLIF(prd.total_amount, 0), prd.reward_amount, 0)
                      ELSE 0 END) AS total_requested,
             SUM(CASE WHEN s.status_id IN ? THEN
                         CASE WHEN s.submission_type = 'fund_application' THEN COALESCE(fad.approved_amount,0)

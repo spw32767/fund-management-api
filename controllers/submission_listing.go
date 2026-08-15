@@ -370,7 +370,7 @@ func enrichAdminSubmissionListDetails(submissions []models.Submission) error {
 	var publicationDetails []models.PublicationRewardDetail
 	if err := config.DB.Select(
 		"submission_id, paper_title, journal_name, publication_date, volume_issue, page_numbers, indexing, quartile, "+
-			"reward_amount, reward_approve_amount, revision_fee, revision_fee_approve_amount, "+
+			"reward_amount, has_received_reward, reward_approve_amount, revision_fee, revision_fee_approve_amount, "+
 			"publication_fee, publication_fee_approve_amount, external_funding_amount, total_amount, total_approve_amount",
 	).Where("submission_id IN ?", ids).Find(&publicationDetails).Error; err != nil {
 		return err
@@ -433,6 +433,7 @@ type adminSubmissionListPublicationDetail struct {
 	Indexing                    string    `json:"indexing,omitempty"`
 	Quartile                    string    `json:"quartile,omitempty"`
 	RewardAmount                float64   `json:"reward_amount"`
+	HasReceivedReward           bool      `json:"has_received_reward"`
 	RewardApproveAmount         float64   `json:"reward_approve_amount"`
 	RevisionFee                 float64   `json:"revision_fee"`
 	RevisionFeeApproveAmount    float64   `json:"revision_fee_approve_amount"`
@@ -547,6 +548,7 @@ func toAdminSubmissionListItems(submissions []models.Submission) []adminSubmissi
 				Indexing:                    detail.Indexing,
 				Quartile:                    detail.Quartile,
 				RewardAmount:                detail.RewardAmount,
+				HasReceivedReward:           detail.HasReceivedReward,
 				RewardApproveAmount:         detail.RewardApproveAmount,
 				RevisionFee:                 detail.RevisionFee,
 				RevisionFeeApproveAmount:    detail.RevisionFeeApproveAmount,

@@ -57,6 +57,7 @@ type PublicationRewardPreviewFormData struct {
 	JournalYear           string `json:"journal_year"`
 	JournalQuartile       string `json:"journal_quartile"`
 	PublicationReward     string `json:"publication_reward"`
+	HasReceivedReward     bool   `json:"has_received_reward"`
 	RevisionFee           string `json:"revision_fee"`
 	PublicationFee        string `json:"publication_fee"`
 	ExternalFundingAmount string `json:"external_funding_amount"`
@@ -174,24 +175,25 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	}
 
 	replacements := map[string]string{
-		"{{date_th}}":            utils.FormatThaiDate(submission.CreatedAt),
-		"{{applicant_name}}":     buildApplicantName(submission.User),
-		"{{date_of_employment}}": resolveApplicantEmploymentDate(submission.User),
-		"{{position}}":           resolveApplicantPosition(submission.User),
-		"{{installment}}":        installmentText,
-		"{{total_amount}}":       formatAmount(detail.TotalAmount),
-		"{{total_amount_text}}":  utils.BahtText(detail.TotalAmount),
-		"{{author_name_list}}":   sanitizeInlineText(detail.AuthorNameList),
-		"{{paper_title}}":        strings.TrimSpace(detail.PaperTitle),
-		"{{journal_name}}":       strings.TrimSpace(detail.JournalName),
-		"{{publication_year}}":   formatThaiYear(detail.PublicationDate),
-		"{{volume_issue}}":       strings.TrimSpace(detail.VolumeIssue),
-		"{{page_number}}":        strings.TrimSpace(detail.PageNumbers),
-		"{{author_role}}":        buildAuthorRole(detail.AuthorType),
-		"{{quartile_line}}":      buildQuartileLine(detail.Quartile),
-		"{{document_line}}":      buildDocumentLine(documents),
-		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
-		"{{signature}}":          strings.TrimSpace(detail.Signature),
+		"{{date_th}}":             utils.FormatThaiDate(submission.CreatedAt),
+		"{{applicant_name}}":      buildApplicantName(submission.User),
+		"{{date_of_employment}}":  resolveApplicantEmploymentDate(submission.User),
+		"{{position}}":            resolveApplicantPosition(submission.User),
+		"{{installment}}":         installmentText,
+		"{{total_amount}}":        formatAmount(detail.TotalAmount),
+		"{{total_amount_text}}":   utils.BahtText(detail.TotalAmount),
+		"{{has_received_reward}}": formatPriorRewardStatus(detail.HasReceivedReward),
+		"{{author_name_list}}":    sanitizeInlineText(detail.AuthorNameList),
+		"{{paper_title}}":         strings.TrimSpace(detail.PaperTitle),
+		"{{journal_name}}":        strings.TrimSpace(detail.JournalName),
+		"{{publication_year}}":    formatThaiYear(detail.PublicationDate),
+		"{{volume_issue}}":        strings.TrimSpace(detail.VolumeIssue),
+		"{{page_number}}":         strings.TrimSpace(detail.PageNumbers),
+		"{{author_role}}":         buildAuthorRole(detail.AuthorType),
+		"{{quartile_line}}":       buildQuartileLine(detail.Quartile),
+		"{{document_line}}":       buildDocumentLine(documents),
+		"{{kku_report_year}}":     formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":           strings.TrimSpace(detail.Signature),
 	}
 
 	replacements["{{page_charge_amount}}"] = formatAmount(detail.PublicationFee)
@@ -310,24 +312,25 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	}
 
 	replacements := map[string]string{
-		"{{date_th}}":            utils.FormatThaiDate(time.Now()),
-		"{{applicant_name}}":     buildPreviewApplicantName(payload.Applicant),
-		"{{date_of_employment}}": employmentDate,
-		"{{position}}":           positionText,
-		"{{installment}}":        installmentText,
-		"{{total_amount}}":       formatAmount(totalAmount),
-		"{{total_amount_text}}":  utils.BahtText(totalAmount),
-		"{{author_name_list}}":   sanitizeInlineText(payload.FormData.AuthorNameList),
-		"{{paper_title}}":        strings.TrimSpace(payload.FormData.ArticleTitle),
-		"{{journal_name}}":       strings.TrimSpace(payload.FormData.JournalName),
-		"{{publication_year}}":   publicationYearText,
-		"{{volume_issue}}":       strings.TrimSpace(payload.FormData.JournalIssue),
-		"{{page_number}}":        strings.TrimSpace(payload.FormData.JournalPages),
-		"{{author_role}}":        buildAuthorRole(payload.FormData.AuthorStatus),
-		"{{quartile_line}}":      buildQuartileLine(payload.FormData.JournalQuartile),
-		"{{document_line}}":      buildPreviewDocumentLine(payload.Attachments, attachments),
-		"{{kku_report_year}}":    formatNullableString(sysConfig.KkuReportYear),
-		"{{signature}}":          strings.TrimSpace(payload.FormData.Signature),
+		"{{date_th}}":             utils.FormatThaiDate(time.Now()),
+		"{{applicant_name}}":      buildPreviewApplicantName(payload.Applicant),
+		"{{date_of_employment}}":  employmentDate,
+		"{{position}}":            positionText,
+		"{{installment}}":         installmentText,
+		"{{total_amount}}":        formatAmount(totalAmount),
+		"{{total_amount_text}}":   utils.BahtText(totalAmount),
+		"{{has_received_reward}}": formatPriorRewardStatus(payload.FormData.HasReceivedReward),
+		"{{author_name_list}}":    sanitizeInlineText(payload.FormData.AuthorNameList),
+		"{{paper_title}}":         strings.TrimSpace(payload.FormData.ArticleTitle),
+		"{{journal_name}}":        strings.TrimSpace(payload.FormData.JournalName),
+		"{{publication_year}}":    publicationYearText,
+		"{{volume_issue}}":        strings.TrimSpace(payload.FormData.JournalIssue),
+		"{{page_number}}":         strings.TrimSpace(payload.FormData.JournalPages),
+		"{{author_role}}":         buildAuthorRole(payload.FormData.AuthorStatus),
+		"{{quartile_line}}":       buildQuartileLine(payload.FormData.JournalQuartile),
+		"{{document_line}}":       buildPreviewDocumentLine(payload.Attachments, attachments),
+		"{{kku_report_year}}":     formatNullableString(sysConfig.KkuReportYear),
+		"{{signature}}":           strings.TrimSpace(payload.FormData.Signature),
 	}
 
 	pageChargeAmount := parseFormFloat(payload.FormData.PublicationFee)
