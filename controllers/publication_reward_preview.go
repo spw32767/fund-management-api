@@ -208,6 +208,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	// raw difference and can be negative when external funding exceeds the fees.
 	replacements["{{reward_amount}}"] = formatAmount(detail.RewardAmount)
 	replacements["{{net_topup_amount}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee - externalTotal)
+	replacements["{{quartile}}"] = buildQuartileLabel(detail.Quartile)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -353,6 +354,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	// which shows the raw difference and can be negative when external funding exceeds the fees.
 	replacements["{{reward_amount}}"] = formatAmount(parseFormFloat(payload.FormData.PublicationReward))
 	replacements["{{net_topup_amount}}"] = formatAmount(pageChargeAmount + manuscriptAmount - externalTotal)
+	replacements["{{quartile}}"] = buildQuartileLabel(payload.FormData.JournalQuartile)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -1370,6 +1372,12 @@ func buildAuthorRole(authorType string) string {
 	default:
 		return ""
 	}
+}
+
+// buildQuartileLabel returns the short quartile code (e.g. "Q1", "T5", "TCI") for
+// use inline in labels such as "เงินรางวัล Q1". Empty input yields an empty string.
+func buildQuartileLabel(quartile string) string {
+	return strings.ToUpper(strings.TrimSpace(quartile))
 }
 
 func buildQuartileLine(quartile string) string {
