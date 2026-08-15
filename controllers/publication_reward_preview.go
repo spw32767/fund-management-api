@@ -201,6 +201,13 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	externalList, externalTotal := buildExternalFundLinesFromModels(detail.ExternalFunds)
 	replacements["{{external_fund_list}}"] = externalList
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
+
+	// Reward amount and net top-up (A + B - C), mirroring the web summary formula.
+	// Top-up is intentionally NOT clamped: the web "เงินสมทบ (A + B - C)" row shows the
+	// raw difference and can be negative when external funding exceeds the fees.
+	replacements["{{reward_amount}}"] = formatAmount(detail.RewardAmount)
+	replacements["{{net_topup_amount}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee - externalTotal)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -339,6 +346,13 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	externalList, externalTotal := buildExternalFundLinesFromPreview(payload.External)
 	replacements["{{external_fund_list}}"] = externalList
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
+
+	// Reward amount and net top-up (A + B - C), mirroring the web summary formula.
+	// Top-up is intentionally NOT clamped so it matches the web "เงินสมทบ (A + B - C)" row,
+	// which shows the raw difference and can be negative when external funding exceeds the fees.
+	replacements["{{reward_amount}}"] = formatAmount(parseFormFloat(payload.FormData.PublicationReward))
+	replacements["{{net_topup_amount}}"] = formatAmount(pageChargeAmount + manuscriptAmount - externalTotal)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -1335,6 +1349,16 @@ func formatAmount(amount float64) string {
 		result += "." + decimalPart
 	}
 	return result
+}
+
+// formatAmountParen renders an amount in accounting parentheses using its absolute
+// value, e.g. 50000 -> "(50,000.00)". Mirrors the web's formatCurrencyParen helper
+// used for the external funding (C) row.
+func formatAmountParen(amount float64) string {
+	if amount < 0 {
+		amount = -amount
+	}
+	return "(" + formatAmount(amount) + ")"
 }
 
 func buildAuthorRole(authorType string) string {
