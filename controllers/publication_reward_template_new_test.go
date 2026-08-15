@@ -49,6 +49,7 @@ func publicationRewardSampleReplacements(reward, manuscript, pageCharge float64,
 		"{{manuscript_amount}}":            formatAmount(manuscript),
 		"{{page_charge_amount}}":           formatAmount(pageCharge),
 		"{{external_fund_list}}":           externalList,
+		"{{external_fund_block}}":          buildExternalFundBlock(externalList),
 		"{{external_fund_total_negative}}": formatAmountParen(externalTotal),
 		"{{net_topup_amount}}":             formatAmount(pageCharge + manuscript - externalTotal),
 	}

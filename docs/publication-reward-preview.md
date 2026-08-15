@@ -122,6 +122,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 | `{{manuscript_amount}}` | (A) ค่าปรับปรุงบทความ | RevisionFee |
 | `{{page_charge_amount}}` | (B) ค่าธรรมเนียมตีพิมพ์ | PublicationFee |
 | `{{external_fund_list}}` | รายการทุนภายนอก (หลายบรรทัด, join ด้วย `\n` → `<w:br/>`) | external funds |
+| `{{external_fund_block}}` | **เหมือน list แต่มี `\n` นำหน้าเมื่อมีทุน / เป็น "" เมื่อไม่มี** → ใช้ในเซลล์ (C) ให้ทุนขึ้นบรรทัดใหม่ตอนมี และไม่มีบรรทัดลอยตอนไม่มี | `buildExternalFundBlock()` |
 | `{{external_fund_total}}` | รวมทุนภายนอก (บวก) | sum |
 | `{{external_fund_total_negative}}` | **(C) รวมทุนภายนอกแบบวงเล็บ** เช่น `(50,000.00)` | `formatAmountParen()` |
 | `{{net_topup_amount}}` | **เงินสมทบ (A+B−C) ดิบ ไม่ clamp** ติดลบได้ | `formatAmount(B + A − external)` |
@@ -144,7 +145,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 | เงินรางวัล + ควอไทล์ | `{{reward_amount}}` (+ `{{quartile}}` ใน label) | มีเส้นหนาคั่นด้านล่าง |
 | (A) ค่าปรับปรุงบทความ | `{{manuscript_amount}}` | |
 | (B) ค่าธรรมเนียมการตีพิมพ์ | `{{page_charge_amount}}` | |
-| หัก (C) เงินสนับสนุนภายนอก | `{{external_fund_total_negative}}` (แดง) + `{{external_fund_list}}` inline | ย่อหน้าเยื้อง |
+| หัก (C) เงินสนับสนุนภายนอก | `{{external_fund_total_negative}}` (แดง) + `{{external_fund_block}}` | ย่อหน้าเยื้อง; ทุนขึ้นบรรทัดใหม่ใต้ label |
 | เงินสมทบที่ขอเบิก (A + B − C) | `{{net_topup_amount}}` | แถวพื้นเทา |
 | รวมจำนวนเงิน (Total Amount) | `{{total_amount}}` (น้ำเงิน) | เส้นหนาคั่นบน+ล่าง |
 
@@ -153,7 +154,9 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
   ([PublicationSubmissionDetails.js](../../frontend_project_fund/app/(portal)/research-fund-system/admin/components/submissions/PublicationSubmissionDetails.js)) ซึ่งแสดงผลต่างดิบ **ติดลบได้**
   (ต่างจากแถว Total ของเว็บที่ใช้ `Math.max(0, …)`) — ตั้งใจให้เป็นแบบนี้
 - **ไม่มีคอลัมน์ +/-**: การ "หัก" สื่อผ่าน (1) ตัวเลขแดง (2) วงเล็บบัญชี (3) คำว่า "หัก" (4) สูตร "(A+B−C)"
-- **external list inline ในย่อหน้า (C)**: กันบรรทัดว่างลอยเมื่อไม่มีทุนภายนอก
+- **`{{external_fund_block}}` ในเซลล์ (C)**: backend ใส่ `\n` นำหน้าเฉพาะตอนมีทุน →
+  ทุนขึ้นบรรทัดใหม่ใต้ label เมื่อมี และไม่เหลือบรรทัดว่างลอยเมื่อไม่มี (แก้ทั้งสองเคสพร้อมกัน
+  ซึ่ง template ล้วนทำไม่ได้ ต้องพึ่ง logic ฝั่ง backend)
 
 ---
 

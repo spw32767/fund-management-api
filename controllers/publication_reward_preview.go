@@ -200,6 +200,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 
 	externalList, externalTotal := buildExternalFundLinesFromModels(detail.ExternalFunds)
 	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_block}}"] = buildExternalFundBlock(externalList)
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
 	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
 
@@ -346,6 +347,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 
 	externalList, externalTotal := buildExternalFundLinesFromPreview(payload.External)
 	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_block}}"] = buildExternalFundBlock(externalList)
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
 	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
 
@@ -386,6 +388,17 @@ func buildExternalFundLinesFromModels(funds []models.PublicationRewardExternalFu
 	}
 
 	return strings.Join(lines, "\n"), total
+}
+
+// buildExternalFundBlock returns the external fund list prefixed with a line break
+// when non-empty, so the (C) cell renders the label on its own line and each fund on
+// the lines below. When there is no external funding it returns "" so the (C) label
+// stays on a single line with no dangling blank line.
+func buildExternalFundBlock(list string) string {
+	if strings.TrimSpace(list) == "" {
+		return ""
+	}
+	return "\n" + list
 }
 
 func buildExternalFundLinesFromPreview(funds []PublicationRewardPreviewExternal) (string, float64) {
