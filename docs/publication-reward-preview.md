@@ -128,7 +128,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 | `{{net_topup_amount}}` | **เงินสมทบ (A+B−C) ดิบ ไม่ clamp** ติดลบได้ | `formatAmount(B + A − external)` |
 | `{{total_amount}}` | รวมจำนวนเงิน | TotalAmount |
 | `{{total_amount_text}}` | จำนวนเงินเป็นตัวอักษร (บาทถ้วน) | `utils.BahtText()` |
-| `{{document_line}}` | รายการเอกสารแนบ (นับจำนวน) | `buildDocumentLine()` |
+| `{{document_line}}` | รายการเอกสารแนบ (นับจำนวน) — **กรองไฟล์ auto-generated ออก** (ดูข้อ 11) | `buildDocumentLine()` |
 | `{{end_of_contract}}`, `{{signature}}` | ท้ายสัญญา / ลายเซ็น | DB / payload |
 
 > **หมายเหตุ placeholder เก่าที่เลิกใช้ในตารางใหม่:** `{{page_charge_manuscript_total}}` (รวม A+B)
@@ -210,3 +210,22 @@ OUT_DIR=/path/out LIBREOFFICE_PATH="C:/Program Files/LibreOffice/program/soffice
 - **fill = string-replace บน raw XML** — เปราะกับ placeholder ที่ Word ตัดข้าม run (มี normalize ช่วย)
 - **ไม่มี cache** — กด preview ซ้ำ = แปลง docx→pdf ใหม่ทุกครั้ง
 - ไฟล์ฟอร์ม frontend ใหญ่มาก (`PublicationRewardForm.js` ~8,700 บรรทัด)
+
+---
+
+## 11. `{{document_line}}` — กรองไฟล์ auto-generated ออก
+
+**บั๊กที่เคยเจอ:** รายการ "ทั้งนี้ได้แนบ หลักฐาน..." มีไฟล์ที่ระบบสร้างเองหลัง submit หลุดเข้ามา
+เฉพาะ**คนที่ส่งซ้ำ (ใบที่ถูกตีกลับ)** ได้แก่:
+- `แบบฟอร์มคำขอรับเงินรางวัล (DOCX) (Auto Generated)` — code `publication_reward_form_docx`
+- `แบบฟอร์มคำขอรับเงินรางวัล (PDF) (Auto Generated)` — code `publication_reward_form_pdf`
+- `แบบฟอร์มคำร้องรวม (merged pdf)` — code = ชื่อไทยนั้นเอง
+
+**สาเหตุ:** ตอน re-submit, `fetchSubmissionDocuments()` ดึงเอกสารทั้งหมด **ก่อน**
+`deletePreviousGeneratedFormDocuments()` จะลบตัวเก่า ทำให้ generated docs รอบก่อนยังอยู่ตอนสร้าง
+`{{document_line}}` (ครั้งแรกที่ส่งไม่มีของเก่าเลยไม่หลุด)
+
+**การแก้:** `buildDocumentLine()` เรียก `isGeneratedFormDocument()` ข้ามเอกสารที่ `DocumentType.Code`
+ตรงกับ `generatedFormDocumentCodes` (3 code ข้างบน) — แก้จุดเดียวครอบคลุมทั้ง submit-time และ preview
+เพราะทั้งคู่ใช้ `buildDocumentLine()` ร่วมกัน
+เทสต์: `TestBuildDocumentLine_ExcludesGeneratedForms`

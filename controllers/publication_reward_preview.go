@@ -1414,6 +1414,27 @@ func buildQuartileLine(quartile string) string {
 	}
 }
 
+// generatedFormDocumentCodes are the document-type codes of the files the system
+// auto-creates AFTER submit — the request-form DOCX/PDF and the merged PDF. They must
+// never appear in the "ทั้งนี้ได้แนบ..." evidence list ({{document_line}}). On
+// re-submit of a returned application the previous generated files still exist when the
+// list is built (fetchSubmissionDocuments runs before deletePreviousGeneratedFormDocuments),
+// which is how they leaked into the list for re-submitters.
+var generatedFormDocumentCodes = map[string]struct{}{
+	publicationRewardFormDocumentCode:    {},
+	publicationRewardFormPdfDocumentCode: {},
+	mergedSubmissionDocumentTypeCode:     {},
+}
+
+func isGeneratedFormDocument(doc models.SubmissionDocument) bool {
+	code := strings.TrimSpace(doc.DocumentType.Code)
+	if code == "" {
+		return false
+	}
+	_, ok := generatedFormDocumentCodes[code]
+	return ok
+}
+
 func buildDocumentLine(documents []models.SubmissionDocument) string {
 	if len(documents) == 0 {
 		return ""
@@ -1421,6 +1442,10 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 
 	entries := make([]documentAggregationEntry, 0, len(documents))
 	for _, doc := range documents {
+		if isGeneratedFormDocument(doc) {
+			continue
+		}
+
 		name := strings.TrimSpace(doc.DocumentTypeName)
 		if name == "" {
 			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
