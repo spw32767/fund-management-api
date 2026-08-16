@@ -26,11 +26,12 @@ type AuthorHIndexGraph struct {
 	HIndex          int                 `json:"h_index"`
 	DocumentCount   int                 `json:"document_count"`
 	CitationTotal   int                 `json:"citation_total"`
-	YearFrom        *int                `json:"year_from,omitempty"`
-	YearTo          *int                `json:"year_to,omitempty"`
-	AvailableYearMin *int               `json:"available_year_min,omitempty"`
-	AvailableYearMax *int               `json:"available_year_max,omitempty"`
-	Points          []AuthorHIndexPoint `json:"points"`
+	YearFrom         *int                `json:"year_from,omitempty"`
+	YearTo           *int                `json:"year_to,omitempty"`
+	AvailableYearMin *int                `json:"available_year_min,omitempty"`
+	AvailableYearMax *int                `json:"available_year_max,omitempty"`
+	AvailableYears   []int               `json:"available_years"`
+	Points           []AuthorHIndexPoint `json:"points"`
 }
 
 // AuthorHGraphService computes the classic Hirsch h-graph from already-ingested Scopus documents.
@@ -81,23 +82,32 @@ func (s *AuthorHGraphService) GetGraph(ctx context.Context, scopusAuthorID strin
 		ScopusAuthorID: scopusAuthorID,
 		YearFrom:       yearFrom,
 		YearTo:         yearTo,
+		AvailableYears: []int{},
 		Points:         []AuthorHIndexPoint{},
 	}
 
-	// Available year range across all docs (ignores the filter so the UI can populate dropdowns).
+	// Distinct publication years that actually have documents, plus the min/max range.
+	// Ignores the filter so the UI can populate its year selectors from real data.
+	yearSeen := make(map[int]struct{})
 	for _, d := range allDocs {
 		if d.Year == nil || *d.Year == 0 {
 			continue
 		}
-		if graph.AvailableYearMin == nil || *d.Year < *graph.AvailableYearMin {
-			y := *d.Year
-			graph.AvailableYearMin = &y
+		y := *d.Year
+		if _, ok := yearSeen[y]; !ok {
+			yearSeen[y] = struct{}{}
+			graph.AvailableYears = append(graph.AvailableYears, y)
 		}
-		if graph.AvailableYearMax == nil || *d.Year > *graph.AvailableYearMax {
-			y := *d.Year
-			graph.AvailableYearMax = &y
+		if graph.AvailableYearMin == nil || y < *graph.AvailableYearMin {
+			yv := y
+			graph.AvailableYearMin = &yv
+		}
+		if graph.AvailableYearMax == nil || y > *graph.AvailableYearMax {
+			yv := y
+			graph.AvailableYearMax = &yv
 		}
 	}
+	sort.Sort(sort.Reverse(sort.IntSlice(graph.AvailableYears)))
 
 	// Apply the publication-year filter.
 	filtered := make([]docRow, 0, len(allDocs))
