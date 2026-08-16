@@ -153,3 +153,15 @@ func AdminGetScopusAuthorHIndexGraph(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": graph})
 }
+
+// GET /api/v1/admin/scopus/author-metrics/summary
+// สรุป h-index ของอาจารย์ทุกคน (คำนวณจากเอกสาร + ค่าทางการจาก Author API) สำหรับ export CSV
+func AdminGetAuthorHIndexSummary(c *gin.Context) {
+	svc := services.NewAuthorHGraphService(nil)
+	rows, err := svc.GetAllSummary(c.Request.Context())
+	if err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
+}

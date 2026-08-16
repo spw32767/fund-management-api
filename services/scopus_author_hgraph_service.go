@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"fund-management-api/config"
 
@@ -159,4 +160,153 @@ func (s *AuthorHGraphService) GetGraph(ctx context.Context, scopusAuthorID strin
 	graph.HIndex = hIndex
 	graph.DocumentCount = len(filtered)
 	return graph, nil
+}
+
+// AuthorSummaryRow is one row of the "all teachers h-index" export.
+type AuthorSummaryRow struct {
+	Rank                int     `json:"rank"`
+	UserID              int     `json:"user_id"`
+	Name                string  `json:"name"`
+	ScopusAuthorID      string  `json:"scopus_author_id"`
+	HIndex              int     `json:"h_index"`          // computed from ingested documents (matches the graph)
+	DocumentCount       int     `json:"document_count"`   // documents in our system
+	CitationTotal       int     `json:"citation_total"`   // sum of citedby_count
+	YearMin             *int    `json:"year_min,omitempty"`
+	YearMax             *int    `json:"year_max,omitempty"`
+	ScopusHIndex        *int    `json:"scopus_h_index,omitempty"`         // official value from the Author API snapshot
+	ScopusCitedByCount  *int    `json:"scopus_cited_by_count,omitempty"`
+	ScopusCoauthorCount *int    `json:"scopus_coauthor_count,omitempty"`
+	ScopusSnapshotDate  *string `json:"scopus_snapshot_date,omitempty"`
+}
+
+// GetAllSummary computes an h-index summary for every teacher that has a Scopus ID, joining the
+// official Author API snapshot (scopus_author_metrics) when present. Rows are ranked by the
+// computed h-index (the same number shown on the graph) descending.
+func (s *AuthorHGraphService) GetAllSummary(ctx context.Context) ([]AuthorSummaryRow, error) {
+	type teacher struct {
+		UserID   int
+		Name     string
+		ScopusID string
+	}
+	var teachers []teacher
+	if err := s.db.WithContext(ctx).Table("users").
+		Select("user_id, TRIM(CONCAT(COALESCE(user_fname,''),' ',COALESCE(user_lname,''))) AS name, scopus_id AS scopus_id").
+		Where("scopus_id IS NOT NULL AND scopus_id <> '' AND delete_at IS NULL").
+		Order("user_id ASC").Find(&teachers).Error; err != nil {
+		return nil, err
+	}
+	if len(teachers) == 0 {
+		return []AuthorSummaryRow{}, nil
+	}
+
+	ids := make([]string, 0, len(teachers))
+	for _, t := range teachers {
+		ids = append(ids, t.ScopusID)
+	}
+
+	// All documents (citations + year) for those authors in one query.
+	type docRow struct {
+		ScopusAuthorID string
+		Citations      int
+		Year           *int
+	}
+	var docs []docRow
+	if err := s.db.WithContext(ctx).
+		Table("scopus_documents AS d").
+		Select("a.scopus_author_id AS scopus_author_id, COALESCE(d.citedby_count, 0) AS citations, YEAR(d.cover_date) AS year").
+		Joins("JOIN scopus_document_authors da ON da.document_id = d.id").
+		Joins("JOIN scopus_authors a ON a.id = da.author_id").
+		Where("a.scopus_author_id IN ?", ids).
+		Find(&docs).Error; err != nil {
+		return nil, err
+	}
+	byAuthor := make(map[string][]docRow)
+	for _, d := range docs {
+		byAuthor[d.ScopusAuthorID] = append(byAuthor[d.ScopusAuthorID], d)
+	}
+
+	// Latest Author API snapshot per author (best-effort; absence is fine).
+	type metricRow struct {
+		ScopusAuthorID string
+		HIndex         *int
+		CitedByCount   *int
+		CoauthorCount  *int
+		SnapshotDate   *time.Time
+	}
+	var metrics []metricRow
+	_ = s.db.WithContext(ctx).Raw(`
+		SELECT m.scopus_author_id, m.h_index, m.cited_by_count, m.coauthor_count, m.snapshot_date
+		FROM scopus_author_metrics m
+		JOIN (
+			SELECT scopus_author_id, MAX(snapshot_date) AS md
+			FROM scopus_author_metrics GROUP BY scopus_author_id
+		) x ON x.scopus_author_id = m.scopus_author_id AND x.md = m.snapshot_date
+	`).Scan(&metrics).Error
+	metricByAuthor := make(map[string]metricRow)
+	for _, m := range metrics {
+		metricByAuthor[m.ScopusAuthorID] = m
+	}
+
+	rows := make([]AuthorSummaryRow, 0, len(teachers))
+	for _, t := range teachers {
+		ds := byAuthor[t.ScopusID]
+		cites := make([]int, 0, len(ds))
+		citationTotal := 0
+		var ymin, ymax *int
+		for _, d := range ds {
+			cites = append(cites, d.Citations)
+			citationTotal += d.Citations
+			if d.Year != nil && *d.Year > 0 {
+				if ymin == nil || *d.Year < *ymin {
+					y := *d.Year
+					ymin = &y
+				}
+				if ymax == nil || *d.Year > *ymax {
+					y := *d.Year
+					ymax = &y
+				}
+			}
+		}
+		sort.Sort(sort.Reverse(sort.IntSlice(cites)))
+		h := 0
+		for i, c := range cites {
+			if c >= i+1 {
+				h = i + 1
+			} else {
+				break
+			}
+		}
+
+		row := AuthorSummaryRow{
+			UserID:         t.UserID,
+			Name:           t.Name,
+			ScopusAuthorID: t.ScopusID,
+			HIndex:         h,
+			DocumentCount:  len(ds),
+			CitationTotal:  citationTotal,
+			YearMin:        ymin,
+			YearMax:        ymax,
+		}
+		if m, ok := metricByAuthor[t.ScopusID]; ok {
+			row.ScopusHIndex = m.HIndex
+			row.ScopusCitedByCount = m.CitedByCount
+			row.ScopusCoauthorCount = m.CoauthorCount
+			if m.SnapshotDate != nil {
+				d := m.SnapshotDate.Format("2006-01-02")
+				row.ScopusSnapshotDate = &d
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].HIndex != rows[j].HIndex {
+			return rows[i].HIndex > rows[j].HIndex
+		}
+		return rows[i].CitationTotal > rows[j].CitationTotal
+	})
+	for i := range rows {
+		rows[i].Rank = i + 1
+	}
+	return rows, nil
 }

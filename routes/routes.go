@@ -623,6 +623,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/scopus/author-metrics/refresh", controllers.AdminRefreshAuthorMetrics)
 				admin.GET("/scopus/author-metrics/runs", controllers.AdminListAuthorMetricsRuns)
 				admin.GET("/scopus/author-metrics/hgraph", controllers.AdminGetScopusAuthorHIndexGraph)
+				admin.GET("/scopus/author-metrics/summary", controllers.AdminGetAuthorHIndexSummary)
 				admin.POST("/scopus/conference/backfill", controllers.AdminBackfillConferenceInfo)
 				admin.POST("/scopus/conference/refresh", controllers.AdminRefreshConferenceInfo)
 				admin.GET("/scopus/conference/runs", controllers.AdminListScopusConferenceFetchRuns)
