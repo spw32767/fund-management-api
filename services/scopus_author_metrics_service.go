@@ -333,14 +333,7 @@ func (s *AuthorMetricsService) acquireRunLock(ctx context.Context) (func() error
 	}
 
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", authorMetricsRunLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return fmt.Errorf("release lock %q returned %d", authorMetricsRunLockName, released)
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, authorMetricsRunLockName)
 	}, nil
 }
 
