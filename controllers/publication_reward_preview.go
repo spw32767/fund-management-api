@@ -355,9 +355,22 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
 
 	// Reward amount and net top-up (A + B - C), mirroring the web summary formula.
+	// Reward is zeroed when the applicant has already received it, using the SAME helper
+	// the submit path uses (calculatePublicationRequestAmounts) so the preview matches the
+	// generated document exactly and the table foots (reward + net = total). Without this,
+	// the preview showed the raw rate reward while total_amount already excluded it.
+	// enforceRequired=false: preview must render partial/incomplete drafts, not validate them.
+	effectiveReward, _, _ := calculatePublicationRequestAmounts(
+		payload.FormData.HasReceivedReward,
+		parseFormFloat(payload.FormData.PublicationReward),
+		manuscriptAmount,
+		pageChargeAmount,
+		externalTotal,
+		false,
+	)
+	replacements["{{reward_amount}}"] = formatAmount(effectiveReward)
 	// Top-up is intentionally NOT clamped so it matches the web "เงินสมทบ (A + B - C)" row,
 	// which shows the raw difference and can be negative when external funding exceeds the fees.
-	replacements["{{reward_amount}}"] = formatAmount(parseFormFloat(payload.FormData.PublicationReward))
 	replacements["{{net_topup_amount}}"] = formatAmount(pageChargeAmount + manuscriptAmount - externalTotal)
 	replacements["{{quartile}}"] = buildQuartileLabel(payload.FormData.JournalQuartile)
 
