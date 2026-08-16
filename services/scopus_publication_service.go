@@ -764,14 +764,21 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 
 // kkuDocumentAffiliationFilter returns a correlated subquery, suitable for use as
 // `Where("EXISTS (?)", ...)` against the outer `scopus_documents AS sd` alias, that is true
-// when the document has at least one author affiliated with Khon Kaen University. See
-// kkuAffiliationNames for the matched values and the future AFID-based plan.
+// when the document has at least one author who is a faculty member in this system (a users
+// row linked by scopus_id) AND was affiliated with Khon Kaen University on that document.
+// This mirrors the KKU constraint used by the research dashboard, so the research-search view
+// counts only in-faculty work — not every document that merely carries a KKU affiliation
+// string. See kkuAffiliationNames for the matched values and the future AFID-based plan.
 func (s *ScopusPublicationService) kkuDocumentAffiliationFilter() *gorm.DB {
 	return s.db.Table("scopus_document_authors AS sda_kku").
 		Select("1").
+		Joins("INNER JOIN scopus_authors AS sa_kku ON sa_kku.id = sda_kku.author_id").
+		Joins("INNER JOIN users AS u_kku ON TRIM(u_kku.Scopus_id) = sa_kku.scopus_author_id").
 		Joins("INNER JOIN scopus_affiliations AS aff_kku ON aff_kku.id = sda_kku.affiliation_id").
 		Where("sda_kku.document_id = sd.id").
-		Where("LOWER(TRIM(aff_kku.name)) IN ?", kkuAffiliationNames)
+		Where("u_kku.delete_at IS NULL").
+		Where("u_kku.Scopus_id IS NOT NULL AND TRIM(u_kku.Scopus_id) <> ''").
+		Where("LOWER(TRIM(COALESCE(aff_kku.name, ''))) IN ?", kkuAffiliationNames)
 }
 
 func collectDocumentIDs(rows []scopusPublicationRow) []uint {
