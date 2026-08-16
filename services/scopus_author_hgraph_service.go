@@ -60,10 +60,10 @@ func (s *AuthorHGraphService) GetGraph(ctx context.Context, scopusAuthorID strin
 	}
 
 	type docRow struct {
-		Citations int
-		Year      *int
-		Title     *string
-		EID       string
+		Citations int     `gorm:"column:citations"`
+		Year      *int    `gorm:"column:year"`
+		Title     *string `gorm:"column:title"`
+		EID       string  `gorm:"column:eid"` // GORM แปลง EID เป็นชื่อคอลัมน์ผิด ต้องระบุเอง
 	}
 
 	// Full document set for this author (for the available-year range), unfiltered.
