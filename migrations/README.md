@@ -55,6 +55,8 @@ done
 | 032 | 20260722_create_submission_sdgs | สร้างตาราง submission_sdgs |
 | 033 | 20260712_create_scopus_benchmark_tables | สร้างตาราง scopus_benchmark_* (เทียบผลงาน CS ระดับคณะ/มหาวิทยาลัย/ประเทศ) + seed 2 scope |
 | 034 | 20260805_add_faculty_benchmark_scope | เพิ่ม scope ระดับคณะ (faculty_cs) สำหรับ author-set count |
+| 039 | 20260816_create_scopus_author_metrics | สร้างตาราง scopus_author_metrics (h-index/citation ต่ออาจารย์ จาก Scopus Author API, snapshot รายวัน) |
+| 040 | 20260816_create_scopus_author_metrics_logs | สร้าง scopus_author_metrics_runs (runs summary) + scopus_author_metric_requests (per-request log ไว้ audit โควตา Author API) |
 
 ## ✅ ครบแล้ว — schema + seed
 
