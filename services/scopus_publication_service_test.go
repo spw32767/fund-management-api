@@ -255,20 +255,23 @@ func TestListByUserBuildsCompleteSubqueries(t *testing.T) {
 }
 
 func TestListByUserOwnershipBuildsCompleteSubqueries(t *testing.T) {
-	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
-	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
+	// The pairs subquery must join scopus_affiliations and filter on KKU names so the
+	// research-search view/export only returns work produced under a KKU affiliation.
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*scopus_affiliations own_aff.*own_aff\.name.*IN.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
+	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*scopus_affiliations own_aff.*own_aff\.name.*IN.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
 
 	steps := []*queryStep{
 		{
 			kind:    kindQuery,
 			pattern: countPattern,
+			args:    []driver.Value{"khon kaen university", "faculty of science, khon kaen university"},
 			columns: []string{"count"},
 			rows:    [][]driver.Value{{int64(1)}},
 		},
 		{
 			kind:    kindQuery,
 			pattern: listPattern,
-			args:    []driver.Value{int64(1)},
+			args:    []driver.Value{"khon kaen university", "faculty of science, khon kaen university", int64(1)},
 			columns: []string{"user_id", "document_id"},
 			rows:    [][]driver.Value{},
 		},

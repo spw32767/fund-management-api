@@ -322,14 +322,7 @@ func (s *ScopusConferenceService) acquireRunLock(ctx context.Context) (func() er
 	}
 
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", scopusConferenceLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return fmt.Errorf("release lock %q returned %d", scopusConferenceLockName, released)
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, scopusConferenceLockName)
 	}, nil
 }
 

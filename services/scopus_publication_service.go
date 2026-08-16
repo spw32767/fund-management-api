@@ -263,6 +263,22 @@ type scopusAffiliationEntry struct {
 	AffiliationURL string `json:"affiliation_url"`
 }
 
+// kkuAffiliationNames holds the scopus_affiliations.name values (already lower-cased and
+// trimmed) that count as "Khon Kaen University" when the Research Search page restricts
+// documents/exports to work produced under a KKU affiliation. Kept deliberately in sync with
+// db/export_scopus_person_summary.sql, which filters on the same two names.
+//
+// FUTURE — switch to AFID: matching on the affiliation *name* is brittle. A spelling change, a
+// new faculty-level variant (e.g. "faculty of engineering, khon kaen university"), or a
+// Thai/English difference will silently drop or admit work. Once the canonical set of KKU
+// Scopus AFIDs is confirmed, replace this name match with
+// `scopus_affiliations.afid IN (<kku afids>)` in both kkuDocumentAffiliationFilter (used by
+// ListAll) and ListByUserOwnership's pairQuery. See memory note "scopus-kku-affiliation-filter".
+var kkuAffiliationNames = []string{
+	"khon kaen university",
+	"faculty of science, khon kaen university",
+}
+
 // NewScopusPublicationService instantiates the service.
 func NewScopusPublicationService(db *gorm.DB) *ScopusPublicationService {
 	if db == nil {
@@ -381,6 +397,10 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
+	// Khon Kaen University only: keep a document only when at least one of its authors is
+	// affiliated with KKU on that document. Same rule as db/export_scopus_person_summary.sql.
+	base = base.Where("EXISTS (?)", s.kkuDocumentAffiliationFilter())
+
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		base = base.Where(
@@ -436,8 +456,12 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		Select("u.user_id, sd.id AS document_id, MIN(sda.affiliation_id) AS user_affiliation_id").
 		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+		Joins("INNER JOIN scopus_affiliations own_aff ON own_aff.id = sda.affiliation_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
-		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''")
+		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''").
+		// Khon Kaen University only: keep a (user, document) pair only when the user authored
+		// the document under a KKU affiliation. Same rule as db/export_scopus_person_summary.sql.
+		Where("LOWER(TRIM(own_aff.name)) IN ?", kkuAffiliationNames)
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
@@ -736,6 +760,25 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 	}
 
 	return items
+}
+
+// kkuDocumentAffiliationFilter returns a correlated subquery, suitable for use as
+// `Where("EXISTS (?)", ...)` against the outer `scopus_documents AS sd` alias, that is true
+// when the document has at least one author who is a faculty member in this system (a users
+// row linked by scopus_id) AND was affiliated with Khon Kaen University on that document.
+// This mirrors the KKU constraint used by the research dashboard, so the research-search view
+// counts only in-faculty work — not every document that merely carries a KKU affiliation
+// string. See kkuAffiliationNames for the matched values and the future AFID-based plan.
+func (s *ScopusPublicationService) kkuDocumentAffiliationFilter() *gorm.DB {
+	return s.db.Table("scopus_document_authors AS sda_kku").
+		Select("1").
+		Joins("INNER JOIN scopus_authors AS sa_kku ON sa_kku.id = sda_kku.author_id").
+		Joins("INNER JOIN users AS u_kku ON TRIM(u_kku.Scopus_id) = sa_kku.scopus_author_id").
+		Joins("INNER JOIN scopus_affiliations AS aff_kku ON aff_kku.id = sda_kku.affiliation_id").
+		Where("sda_kku.document_id = sd.id").
+		Where("u_kku.delete_at IS NULL").
+		Where("u_kku.Scopus_id IS NOT NULL AND TRIM(u_kku.Scopus_id) <> ''").
+		Where("LOWER(TRIM(COALESCE(aff_kku.name, ''))) IN ?", kkuAffiliationNames)
 }
 
 func collectDocumentIDs(rows []scopusPublicationRow) []uint {

@@ -546,14 +546,7 @@ func (s *ThaiJOIngestService) acquireThaiJORateLimitLock(ctx context.Context) (b
 		return false, nil, nil
 	}
 	return true, func() error {
-		var released int
-		if err := s.db.WithContext(ctx).Raw("SELECT RELEASE_LOCK(?)", thaiJORateLimitLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return fmt.Errorf("release lock %q returned %d", thaiJORateLimitLockName, released)
-		}
-		return nil
+		return releaseNamedLock(ctx, s.db, thaiJORateLimitLockName)
 	}, nil
 }
 

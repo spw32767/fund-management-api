@@ -447,11 +447,7 @@ func (s *ScopusBenchmarkService) acquireRunLock(ctx context.Context) (func() err
 		return nil, ErrScopusBenchmarkHarvestRunning
 	}
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", benchmarkCountLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, benchmarkCountLockName)
 	}, nil
 }
 
