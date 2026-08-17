@@ -2,23 +2,23 @@
 
 > **Audience:** our own team / AI agents working in `fund-management-api` (the "fs" system).
 > This document describes the whole feature end-to-end so an agent reading it understands
-> **both** what our side does **and** what the sibling "academic" system (built by the intern)
+> **both** what our side does **and** what the sibling "hrd" system (built by the intern)
 > must do. The intern-facing spec is a separate file: [`SSO_HANDOFF_FOR_ACADEMIC.md`](SSO_HANDOFF_FOR_ACADEMIC.md).
 
 ---
 
 ## 1. Goal
 
-Let a **second application** ("academic", `https://academic.computing.kku.ac.th`, built by an
+Let a **second application** ("hrd", `https://hrd.computing.kku.ac.th`, built by an
 intern, running on a **different port of the same VM**) reuse **our** KKU SSO login, so:
 
-- The user logs in through **one** SSO integration (ours). The academic app does **not**
+- The user logs in through **one** SSO integration (ours). The hrd app does **not**
   register its own SSO app with the university.
-- The academic app has its own normal (username/password) login page and just adds a
+- The hrd app has its own normal (username/password) login page and just adds a
   **"Login with KKU SSO"** button. That button sends the user through **our** SSO and comes
   back authenticated — the user never sees our login UI.
-- Identity (who the user is) is passed to academic; **authorization** (what they can do,
-  roles) is decided by academic on its own.
+- Identity (who the user is) is passed to hrd; **authorization** (what they can do,
+  roles) is decided by hrd on its own.
 
 ## 2. Why a handoff is needed (the cookie boundary)
 
@@ -26,11 +26,11 @@ Our auth cookie (`auth_token`) is set **host-only** — see `controllers/sso_aut
 `c.SetCookie(name, token, maxAge, "/", "", true, true)` where the 5th arg (domain) is `""`.
 
 - Host-only ⇒ the cookie is sent **only** to `fs.computing.kku.ac.th`.
-- `academic.computing.kku.ac.th` is a **different host**, so the browser never sends our
-  cookie there. Academic cannot read our session even right after login.
+- `hrd.computing.kku.ac.th` is a **different host**, so the browser never sends our
+  cookie there. HRD cannot read our session even right after login.
 - The cookie is also `httpOnly` (JS cannot read it) + `Secure` + `SameSite=Lax`.
 
-So a plain link to academic is not enough. We cross the subdomain boundary with a **one-time
+So a plain link to hrd is not enough. We cross the subdomain boundary with a **one-time
 ticket** (like an OAuth authorization code), never by widening or sharing the cookie.
 
 We deliberately chose **not** to set the cookie on the parent domain `.computing.kku.ac.th`,
@@ -42,12 +42,12 @@ because that would expose our session cookie to every service under the faculty 
 sequenceDiagram
     autonumber
     participant U as User (browser)
-    participant A as academic (intern app)<br/>academic.computing.kku.ac.th
+    participant A as hrd (intern app)<br/>hrd.computing.kku.ac.th
     participant F as fs (our app)<br/>fs.computing.kku.ac.th
     participant S as KKU SSONext
 
     U->>A: Open protected page / click "Login with KKU SSO"
-    A-->>U: 302 → fs /api/auth/sso/login?return_to=<academic callback>
+    A-->>U: 302 → fs /api/auth/sso/login?return_to=<hrd callback>
     U->>F: GET /api/auth/sso/login?return_to=...
     Note over F: validate return_to against allowlist,<br/>store in short-lived cookie sso_return_to
     F-->>U: 302 → KKU SSO login (?app=APP_ID)
@@ -56,12 +56,12 @@ sequenceDiagram
     U->>F: GET /api/auth/sso/callback?code=...
     Note over F: exchange code → email;<br/>allowlist check (users table);<br/>set our own auth_token cookie
     Note over F: return_to cookie present →<br/>mint one-time ticket (60s, user_tokens)
-    F-->>U: 302 → academic callback?ticket=XYZ
+    F-->>U: 302 → hrd callback?ticket=XYZ
     U->>A: GET /auth/sso/callback?ticket=XYZ
     A->>F: POST /api/auth/sso/handoff/verify {ticket}<br/>X-Handoff-Client-Secret (server-to-server)
     F-->>A: 200 {ok, user_id, email, first_name, last_name}
-    Note over A: create academic's OWN session cookie;<br/>apply academic's OWN roles/permissions
-    A-->>U: 302 → into academic app (logged in)
+    Note over A: create hrd's OWN session cookie;<br/>apply hrd's OWN roles/permissions
+    A-->>U: 302 → into hrd app (logged in)
 ```
 
 ## 4. What OUR side (`fund-management-api`) provides — IMPLEMENTED
@@ -80,9 +80,9 @@ SSO behaves exactly as before.
 
 ### 4.1 Endpoints (our contract)
 
-**A) Initiate login** — browser redirect, entry point for academic:
+**A) Initiate login** — browser redirect, entry point for hrd:
 ```
-GET https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=<url-encoded academic callback>
+GET https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=<url-encoded hrd callback>
 ```
 - `return_to` must be HTTPS and its origin (`scheme://host[:port]`) must be listed in
   `SSO_HANDOFF_ALLOWED_ORIGINS`. Invalid/disallowed `return_to` is silently ignored (falls back
@@ -92,7 +92,7 @@ GET https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=<url-encoded aca
 it redirects the browser to `return_to?ticket=<ticket>` (preserving any existing query params).
 Without it, it redirects to `/` as before.
 
-**C) Verify ticket** — server-to-server, called by academic's backend:
+**C) Verify ticket** — server-to-server, called by hrd's backend:
 ```
 POST https://fs.computing.kku.ac.th/api/auth/sso/handoff/verify
 Content-Type: application/json
@@ -118,9 +118,9 @@ Responses:
   as normal SSO login (`controllers/sso_auth.go`). Only people who already exist in our DB (e.g.
   faculty) get a ticket at all.
 - We return **identity only** (`user_id`, `email`, `first_name`, `last_name`). We do **not** tell
-  academic what the user may do. Academic maps identity → its own roles/permissions.
+  hrd what the user may do. HRD maps identity → its own roles/permissions.
 
-## 5. What the ACADEMIC side (intern) must build — NOT in this repo
+## 5. What the HRD side (intern) must build — NOT in this repo
 
 See [`SSO_HANDOFF_FOR_ACADEMIC.md`](SSO_HANDOFF_FOR_ACADEMIC.md) for the full spec to hand over.
 Summary:
@@ -129,7 +129,7 @@ Summary:
    endpoint **A** with `return_to` = their own callback URL.
 2. A **callback route** (e.g. `GET /auth/sso/callback?ticket=...`) that takes the ticket and calls
    our endpoint **C** from **their backend** (with the client secret).
-3. On success: create **their own** session/cookie on `academic.*` (httpOnly) and apply their own
+3. On success: create **their own** session/cookie on `hrd.*` (httpOnly) and apply their own
    roles. On failure: show an error / send back to their login.
 4. Their own logout (optionally chained to our `/api/auth/logout`).
 
@@ -140,13 +140,13 @@ comes through the verified ticket.
 
 ### 6.1 Our `.env` (production, `fs`)
 ```
-SSO_HANDOFF_ALLOWED_ORIGINS=https://academic.computing.kku.ac.th
+SSO_HANDOFF_ALLOWED_ORIGINS=https://hrd.computing.kku.ac.th
 SSO_HANDOFF_CLIENT_SECRET=<long random shared secret, give the same value to the intern>
 ```
 (Existing `SSO_*`, `JWT_SECRET`, `AUTH_COOKIE_NAME` stay as they are.)
 
 ### 6.2 What to REQUEST from the university (we don't control these)
-- **New subdomain `academic.computing.kku.ac.th`**: DNS record pointing to the **same VM**, a
+- **New subdomain `hrd.computing.kku.ac.th`**: DNS record pointing to the **same VM**, a
   **TLS certificate** for it (or a wildcard `*.computing.kku.ac.th`), and a **reverse-proxy** rule
   routing it to the intern app's port (same treatment `fs.*` already gets).
 - **SSO: no change required.** The SSO callback stays `https://fs.computing.kku.ac.th/api/auth/sso/callback`.
@@ -156,12 +156,12 @@ SSO_HANDOFF_CLIENT_SECRET=<long random shared secret, give the same value to the
 
 - **Open-redirect guard**: tickets are only ever appended to an origin explicitly listed in
   `SSO_HANDOFF_ALLOWED_ORIGINS`, over HTTPS. Anything else is ignored.
-- **No secret sharing for identity**: the ticket is opaque and verified server-side; academic
+- **No secret sharing for identity**: the ticket is opaque and verified server-side; hrd
   never needs our `JWT_SECRET`.
 - **Client authentication**: `SSO_HANDOFF_CLIENT_SECRET` (constant-time compared) authenticates the
-  academic backend on the verify call — set it in production.
+  hrd backend on the verify call — set it in production.
 - **Cookie stays host-only** for `fs.*`; we did not weaken it.
-- **Blast radius**: if academic is compromised, the attacker still only obtains identities of users
+- **Blast radius**: if hrd is compromised, the attacker still only obtains identities of users
   who complete an interactive KKU SSO login and are in our allowlist — no bulk access to our data.
 
 ## 8. Known unrelated test noise

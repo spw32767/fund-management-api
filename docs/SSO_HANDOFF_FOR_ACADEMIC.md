@@ -1,7 +1,7 @@
-# KKU SSO Login for the Academic System — Integration Guide
+# KKU SSO Login for the HRD System — Integration Guide
 
-> **For:** the team/AI agent building the **academic** system
-> (`https://academic.computing.kku.ac.th`, running on its own port of the shared VM).
+> **For:** the team/AI agent building the **hrd** system
+> (`https://hrd.computing.kku.ac.th`, running on its own port of the shared VM).
 > **Provided by:** the "fs" system (`https://fs.computing.kku.ac.th`), which already has a working
 > KKU SSO integration and will act as your **login broker**.
 
@@ -31,11 +31,11 @@ Your normal username/password login is untouched — this is an **additional** b
 | fs base URL | Where the broker lives | `https://fs.computing.kku.ac.th` |
 | Client secret | Shared secret for the verify call | (a long random string — keep server-side only) |
 
-You choose your own **callback URL**, e.g. `https://academic.computing.kku.ac.th/auth/sso/callback`,
+You choose your own **callback URL**, e.g. `https://hrd.computing.kku.ac.th/auth/sso/callback`,
 and tell the fs team so they add its origin to their allowlist. The origin
-(`https://academic.computing.kku.ac.th`) must exactly match (scheme + host, HTTPS only).
+(`https://hrd.computing.kku.ac.th`) must exactly match (scheme + host, HTTPS only).
 
-> The university must first create the subdomain `academic.computing.kku.ac.th` (DNS → the VM +
+> The university must first create the subdomain `hrd.computing.kku.ac.th` (DNS → the VM +
 > TLS cert + reverse proxy to your port). That request is handled by the fs owner, not by you.
 
 ---
@@ -46,7 +46,7 @@ and tell the fs team so they add its origin to their allowlist. The origin
 sequenceDiagram
     autonumber
     participant U as User (browser)
-    participant A as YOUR academic backend
+    participant A as YOUR hrd backend
     participant F as fs (broker)
     participant S as KKU SSONext
 
@@ -70,12 +70,12 @@ sequenceDiagram
 Send the user to the fs login endpoint. **URL-encode** your callback URL.
 
 ```
-https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=https%3A%2F%2Facademic.computing.kku.ac.th%2Fauth%2Fsso%2Fcallback
+https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=https%3A%2F%2Fhrd.computing.kku.ac.th%2Fauth%2Fsso%2Fcallback
 ```
 
 HTML example:
 ```html
-<a href="https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=https%3A%2F%2Facademic.computing.kku.ac.th%2Fauth%2Fsso%2Fcallback">
+<a href="https://fs.computing.kku.ac.th/api/auth/sso/login?return_to=https%3A%2F%2Fhrd.computing.kku.ac.th%2Fauth%2Fsso%2Fcallback">
   เข้าสู่ระบบด้วย KKU SSO
 </a>
 ```
@@ -90,7 +90,7 @@ HTML example:
 
 ## 4. Step 2 + 3 — your callback route (server side)
 
-When the user returns to `https://academic.computing.kku.ac.th/auth/sso/callback?ticket=XYZ`, your
+When the user returns to `https://hrd.computing.kku.ac.th/auth/sso/callback?ticket=XYZ`, your
 **backend** exchanges the ticket. **Do this from the server, never from browser JavaScript** (so the
 client secret and the identity stay server-side).
 
@@ -139,9 +139,9 @@ app.get("/auth/sso/callback", async (req, res) => {
 
   // data = { user_id, email, first_name, last_name }
   // 1) find-or-create this user in YOUR database (match on email)
-  // 2) create YOUR OWN session and set YOUR OWN httpOnly cookie on academic.*
+  // 2) create YOUR OWN session and set YOUR OWN httpOnly cookie on hrd.*
   // 3) apply YOUR OWN roles/permissions
-  await establishAcademicSession(res, data); // your implementation
+  await establishHRDSession(res, data); // your implementation
   res.redirect("/"); // into your app
 });
 ```
@@ -219,7 +219,7 @@ public class SsoCallbackController {
     // 1) find-or-create this user in YOUR DB, matched on id.email()
     // 2) establish YOUR OWN session (Spring Security context / your session cookie)
     // 3) apply YOUR OWN roles/permissions
-    establishAcademicSession(request, id); // your implementation
+    establishHRDSession(request, id); // your implementation
     return "redirect:/";
   }
 }
@@ -237,7 +237,7 @@ public class SsoCallbackController {
 
 - You receive **who the user is**: `user_id` (their id in the fs system), `email`, `first_name`,
   `last_name`. Match users in your own DB on **email**.
-- You receive **no roles/permissions**. Deciding what a user can do inside academic is **entirely
+- You receive **no roles/permissions**. Deciding what a user can do inside hrd is **entirely
   your responsibility** — keep your own roles table.
 - Only users who already exist in the fs system (e.g. faculty) can ever complete this flow. Anyone
   else gets `user not allowed` and you should refuse the login.
@@ -246,7 +246,7 @@ public class SsoCallbackController {
 
 ## 6. Logout
 
-- Logging out of academic = clearing **your own** session cookie. That does not touch the fs session.
+- Logging out of hrd = clearing **your own** session cookie. That does not touch the fs session.
 - Optional: after clearing your session, redirect the browser to
   `https://fs.computing.kku.ac.th/api/auth/logout` so the KKU SSO session is ended too. Decide with
   the fs team whether you want this chained logout.
