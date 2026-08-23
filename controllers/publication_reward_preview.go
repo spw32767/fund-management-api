@@ -212,6 +212,7 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	replacements["{{reward_amount}}"] = formatAmount(detail.RewardAmount)
 	replacements["{{net_topup_amount}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee - externalTotal)
 	replacements["{{quartile}}"] = buildQuartileLabel(detail.Quartile)
+	replacements["{{reward_received_note}}"] = buildRewardReceivedNote(detail.HasReceivedReward)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -369,6 +370,7 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 		false,
 	)
 	replacements["{{reward_amount}}"] = formatAmount(effectiveReward)
+	replacements["{{reward_received_note}}"] = buildRewardReceivedNote(payload.FormData.HasReceivedReward)
 	// Top-up is intentionally NOT clamped so it matches the web "เงินสมทบ (A + B - C)" row,
 	// which shows the raw difference and can be negative when external funding exceeds the fees.
 	replacements["{{net_topup_amount}}"] = formatAmount(pageChargeAmount + manuscriptAmount - externalTotal)
@@ -1407,6 +1409,16 @@ func buildAuthorRole(authorType string) string {
 // use inline in labels such as "เงินรางวัล Q1". Empty input yields an empty string.
 func buildQuartileLabel(quartile string) string {
 	return strings.ToUpper(strings.TrimSpace(quartile))
+}
+
+// buildRewardReceivedNote returns an inline note appended to the reward row label when
+// the applicant has already received the reward, explaining why {{reward_amount}} is
+// 0.00. Empty when they have not, so the normal case shows no extra text.
+func buildRewardReceivedNote(hasReceived bool) string {
+	if hasReceived {
+		return " (เคยขอเงินรางวัลแล้ว)"
+	}
+	return ""
 }
 
 func buildQuartileLine(quartile string) string {

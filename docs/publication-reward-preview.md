@@ -119,6 +119,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 | `{{author_name_list}}`, `{{author_role}}`, `{{quartile_line}}` | ผู้แต่ง / บทบาท / บรรทัดควอไทล์ (ข้อความยาว) | payload / detail |
 | `{{reward_amount}}` | **เงินรางวัล** | PublicationReward / detail.RewardAmount |
 | `{{quartile}}` | **โค้ดควอไทล์สั้น** เช่น `Q1`/`T5`/`TCI` (ใช้กับ "เงินรางวัล Q1") | `buildQuartileLabel()` จาก JournalQuartile / detail.Quartile |
+| `{{reward_received_note}}` | **หมายเหตุต่อท้าย label เงินรางวัล** = `" (เคยขอเงินรางวัลแล้ว)"` เมื่อเคยขอ, `""` เมื่อไม่เคย → อธิบายว่าทำไม reward = 0.00 | `buildRewardReceivedNote()` จาก HasReceivedReward |
 | `{{manuscript_amount}}` | (A) ค่าปรับปรุงบทความ | RevisionFee |
 | `{{page_charge_amount}}` | (B) ค่าธรรมเนียมตีพิมพ์ | PublicationFee |
 | `{{external_fund_list}}` | รายการทุนภายนอก (หลายบรรทัด, join ด้วย `\n` → `<w:br/>`) | external funds |
@@ -142,7 +143,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 
 | แถว | placeholder | หมายเหตุ |
 |---|---|---|
-| เงินรางวัล + ควอไทล์ | `{{reward_amount}}` (+ `{{quartile}}` ใน label) | มีเส้นหนาคั่นด้านล่าง |
+| เงินรางวัล + ควอไทล์ | `{{reward_amount}}` (label = `เงินรางวัล {{quartile}}{{reward_received_note}}`) | เคยขอ → reward=0.00 + note "(เคยขอเงินรางวัลแล้ว)"; มีเส้นหนาคั่นด้านล่าง |
 | (A) ค่าปรับปรุงบทความ | `{{manuscript_amount}}` | |
 | (B) ค่าธรรมเนียมการตีพิมพ์ | `{{page_charge_amount}}` | |
 | หัก (C) เงินสนับสนุนภายนอก | `{{external_fund_total_negative}}` (แดง) + `{{external_fund_block}}` | ย่อหน้าเยื้อง; ทุนขึ้นบรรทัดใหม่ใต้ label |
@@ -212,14 +213,6 @@ OUT_DIR=/path/out LIBREOFFICE_PATH="C:/Program Files/LibreOffice/program/soffice
 - ไฟล์ฟอร์ม frontend ใหญ่มาก (`PublicationRewardForm.js` ~8,700 บรรทัด)
 
 ---
-
-## ⚠️ รอตัดสินใจ / ค้างอยู่
-
-- **`{{has_received_reward}}` ยังไม่มีใน template** — main เพิ่ม code set placeholder นี้
-  (`"เคยขอเงินรางวัลแล้ว (ไม่คำนวณเงินรางวัล)"`) ทั้ง 2 path แล้ว **แต่ยังไม่มีในทั้ง template หลัก
-  และ template ใหม่** เมื่อผู้ขอ "เคยขอเงินรางวัลแล้ว" ระบบจะ set reward = 0 → ไฟล์โชว์
-  `เงินรางวัล Q1 = 0.00` โดยไม่มีคำอธิบาย ควรเพิ่มบรรทัด `{{has_received_reward}}` ในตารางใหม่
-  (รอทีมยืนยันว่าคอลัมน์/ฟีเจอร์นี้คืออะไร แล้วค่อยวางตำแหน่ง/ข้อความ) — 2026-08-18
 
 ## 11. `{{document_line}}` — กรองไฟล์ auto-generated ออก
 

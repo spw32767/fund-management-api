@@ -52,6 +52,7 @@ func publicationRewardSampleReplacements(reward, manuscript, pageCharge float64,
 		"{{external_fund_block}}":          buildExternalFundBlock(externalList),
 		"{{external_fund_total_negative}}": formatAmountParen(externalTotal),
 		"{{net_topup_amount}}":             formatAmount(pageCharge + manuscript - externalTotal),
+		"{{reward_received_note}}":         buildRewardReceivedNote(false),
 	}
 }
 
@@ -114,6 +115,25 @@ func TestNewTemplate_SummaryValues(t *testing.T) {
 		if !strings.Contains(xml, want) {
 			t.Errorf("expected %q in rendered document", want)
 		}
+	}
+}
+
+// When the applicant already received the reward, the reward is 0.00 and the label
+// carries the "เคยขอเงินรางวัลแล้ว" note so the zero is explained; otherwise no note.
+func TestNewTemplate_RewardReceivedNote(t *testing.T) {
+	received := publicationRewardSampleReplacements(0, 0, 73017.72, nil)
+	received["{{reward_received_note}}"] = buildRewardReceivedNote(true)
+	xml := fillNewTemplate(t, received)
+	if !strings.Contains(xml, "เคยขอเงินรางวัลแล้ว") {
+		t.Errorf("expected note 'เคยขอเงินรางวัลแล้ว' when reward already received")
+	}
+	if !strings.Contains(xml, "0.00") {
+		t.Errorf("expected reward 0.00 in the already-received case")
+	}
+
+	normal := publicationRewardSampleReplacements(45000, 0, 73017.72, nil)
+	if strings.Contains(fillNewTemplate(t, normal), "เคยขอเงินรางวัลแล้ว") {
+		t.Errorf("note must be absent when reward not previously received")
 	}
 }
 
