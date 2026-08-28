@@ -329,7 +329,7 @@ func upsertMembers(projectID int64, members []svelteKitMember) error {
 			continue
 		}
 		err := config.DB.Exec(
-			"INSERT INTO ai_showcase_project_members (project_id, student_id, name) VALUES (?, ?, ?)",
+			"INSERT INTO ai_showcase_project_members (project_id, student_id, name, role) VALUES (?, ?, ?, 'student')",
 			projectID, member.ID, member.Name,
 		).Error
 		if err != nil {
@@ -976,10 +976,16 @@ func SyncAIShowcaseFromCSV(c *gin.Context) {
 			}
 		}
 
-		// Find existing
+		// Find existing — match by ai_showcase_link first, fallback to group_code + title_th
 		var existing []map[string]interface{}
-		config.DB.Raw("SELECT id FROM ai_showcase_projects WHERE group_code = ? AND title_th = ? AND published_year = ? LIMIT 1",
-			groupCode, titleTh, publishedYear).Scan(&existing)
+		if link != "" {
+			config.DB.Raw("SELECT id FROM ai_showcase_projects WHERE ai_showcase_link = ? LIMIT 1",
+				link).Scan(&existing)
+		}
+		if len(existing) == 0 {
+			config.DB.Raw("SELECT id FROM ai_showcase_projects WHERE group_code = ? AND title_th = ? LIMIT 1",
+				groupCode, titleTh).Scan(&existing)
+		}
 
 		posterURL := ""
 		if link != "" {

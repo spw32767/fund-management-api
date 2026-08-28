@@ -71,6 +71,22 @@ type ScopusPublicationByUser struct {
 	DocumentID             uint       `json:"document_id"`
 	Title                  string     `json:"title"`
 	PublicationName        *string    `json:"publication_name,omitempty"`
+	Abstract               *string    `json:"abstract,omitempty"`
+	AggregationType        *string    `json:"aggregation_type,omitempty"`
+	Subtype                *string    `json:"subtype,omitempty"`
+	SubtypeDescription     *string    `json:"subtype_description,omitempty"`
+	ISSN                   *string    `json:"issn,omitempty"`
+	EISSN                  *string    `json:"eissn,omitempty"`
+	ISBN                   *string    `json:"isbn,omitempty"`
+	Volume                 *string    `json:"volume,omitempty"`
+	Issue                  *string    `json:"issue,omitempty"`
+	PageRange              *string    `json:"page_range,omitempty"`
+	ArticleNumber          *string    `json:"article_number,omitempty"`
+	AuthKeywords           *string    `json:"authkeywords,omitempty"`
+	FundAcr                *string    `json:"fund_acr,omitempty"`
+	FundSponsor            *string    `json:"fund_sponsor,omitempty"`
+	OpenAccess             *int       `json:"openaccess,omitempty"`
+	OpenAccessFlag         *int       `json:"openaccess_flag,omitempty"`
 	AffiliationAFID        *string    `json:"affiliation_afid,omitempty"`
 	AffiliationName        *string    `json:"affiliation_name,omitempty"`
 	AffiliationCity        *string    `json:"affiliation_city,omitempty"`
@@ -170,6 +186,22 @@ type scopusPublicationByUserRow struct {
 	DocumentID             uint    `gorm:"column:document_id"`
 	Title                  *string
 	PublicationName        *string
+	Abstract               *string
+	AggregationType        *string
+	Subtype                *string
+	SubtypeDescription     *string `gorm:"column:subtype_description"`
+	ISSN                   *string
+	EISSN                  *string
+	ISBN                   *string
+	Volume                 *string
+	Issue                  *string
+	PageRange              *string
+	ArticleNumber          *string
+	AuthKeywords           []byte  `gorm:"column:authkeywords"`
+	FundAcr                *string `gorm:"column:fund_acr"`
+	FundSponsor            *string `gorm:"column:fund_sponsor"`
+	OpenAccess             *int    `gorm:"column:openaccess"`
+	OpenAccessFlag         *int    `gorm:"column:openaccess_flag"`
 	UserAffiliationAFID    *string `gorm:"column:user_affiliation_afid"`
 	UserAffiliationName    *string `gorm:"column:user_affiliation_name"`
 	UserAffiliationCity    *string `gorm:"column:user_affiliation_city"`
@@ -229,6 +261,22 @@ type scopusAffiliationEntry struct {
 	City           string `json:"city"`
 	Country        string `json:"country"`
 	AffiliationURL string `json:"affiliation_url"`
+}
+
+// kkuAffiliationNames holds the scopus_affiliations.name values (already lower-cased and
+// trimmed) that count as "Khon Kaen University" when the Research Search page restricts
+// documents/exports to work produced under a KKU affiliation. Kept deliberately in sync with
+// db/export_scopus_person_summary.sql, which filters on the same two names.
+//
+// FUTURE — switch to AFID: matching on the affiliation *name* is brittle. A spelling change, a
+// new faculty-level variant (e.g. "faculty of engineering, khon kaen university"), or a
+// Thai/English difference will silently drop or admit work. Once the canonical set of KKU
+// Scopus AFIDs is confirmed, replace this name match with
+// `scopus_affiliations.afid IN (<kku afids>)` in both kkuDocumentAffiliationFilter (used by
+// ListAll) and ListByUserOwnership's pairQuery. See memory note "scopus-kku-affiliation-filter".
+var kkuAffiliationNames = []string{
+	"khon kaen university",
+	"faculty of science, khon kaen university",
 }
 
 // NewScopusPublicationService instantiates the service.
@@ -349,6 +397,10 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 		Select("sd.id, sd.title, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.publication_name, sd.source_id, sd.cover_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_sponsor, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
+	// Khon Kaen University only: keep a document only when at least one of its authors is
+	// affiliated with KKU on that document. Same rule as db/export_scopus_person_summary.sql.
+	base = base.Where("EXISTS (?)", s.kkuDocumentAffiliationFilter())
+
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		base = base.Where(
@@ -404,8 +456,12 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		Select("u.user_id, sd.id AS document_id, MIN(sda.affiliation_id) AS user_affiliation_id").
 		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
 		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+		Joins("INNER JOIN scopus_affiliations own_aff ON own_aff.id = sda.affiliation_id").
 		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
-		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''")
+		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''").
+		// Khon Kaen University only: keep a (user, document) pair only when the user authored
+		// the document under a KKU affiliation. Same rule as db/export_scopus_person_summary.sql.
+		Where("LOWER(TRIM(own_aff.name)) IN ?", kkuAffiliationNames)
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
@@ -434,6 +490,72 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
 
 	orderClause := orderForScopusByUser(sortField, sortDirection)
+	var rows []scopusPublicationByUserRow
+	if err := base.Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	documentIDs := collectDocumentIDsByUser(rows)
+	affiliationByDocument, err := s.loadDocumentAffiliationAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	authorsByDocument, err := s.loadDocumentAuthorAggregates(documentIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return mapScopusRowsByUser(rows, affiliationByDocument, authorsByDocument), total, nil
+}
+
+// ListForPartner returns paginated Scopus publications for a fixed set of users, filtered by
+// a cover-year range. It powers the external /api/ext partner API. It reuses the exact
+// (user, document) join core used by ListByUserOwnership, adding a `user_id IN (...)` filter
+// and an inclusive year-range bound. userIDs must be non-empty; yearFrom/yearTo are inclusive.
+func (s *ScopusPublicationService) ListForPartner(userIDs []uint, yearFrom, yearTo, limit, offset int) ([]ScopusPublicationByUser, int64, error) {
+	if len(userIDs) == 0 {
+		return []ScopusPublicationByUser{}, 0, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	yearExpr := yearExpression(s.db)
+
+	pairQuery := s.db.Table("users AS u").
+		Select("u.user_id, sd.id AS document_id, MIN(sda.affiliation_id) AS user_affiliation_id").
+		Joins("INNER JOIN scopus_authors sa ON sa.scopus_author_id = u.Scopus_id").
+		Joins("INNER JOIN scopus_document_authors sda ON sda.author_id = sa.id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = sda.document_id").
+		Where("u.Scopus_id IS NOT NULL AND TRIM(u.Scopus_id) <> ''").
+		Where("u.user_id IN ?", userIDs).
+		Where(fmt.Sprintf("%s >= ? AND %s <= ?", yearExpr, yearExpr), yearFrom, yearTo).
+		Group("u.user_id, sd.id")
+
+	var total int64
+	if err := s.db.Table("(?) AS user_doc_pairs", pairQuery).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []ScopusPublicationByUser{}, 0, nil
+	}
+
+	metricYearExpr := metricYearForDocumentExpression(s.db)
+	base := s.db.Table("(?) AS pairs", pairQuery).
+		Select("pairs.user_id, TRIM(CONCAT(COALESCE(u.user_fname,''), ' ', COALESCE(u.user_lname,''))) AS user_name, u.email AS user_email, u.Scopus_id AS user_scopus_id, sd.id AS document_id, sd.title, sd.publication_name, sd.abstract, sd.aggregation_type, sd.subtype, sd.subtype_description, sd.issn, sd.eissn, sd.isbn, sd.volume, sd.issue, sd.page_range, sd.article_number, sd.authkeywords, sd.fund_acr, sd.fund_sponsor, sd.openaccess, sd.openaccess_flag, owner_aff.afid AS user_affiliation_afid, owner_aff.name AS user_affiliation_name, owner_aff.city AS user_affiliation_city, owner_aff.country AS user_affiliation_country, owner_aff.affiliation_url AS user_affiliation_url, sd.source_id, sd.cover_date, sd.cover_display_date, sd.citedby_count, sd.doi, sd.eid, sd.scopus_id, sd.scopus_link, sd.conference_name, sd.conference_venue, sd.conference_city, sd.conference_country, sd.conference_location, metrics.cite_score_percentile, metrics.cite_score_quartile, metrics.cite_score_status, metrics.cite_score_rank").
+		Joins("INNER JOIN users u ON u.user_id = pairs.user_id").
+		Joins("INNER JOIN scopus_documents sd ON sd.id = pairs.document_id").
+		Joins("LEFT JOIN scopus_affiliations AS owner_aff ON owner_aff.id = pairs.user_affiliation_id").
+		Joins("LEFT JOIN scopus_source_metrics AS metrics ON metrics.source_id = sd.source_id AND metrics.doc_type = 'all' AND metrics.metric_year = " + metricYearExpr)
+
+	orderClause := orderForScopusByUser("year", "desc")
 	var rows []scopusPublicationByUserRow
 	if err := base.Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, 0, err
@@ -581,6 +703,29 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 			CiteScoreRank:          row.CiteScoreRank,
 		}
 
+		// Bibliographic fields (populated only when the caller SELECTs them, e.g. the
+		// partner endpoint; nil/omitted for the internal dashboard which does not).
+		pub.Abstract = normalizeNullable(row.Abstract)
+		pub.AggregationType = normalizeNullable(row.AggregationType)
+		pub.Subtype = normalizeNullable(row.Subtype)
+		pub.SubtypeDescription = normalizeNullable(row.SubtypeDescription)
+		pub.ISSN = normalizeNullable(row.ISSN)
+		pub.EISSN = normalizeNullable(row.EISSN)
+		pub.ISBN = normalizeNullable(row.ISBN)
+		pub.Volume = normalizeNullable(row.Volume)
+		pub.Issue = normalizeNullable(row.Issue)
+		pub.PageRange = normalizeNullable(row.PageRange)
+		pub.ArticleNumber = normalizeNullable(row.ArticleNumber)
+		pub.FundAcr = normalizeNullable(row.FundAcr)
+		pub.FundSponsor = normalizeNullable(row.FundSponsor)
+		pub.OpenAccess = row.OpenAccess
+		pub.OpenAccessFlag = row.OpenAccessFlag
+		if len(row.AuthKeywords) > 0 {
+			if kw := strings.TrimSpace(string(row.AuthKeywords)); kw != "" {
+				pub.AuthKeywords = &kw
+			}
+		}
+
 		if affiliation, ok := affiliationByDocument[row.DocumentID]; ok {
 			pub.AffiliationAFID = affiliation.AFID
 			pub.AffiliationName = affiliation.Name
@@ -615,6 +760,25 @@ func mapScopusRowsByUser(rows []scopusPublicationByUserRow, affiliationByDocumen
 	}
 
 	return items
+}
+
+// kkuDocumentAffiliationFilter returns a correlated subquery, suitable for use as
+// `Where("EXISTS (?)", ...)` against the outer `scopus_documents AS sd` alias, that is true
+// when the document has at least one author who is a faculty member in this system (a users
+// row linked by scopus_id) AND was affiliated with Khon Kaen University on that document.
+// This mirrors the KKU constraint used by the research dashboard, so the research-search view
+// counts only in-faculty work — not every document that merely carries a KKU affiliation
+// string. See kkuAffiliationNames for the matched values and the future AFID-based plan.
+func (s *ScopusPublicationService) kkuDocumentAffiliationFilter() *gorm.DB {
+	return s.db.Table("scopus_document_authors AS sda_kku").
+		Select("1").
+		Joins("INNER JOIN scopus_authors AS sa_kku ON sa_kku.id = sda_kku.author_id").
+		Joins("INNER JOIN users AS u_kku ON TRIM(u_kku.Scopus_id) = sa_kku.scopus_author_id").
+		Joins("INNER JOIN scopus_affiliations AS aff_kku ON aff_kku.id = sda_kku.affiliation_id").
+		Where("sda_kku.document_id = sd.id").
+		Where("u_kku.delete_at IS NULL").
+		Where("u_kku.Scopus_id IS NOT NULL AND TRIM(u_kku.Scopus_id) <> ''").
+		Where("LOWER(TRIM(COALESCE(aff_kku.name, ''))) IN ?", kkuAffiliationNames)
 }
 
 func collectDocumentIDs(rows []scopusPublicationRow) []uint {

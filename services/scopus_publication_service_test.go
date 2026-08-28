@@ -255,20 +255,23 @@ func TestListByUserBuildsCompleteSubqueries(t *testing.T) {
 }
 
 func TestListByUserOwnershipBuildsCompleteSubqueries(t *testing.T) {
-	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
-	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
+	// The pairs subquery must join scopus_affiliations and filter on KKU names so the
+	// research-search view/export only returns work produced under a KKU affiliation.
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*scopus_affiliations own_aff.*own_aff\.name.*IN.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
+	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*scopus_affiliations own_aff.*own_aff\.name.*IN.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
 
 	steps := []*queryStep{
 		{
 			kind:    kindQuery,
 			pattern: countPattern,
+			args:    []driver.Value{"khon kaen university", "faculty of science, khon kaen university"},
 			columns: []string{"count"},
 			rows:    [][]driver.Value{{int64(1)}},
 		},
 		{
 			kind:    kindQuery,
 			pattern: listPattern,
-			args:    []driver.Value{int64(1)},
+			args:    []driver.Value{"khon kaen university", "faculty of science, khon kaen university", int64(1)},
 			columns: []string{"user_id", "document_id"},
 			rows:    [][]driver.Value{},
 		},
@@ -284,6 +287,49 @@ func TestListByUserOwnershipBuildsCompleteSubqueries(t *testing.T) {
 	}
 	if total != 1 {
 		t.Fatalf("expected total 1, got %d", total)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no mapped rows from the empty result set, got %d", len(items))
+	}
+	if err := state.verifyComplete(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestListForPartnerBuildsCompleteSubqueries(t *testing.T) {
+	// Same derived-table structure as ListByUserOwnership, plus a `u.user_id IN (...)`
+	// filter in the inner pairs subquery (the year-range filter is dialect-specific, so we
+	// don't pin it here).
+	countPattern := regexp.MustCompile(`(?is)SELECT count\(\*\) FROM \(SELECT u\.user_id, sd\.id AS document_id.*scopus_document_authors.*u\.user_id IN.*GROUP BY u\.user_id, sd\.id\) AS user_doc_pairs`)
+	listPattern := regexp.MustCompile(`(?is)SELECT pairs\.user_id.*FROM \(SELECT u\.user_id, sd\.id AS document_id.*u\.user_id IN.*GROUP BY u\.user_id, sd\.id\) AS pairs.*LIMIT \?`)
+
+	steps := []*queryStep{
+		{
+			kind:    kindQuery,
+			pattern: countPattern,
+			args:    []driver.Value{int64(1), int64(2), int64(2020), int64(2024)},
+			columns: []string{"count"},
+			rows:    [][]driver.Value{{int64(2)}},
+		},
+		{
+			kind:    kindQuery,
+			pattern: listPattern,
+			args:    []driver.Value{int64(1), int64(2), int64(2020), int64(2024), int64(50)},
+			columns: []string{"user_id", "document_id"},
+			rows:    [][]driver.Value{},
+		},
+	}
+
+	db, state, cleanup := newScriptedGormDB(t, steps)
+	defer cleanup()
+
+	items, total, err := NewScopusPublicationService(db).
+		ListForPartner([]uint{1, 2}, 2020, 2024, 50, 0)
+	if err != nil {
+		t.Fatalf("ListForPartner returned error: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected total 2, got %d", total)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected no mapped rows from the empty result set, got %d", len(items))

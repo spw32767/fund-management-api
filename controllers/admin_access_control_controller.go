@@ -42,6 +42,13 @@ type accessUserDetail struct {
 	RoleKey string `json:"role_key"`
 }
 
+type accessUserRoleDetail struct {
+	RoleID    int    `json:"role_id"`
+	Role      string `json:"role"`
+	RoleKey   string `json:"role_key"`
+	IsPrimary bool   `json:"is_primary"`
+}
+
 type accessUserOverride struct {
 	Code   string `json:"code"`
 	Effect string `json:"effect"`
@@ -97,7 +104,11 @@ func AdminListAccessPermissions(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": permissions})
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"data":         permissions,
+		"implications": services.PermissionImplications(),
+	})
 }
 
 func AdminGetRolePermissions(c *gin.Context) {
@@ -240,11 +251,14 @@ func AdminGetUserPermissionOverrides(c *gin.Context) {
 
 	authz := services.GetAuthorizationService()
 	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
+		"roles":                 getAccessUserRoles(user),
 		"overrides":             overrides,
+		"role_permissions":      rolePermissions,
 		"effective_permissions": effectivePermissions,
 	})
 }
@@ -350,12 +364,15 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 
 	authz := services.GetAuthorizationService()
 	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
+		"roles":                 getAccessUserRoles(user),
 		"overrides":             overrides,
 		"override_count":        len(overrides),
+		"role_permissions":      rolePermissions,
 		"effective_permissions": effectivePermissions,
 	})
 }
@@ -379,10 +396,13 @@ func AdminGetUserEffectivePermissions(c *gin.Context) {
 
 	authz := services.GetAuthorizationService()
 	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
+		"roles":                 getAccessUserRoles(user),
+		"role_permissions":      rolePermissions,
 		"effective_permissions": effectivePermissions,
 	})
 }
@@ -569,6 +589,58 @@ func getAccessUserByID(userID int) (accessUserDetail, error) {
 		Role:    roleName,
 		RoleKey: roleKey,
 	}, nil
+}
+
+func getAccessUserRoles(user accessUserDetail) []accessUserRoleDetail {
+	roles := make([]accessUserRoleDetail, 0, 2)
+	seen := map[int]struct{}{}
+
+	if user.RoleID > 0 {
+		roles = append(roles, accessUserRoleDetail{
+			RoleID:    user.RoleID,
+			Role:      user.Role,
+			RoleKey:   user.RoleKey,
+			IsPrimary: true,
+		})
+		seen[user.RoleID] = struct{}{}
+	}
+
+	type additionalRoleRow struct {
+		RoleID int
+		Role   string
+	}
+
+	var additionalRoles []additionalRoleRow
+	err := config.DB.Raw(`
+		SELECT r.role_id,
+		       COALESCE(r.role, CONCAT('role_', r.role_id)) AS role
+		FROM user_roles ur
+		INNER JOIN roles r ON r.role_id = ur.role_id
+		WHERE ur.user_id = ?
+		  AND (ur.is_active = 1 OR ur.is_active IS NULL)
+		  AND ur.delete_at IS NULL
+		  AND r.delete_at IS NULL
+		ORDER BY COALESCE(ur.is_primary, 0) DESC, r.role_id ASC
+	`, user.UserID).Scan(&additionalRoles).Error
+	if err != nil {
+		return roles
+	}
+
+	for _, item := range additionalRoles {
+		if _, exists := seen[item.RoleID]; exists {
+			continue
+		}
+		roleName := strings.TrimSpace(item.Role)
+		roles = append(roles, accessUserRoleDetail{
+			RoleID:    item.RoleID,
+			Role:      roleName,
+			RoleKey:   strings.ToLower(roleName),
+			IsPrimary: false,
+		})
+		seen[item.RoleID] = struct{}{}
+	}
+
+	return roles
 }
 
 func getUserPermissionOverrides(userID int) ([]accessUserOverride, error) {

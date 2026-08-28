@@ -301,14 +301,7 @@ func (s *ScholarImportJobService) acquireLock(ctx context.Context, lockName stri
 	}
 
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", lockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return fmt.Errorf("release lock %q returned %d", lockName, released)
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, lockName)
 	}, nil
 }
 

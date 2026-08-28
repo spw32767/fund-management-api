@@ -333,27 +333,28 @@ func SetupRoutes(router *gin.Engine) {
 
 			submissions := protected.Group("/submissions")
 			{
+				openFundOnly := middleware.RequireOpenSubmissionFund()
 				// Basic CRUD
 				submissions.POST("", controllers.CreateSubmission)
 				submissions.GET("/:id", controllers.GetSubmission)
 				submissions.GET("/:id/sdgs", controllers.GetSubmissionSDGs)
-				submissions.PUT("/:id/sdgs", controllers.UpdateSubmissionSDGs)
-				submissions.PUT("/:id", controllers.UpdateSubmission)
+				submissions.PUT("/:id/sdgs", openFundOnly, controllers.UpdateSubmissionSDGs)
+				submissions.PUT("/:id", openFundOnly, controllers.UpdateSubmission)
 				submissions.DELETE("/:id", controllers.DeleteSubmission)
 				submissions.DELETE("/:id/hard", controllers.HardDeleteSubmission)
 
 				// Submit submission
-				submissions.POST("/:id/submit", controllers.SubmitSubmission)
-				submissions.POST("/:id/merge-documents", controllers.MergeSubmissionDocuments)
+				submissions.POST("/:id/submit", openFundOnly, controllers.SubmitSubmission)
+				submissions.POST("/:id/merge-documents", openFundOnly, controllers.MergeSubmissionDocuments)
 
 				// Add specific details
-				submissions.POST("/:id/publication-details", controllers.AddPublicationDetails)
-				submissions.POST("/:id/fund-details", controllers.AddFundDetails)
+				submissions.POST("/:id/publication-details", openFundOnly, controllers.AddPublicationDetails)
+				submissions.POST("/:id/fund-details", openFundOnly, controllers.AddFundDetails)
 
 				// Documents management
-				submissions.POST("/:id/documents", controllers.AttachDocument)
+				submissions.POST("/:id/documents", openFundOnly, controllers.AttachDocument)
 				submissions.GET("/:id/documents", controllers.GetSubmissionDocuments)
-				submissions.DELETE("/:id/documents/:doc_id", controllers.DetachDocument)
+				submissions.DELETE("/:id/documents/:doc_id", openFundOnly, controllers.DetachDocument)
 
 				// Approval evidence is read-only for the submission owner.
 				submissions.GET("/:id/approval-attachments", controllers.ListSubmissionApprovalAttachments)
@@ -365,21 +366,21 @@ func SetupRoutes(router *gin.Engine) {
 				// submissions.DELETE("/:id/coauthors/:user_id", controllers.RemoveCoauthor) // ลบ co-author
 
 				// === NEW: Submission Users Management (ให้ตรงกับ Frontend) ===
-				submissions.POST("/:id/users", controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
-				submissions.GET("/:id/users", controllers.GetSubmissionUsers)               // ดู users ใน submission
-				submissions.PUT("/:id/users/:user_id", controllers.UpdateSubmissionUser)    // แก้ไข user ใน submission
-				submissions.DELETE("/:id/users/:user_id", controllers.RemoveSubmissionUser) // ลบ user จาก submission
+				submissions.POST("/:id/users", openFundOnly, controllers.AddSubmissionUser)               // เพิ่ม user ลงใน submission
+				submissions.GET("/:id/users", controllers.GetSubmissionUsers)                             // ดู users ใน submission
+				submissions.PUT("/:id/users/:user_id", openFundOnly, controllers.UpdateSubmissionUser)    // แก้ไข user ใน submission
+				submissions.DELETE("/:id/users/:user_id", openFundOnly, controllers.RemoveSubmissionUser) // ลบ user จาก submission
 
 				// === NEW: Batch Operations for Frontend ===
-				submissions.POST("/:id/users/batch", controllers.AddMultipleUsers)     // เพิ่ม users หลายคนพร้อมกัน
-				submissions.POST("/:id/users/set-coauthors", controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
+				submissions.POST("/:id/users/batch", openFundOnly, controllers.AddMultipleUsers)     // เพิ่ม users หลายคนพร้อมกัน
+				submissions.POST("/:id/users/set-coauthors", openFundOnly, controllers.SetCoauthors) // ตั้งค่า co-authors ทั้งหมด (replace existing)
 
 				// Enhanced submission details with co-authors
 				//submissions.GET("/:id/full", controllers.GetSubmissionWithCoauthors) // ดู submission พร้อม co-authors
 
 				// เพิ่ม route ใหม่สำหรับแนบไฟล์
-				submissions.POST("/:id/attach-document", controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
-				submissions.DELETE("/:id/detach-document/:doc_id", controllers.DetachDocument)
+				submissions.POST("/:id/attach-document", openFundOnly, controllers.AttachDocumentToSubmission) // แนบไฟล์กับ submission
+				submissions.DELETE("/:id/detach-document/:doc_id", openFundOnly, controllers.DetachDocument)
 			}
 
 			// Files management
@@ -588,6 +589,19 @@ func SetupRoutes(router *gin.Engine) {
 					accessControl.GET("/users/:id/effective", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserEffectivePermissions)
 				}
 
+				// External API client & key management (guarded by api.clients.manage)
+				apiClients := admin.Group("/api-clients")
+				apiClients.Use(middleware.RequirePermission("api.clients.manage"))
+				{
+					apiClients.GET("", controllers.AdminListAPIClients)
+					apiClients.POST("", controllers.AdminCreateAPIClient)
+					apiClients.GET("/:id", controllers.AdminGetAPIClient)
+					apiClients.PATCH("/:id", controllers.AdminUpdateAPIClient)
+					apiClients.POST("/:id/keys", controllers.AdminIssueAPIKey)
+					apiClients.DELETE("/:id/keys/:keyId", controllers.AdminRevokeAPIKey)
+					apiClients.GET("/:id/logs", controllers.AdminListAPIClientLogs)
+				}
+
 				// Dashboard
 				admin.GET("/dashboard/stats", controllers.GetDashboardStats)
 				admin.GET("/submissions", controllers.GetAdminSubmissions) // Admin ดู submissions ทั้งหมด
@@ -609,9 +623,24 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)
 				admin.GET("/scopus/metrics/runs", controllers.AdminListCiteScoreMetricRuns)
+				admin.POST("/scopus/author-metrics/refresh", controllers.AdminRefreshAuthorMetrics)
+				admin.GET("/scopus/author-metrics/runs", controllers.AdminListAuthorMetricsRuns)
+				admin.GET("/scopus/author-metrics/hgraph", controllers.AdminGetScopusAuthorHIndexGraph)
+				admin.GET("/scopus/author-metrics/faculty-hgraph", controllers.AdminGetScopusFacultyHIndexGraph)
+				admin.GET("/scopus/author-metrics/faculty-export", controllers.AdminExportScopusFacultyHIndex)
+				admin.GET("/scopus/author-metrics/summary", controllers.AdminGetAuthorHIndexSummary)
 				admin.POST("/scopus/conference/backfill", controllers.AdminBackfillConferenceInfo)
 				admin.POST("/scopus/conference/refresh", controllers.AdminRefreshConferenceInfo)
 				admin.GET("/scopus/conference/runs", controllers.AdminListScopusConferenceFetchRuns)
+				admin.POST("/scopus/benchmark/affiliation/lookup", controllers.AdminBenchmarkResolveAffiliation)
+				admin.GET("/scopus/benchmark/scopes", controllers.AdminListBenchmarkScopes)
+				admin.PUT("/scopus/benchmark/scopes/:id", controllers.AdminUpdateBenchmarkScope)
+				admin.GET("/scopus/benchmark/scopes/:id/year-range", controllers.AdminDetectBenchmarkYearRange)
+				admin.POST("/scopus/benchmark/counts/refresh", controllers.AdminRefreshBenchmarkCounts)
+				admin.POST("/scopus/benchmark/harvest", controllers.AdminHarvestBenchmarkScope)
+				admin.GET("/scopus/benchmark/runs", controllers.AdminListBenchmarkRuns)
+				admin.POST("/scopus/benchmark/runs/:id/cancel", controllers.AdminCancelBenchmarkRun)
+				admin.GET("/scopus/benchmark/comparison", controllers.AdminGetBenchmarkComparison)
 				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
 				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
 				admin.GET("/scopus/import/jobs", controllers.AdminListScopusAPIImportJobs)
@@ -888,6 +917,25 @@ func SetupRoutes(router *gin.Engine) {
 			staff.GET("/funds/structure", controllers.GetFundStructure)
 
 		}
+	}
+
+	// External / partner API group (/api/ext/v1).
+	// Authenticated by API key (not the internal JWT), so it hangs off `router` directly and
+	// does NOT inherit AuthMiddleware. Middleware order: log everything -> optional HTTPS guard
+	// -> API-key auth -> per-client rate limit -> per-route scope check -> handler.
+	ext := router.Group("/api/ext/v1")
+	ext.Use(middleware.ExtRequestLog())
+	ext.Use(middleware.RequireHTTPS())
+	ext.Use(middleware.APIKeyAuthMiddleware())
+	ext.Use(middleware.ExtRateLimit())
+	{
+		ext.GET("/scopus/publications",
+			middleware.RequireScope("scopus.publications.read"),
+			controllers.ExtListScopusPublications)
+
+		ext.GET("/users",
+			middleware.RequireScope("users.read"),
+			controllers.ExtListUsers)
 	}
 
 	// Catch-all route for 404

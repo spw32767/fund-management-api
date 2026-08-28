@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -236,13 +235,6 @@ func (s *ScopusIngestJobService) acquireBatchRunLock(ctx context.Context) (func(
 	}
 
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", scopusBatchImportRunLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return fmt.Errorf("release lock %q returned %d", scopusBatchImportRunLockName, released)
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, scopusBatchImportRunLockName)
 	}, nil
 }

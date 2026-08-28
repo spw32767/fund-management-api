@@ -217,13 +217,6 @@ func (s *ThaiJOIngestJobService) acquireBatchRunLock(ctx context.Context) (func(
 		return nil, ErrThaiJOBatchImportAlreadyRunning
 	}
 	return func() error {
-		var released int
-		if err := s.db.WithContext(lockCtx).Raw("SELECT RELEASE_LOCK(?)", thaiJOBatchImportRunLockName).Scan(&released).Error; err != nil {
-			return err
-		}
-		if released != 1 {
-			return errors.New("release thaijo batch lock failed")
-		}
-		return nil
+		return releaseNamedLock(lockCtx, s.db, thaiJOBatchImportRunLockName)
 	}, nil
 }

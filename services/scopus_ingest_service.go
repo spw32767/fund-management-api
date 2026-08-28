@@ -321,6 +321,10 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			created = true
 		} else {
 			docModel.ID = doc.ID
+			// Preserve the original creation timestamp. buildScopusDocument does
+			// not set CreatedAt, so a plain Save() would overwrite created_at with
+			// the zero time (0001-01-01), which MariaDB stores as 0000-00-00.
+			docModel.CreatedAt = doc.CreatedAt
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}
