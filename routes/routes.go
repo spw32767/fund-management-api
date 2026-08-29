@@ -36,6 +36,9 @@ func SetupRoutes(router *gin.Engine) {
 	router.GET("/api/auth/sso/login", controllers.SSOLoginRedirect)
 	router.GET("/api/auth/sso/callback", controllers.SSOCallback)
 	router.GET("/api/auth/logout", controllers.LogoutWithSSORedirect)
+	// Cross-app SSO handoff: sibling apps exchange a one-time ticket for user identity.
+	// Server-to-server; guarded by SSO_HANDOFF_CLIENT_SECRET when set. See sso_handoff.go.
+	router.POST("/api/auth/sso/handoff/verify", controllers.VerifyHandoffTicket)
 
 	// API v1 group
 	v1 := router.Group("/api/v1")
@@ -623,6 +626,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.POST("/scopus/author-metrics/refresh", controllers.AdminRefreshAuthorMetrics)
 				admin.GET("/scopus/author-metrics/runs", controllers.AdminListAuthorMetricsRuns)
 				admin.GET("/scopus/author-metrics/hgraph", controllers.AdminGetScopusAuthorHIndexGraph)
+				admin.GET("/scopus/author-metrics/faculty-hgraph", controllers.AdminGetScopusFacultyHIndexGraph)
+				admin.GET("/scopus/author-metrics/faculty-export", controllers.AdminExportScopusFacultyHIndex)
 				admin.GET("/scopus/author-metrics/summary", controllers.AdminGetAuthorHIndexSummary)
 				admin.POST("/scopus/conference/backfill", controllers.AdminBackfillConferenceInfo)
 				admin.POST("/scopus/conference/refresh", controllers.AdminRefreshConferenceInfo)

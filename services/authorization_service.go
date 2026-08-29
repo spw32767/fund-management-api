@@ -130,6 +130,17 @@ var impliedPermissions = map[string][]string{
 	"ui.page.member.dept_review.view":       {"submission.read.department"},
 }
 
+// PermissionImplications returns a defensive copy of the minimum permissions
+// implied by higher-level page permissions. Access-control clients use this to
+// explain and preview the same rules enforced by the authorization service.
+func PermissionImplications() map[string][]string {
+	result := make(map[string][]string, len(impliedPermissions))
+	for source, targets := range impliedPermissions {
+		result[source] = append([]string(nil), targets...)
+	}
+	return result
+}
+
 func GetAuthorizationService() *AuthorizationService {
 	authorizationServiceOnce.Do(func() {
 		authorizationServiceInst = &AuthorizationService{db: config.DB}
@@ -158,6 +169,29 @@ func (s *AuthorizationService) ResolvePermissionCodes(userID int, roleID int) ([
 		return sortedPermissionKeys(set), nil
 	}
 
+	return sortedPermissionKeys(set), nil
+}
+
+// ResolveRolePermissionCodes returns permissions supplied by the user's primary
+// and additional active roles before user-specific allow/deny overrides are
+// applied. It is intended for access-control explanations and previews; normal
+// authorization checks must continue to use ResolvePermissionCodes.
+func (s *AuthorizationService) ResolveRolePermissionCodes(userID int, roleID int) ([]string, error) {
+	set := map[string]struct{}{}
+
+	if !s.hasAuthorizationTables() {
+		applyDefaultRolePermissions(set, roleID)
+		applyPermissionImplications(set, nil)
+		return sortedPermissionKeys(set), nil
+	}
+
+	if err := s.mergeRolePermissions(userID, roleID, set); err != nil {
+		applyDefaultRolePermissions(set, roleID)
+		applyPermissionImplications(set, nil)
+		return sortedPermissionKeys(set), nil
+	}
+
+	applyPermissionImplications(set, nil)
 	return sortedPermissionKeys(set), nil
 }
 
