@@ -202,7 +202,17 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 
 	externalList, externalTotal := buildExternalFundLinesFromModels(detail.ExternalFunds)
 	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_block}}"] = buildExternalFundBlock(externalList)
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
+
+	// Reward amount and net top-up (A + B - C), mirroring the web summary formula.
+	// Top-up is intentionally NOT clamped: the web "เงินสมทบ (A + B - C)" row shows the
+	// raw difference and can be negative when external funding exceeds the fees.
+	replacements["{{reward_amount}}"] = formatAmount(detail.RewardAmount)
+	replacements["{{net_topup_amount}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee - externalTotal)
+	replacements["{{quartile}}"] = buildQuartileLabel(detail.Quartile)
+	replacements["{{reward_received_note}}"] = buildRewardReceivedNote(detail.HasReceivedReward)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -341,7 +351,30 @@ func buildFormPreviewReplacements(payload *PublicationRewardPreviewFormPayload, 
 
 	externalList, externalTotal := buildExternalFundLinesFromPreview(payload.External)
 	replacements["{{external_fund_list}}"] = externalList
+	replacements["{{external_fund_block}}"] = buildExternalFundBlock(externalList)
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
+	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
+
+	// Reward amount and net top-up (A + B - C), mirroring the web summary formula.
+	// Reward is zeroed when the applicant has already received it, using the SAME helper
+	// the submit path uses (calculatePublicationRequestAmounts) so the preview matches the
+	// generated document exactly and the table foots (reward + net = total). Without this,
+	// the preview showed the raw rate reward while total_amount already excluded it.
+	// enforceRequired=false: preview must render partial/incomplete drafts, not validate them.
+	effectiveReward, _, _ := calculatePublicationRequestAmounts(
+		payload.FormData.HasReceivedReward,
+		parseFormFloat(payload.FormData.PublicationReward),
+		manuscriptAmount,
+		pageChargeAmount,
+		externalTotal,
+		false,
+	)
+	replacements["{{reward_amount}}"] = formatAmount(effectiveReward)
+	replacements["{{reward_received_note}}"] = buildRewardReceivedNote(payload.FormData.HasReceivedReward)
+	// Top-up is intentionally NOT clamped so it matches the web "เงินสมทบ (A + B - C)" row,
+	// which shows the raw difference and can be negative when external funding exceeds the fees.
+	replacements["{{net_topup_amount}}"] = formatAmount(pageChargeAmount + manuscriptAmount - externalTotal)
+	replacements["{{quartile}}"] = buildQuartileLabel(payload.FormData.JournalQuartile)
 
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
@@ -369,10 +402,21 @@ func buildExternalFundLinesFromModels(funds []models.PublicationRewardExternalFu
 			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+		lines = append(lines, fmt.Sprintf("%s: %s บาท", name, amountText))
 	}
 
 	return strings.Join(lines, "\n"), total
+}
+
+// buildExternalFundBlock returns the external fund list prefixed with a line break
+// when non-empty, so the (C) cell renders the label on its own line and each fund on
+// the lines below. When there is no external funding it returns "" so the (C) label
+// stays on a single line with no dangling blank line.
+func buildExternalFundBlock(list string) string {
+	if strings.TrimSpace(list) == "" {
+		return ""
+	}
+	return "\n" + list
 }
 
 func buildExternalFundLinesFromPreview(funds []PublicationRewardPreviewExternal) (string, float64) {
@@ -392,7 +436,7 @@ func buildExternalFundLinesFromPreview(funds []PublicationRewardPreviewExternal)
 			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+		lines = append(lines, fmt.Sprintf("%s: %s บาท", name, amountText))
 	}
 
 	return strings.Join(lines, "\n"), total
@@ -1340,6 +1384,16 @@ func formatAmount(amount float64) string {
 	return result
 }
 
+// formatAmountParen renders an amount in accounting parentheses using its absolute
+// value, e.g. 50000 -> "(50,000.00)". Mirrors the web's formatCurrencyParen helper
+// used for the external funding (C) row.
+func formatAmountParen(amount float64) string {
+	if amount < 0 {
+		amount = -amount
+	}
+	return "(" + formatAmount(amount) + ")"
+}
+
 func buildAuthorRole(authorType string) string {
 	switch strings.ToLower(strings.TrimSpace(authorType)) {
 	case "first_author":
@@ -1349,6 +1403,22 @@ func buildAuthorRole(authorType string) string {
 	default:
 		return ""
 	}
+}
+
+// buildQuartileLabel returns the short quartile code (e.g. "Q1", "T5", "TCI") for
+// use inline in labels such as "เงินรางวัล Q1". Empty input yields an empty string.
+func buildQuartileLabel(quartile string) string {
+	return strings.ToUpper(strings.TrimSpace(quartile))
+}
+
+// buildRewardReceivedNote returns an inline note appended to the reward row label when
+// the applicant has already received the reward, explaining why {{reward_amount}} is
+// 0.00. Empty when they have not, so the normal case shows no extra text.
+func buildRewardReceivedNote(hasReceived bool) string {
+	if hasReceived {
+		return " (เคยขอเงินรางวัลแล้ว)"
+	}
+	return ""
 }
 
 func buildQuartileLine(quartile string) string {
@@ -1372,6 +1442,27 @@ func buildQuartileLine(quartile string) string {
 	}
 }
 
+// generatedFormDocumentCodes are the document-type codes of the files the system
+// auto-creates AFTER submit — the request-form DOCX/PDF and the merged PDF. They must
+// never appear in the "ทั้งนี้ได้แนบ..." evidence list ({{document_line}}). On
+// re-submit of a returned application the previous generated files still exist when the
+// list is built (fetchSubmissionDocuments runs before deletePreviousGeneratedFormDocuments),
+// which is how they leaked into the list for re-submitters.
+var generatedFormDocumentCodes = map[string]struct{}{
+	publicationRewardFormDocumentCode:    {},
+	publicationRewardFormPdfDocumentCode: {},
+	mergedSubmissionDocumentTypeCode:     {},
+}
+
+func isGeneratedFormDocument(doc models.SubmissionDocument) bool {
+	code := strings.TrimSpace(doc.DocumentType.Code)
+	if code == "" {
+		return false
+	}
+	_, ok := generatedFormDocumentCodes[code]
+	return ok
+}
+
 func buildDocumentLine(documents []models.SubmissionDocument) string {
 	if len(documents) == 0 {
 		return ""
@@ -1379,6 +1470,10 @@ func buildDocumentLine(documents []models.SubmissionDocument) string {
 
 	entries := make([]documentAggregationEntry, 0, len(documents))
 	for _, doc := range documents {
+		if isGeneratedFormDocument(doc) {
+			continue
+		}
+
 		name := strings.TrimSpace(doc.DocumentTypeName)
 		if name == "" {
 			name = strings.TrimSpace(doc.DocumentType.DocumentTypeName)
