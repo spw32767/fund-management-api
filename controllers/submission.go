@@ -1733,6 +1733,18 @@ func buildSubmissionPreviewReplacements(submission *models.Submission, detail *m
 	replacements["{{external_fund_list}}"] = externalList
 	replacements["{{external_fund_total}}"] = formatAmount(externalTotal)
 
+	// Redesigned fee-summary table placeholders. These MUST stay in sync with the two
+	// preview builders (handlePublicationRewardPreviewSubmission and
+	// buildFormPreviewReplacements) — this function generates the REAL document at submit,
+	// so a missing key here renders a raw {{placeholder}} in the applicant's file.
+	replacements["{{external_fund_block}}"] = buildExternalFundBlock(externalList)
+	replacements["{{external_fund_total_negative}}"] = formatAmountParen(externalTotal)
+	replacements["{{has_received_reward}}"] = formatPriorRewardStatus(detail.HasReceivedReward)
+	replacements["{{reward_amount}}"] = formatAmount(detail.RewardAmount)
+	replacements["{{net_topup_amount}}"] = formatAmount(detail.PublicationFee + detail.RevisionFee - externalTotal)
+	replacements["{{quartile}}"] = buildQuartileLabel(detail.Quartile)
+	replacements["{{reward_received_note}}"] = buildRewardReceivedNote(detail.HasReceivedReward)
+
 	endOfContractContent, err := fetchEndOfContractContent()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load end of contract content: %w", err)

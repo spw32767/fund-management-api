@@ -14,7 +14,9 @@ import (
 // directory; fillDocxTemplate opens it directly, so no working-directory change is
 // needed (unlike the LibreOffice PDF step, which is intentionally not exercised here
 // so these tests stay hermetic and CI-friendly).
-const newTemplateForTest = "../templates/publication_reward_template_new.docx"
+// The redesigned fee-summary template is now the canonical production file (the old
+// design is kept as publication_reward_template_backup.docx).
+const newTemplateForTest = "../templates/publication_reward_template.docx"
 
 var placeholderPattern = regexp.MustCompile(`\{\{[a-z_]+\}\}`)
 

@@ -91,17 +91,18 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 
 | ไฟล์ | สถานะ |
 |---|---|
-| `publication_reward_template.docx` | **ตัวหลักที่ prod ใช้จริง** (`generatePublicationRewardPDF` hardcode ชื่อนี้) |
-| `publication_reward_template_new.docx` | **ดีไซน์ใหม่** (ตารางสรุป +/-) — ยังไม่ถูกเรียกในโค้ด รอ swap ตอน deploy |
+| `publication_reward_template.docx` | **ตัวหลักที่ prod ใช้จริง = ดีไซน์ใหม่แล้ว** (ตารางสรุป +/-) — code (`generatePublicationRewardPDF`, `renderPublicationRewardDocx`) hardcode ชื่อนี้ |
+| `publication_reward_template_backup.docx` | **ดีไซน์เก่า** เก็บไว้เป็น backup ไม่ถูกเรียกในโค้ด |
 | `publication_reward_template_with_dept.docx` | ของเก่า orphan ไม่ถูกเรียกที่ไหน อย่าแตะ |
 
-### วิธี deploy ดีไซน์ใหม่
-1. backup `publication_reward_template.docx` (เก่า)
-2. rename `publication_reward_template_new.docx` → `publication_reward_template.docx` (ทับ)
-3. rebuild/redeploy `fund-api` (โค้ด Go ที่เพิ่ม placeholder ใหม่)
+### Deploy
+ดีไซน์ใหม่**อยู่ในไฟล์ชื่อ canonical แล้ว** (ทำ rename ใน git ตั้งแต่บน branch) → deploy = **merge branch อย่างเดียว** ไม่ต้อง rename/แตะไฟล์บน server
+- rollback: `git revert` commit rename หรือดึง backup กลับ
+- ต้อง apply migration `038_..._has_received_reward` (ของ main) และมี LibreOffice/fonts/Node บน prod
 
-โค้ดไม่ต้องแก้ path เพราะ `generatePublicationRewardPDF` อ้างชื่อตัวหลักอยู่แล้ว —
-พอ swap ไฟล์ ดีไซน์ใหม่ก็ถูกใช้อัตโนมัติ
+> ⚠️ **placeholder ต้อง sync 3 ที่เสมอ** — เพิ่ม placeholder ในตารางต้องเซ็ตค่าใน builder ทั้ง 3:
+> `handlePublicationRewardPreviewSubmission` + `buildFormPreviewReplacements` (preview.go) และ
+> `buildSubmissionPreviewReplacements` (submission.go = ตัวสร้างไฟล์จริงตอน submit) มิฉะนั้นไฟล์จริงจะมี `{{...}}` ดิบ
 
 ---
 
