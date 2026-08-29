@@ -402,7 +402,7 @@ func buildExternalFundLinesFromModels(funds []models.PublicationRewardExternalFu
 			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+		lines = append(lines, fmt.Sprintf("%s: %s บาท", name, amountText))
 	}
 
 	return strings.Join(lines, "\n"), total
@@ -436,7 +436,7 @@ func buildExternalFundLinesFromPreview(funds []PublicationRewardPreviewExternal)
 			lines = append(lines, fmt.Sprintf("%s บาท", amountText))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s %s บาท", name, amountText))
+		lines = append(lines, fmt.Sprintf("%s: %s บาท", name, amountText))
 	}
 
 	return strings.Join(lines, "\n"), total

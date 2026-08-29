@@ -123,7 +123,7 @@ ghostscript (`gs`) → `pdfunite` ไฟล์ที่ไม่ใช่ PDF �
 | `{{reward_received_note}}` | **หมายเหตุต่อท้าย label เงินรางวัล** = `" (เคยขอเงินรางวัลแล้ว)"` เมื่อเคยขอ, `""` เมื่อไม่เคย → อธิบายว่าทำไม reward = 0.00 | `buildRewardReceivedNote()` จาก HasReceivedReward |
 | `{{manuscript_amount}}` | (A) ค่าปรับปรุงบทความ | RevisionFee |
 | `{{page_charge_amount}}` | (B) ค่าธรรมเนียมตีพิมพ์ | PublicationFee |
-| `{{external_fund_list}}` | รายการทุนภายนอก (หลายบรรทัด, join ด้วย `\n` → `<w:br/>`) | external funds |
+| `{{external_fund_list}}` | รายการทุนภายนอก รูปแบบ `ชื่อ: จำนวน บาท` ต่อบรรทัด (join `\n` → `<w:br/>`) | external funds (`buildExternalFundLines*`) |
 | `{{external_fund_block}}` | **เหมือน list แต่มี `\n` นำหน้าเมื่อมีทุน / เป็น "" เมื่อไม่มี** → ใช้ในเซลล์ (C) ให้ทุนขึ้นบรรทัดใหม่ตอนมี และไม่มีบรรทัดลอยตอนไม่มี | `buildExternalFundBlock()` |
 | `{{external_fund_total}}` | รวมทุนภายนอก (บวก) | sum |
 | `{{external_fund_total_negative}}` | **(C) รวมทุนภายนอกแบบวงเล็บ** เช่น `(50,000.00)` | `formatAmountParen()` |
