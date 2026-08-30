@@ -377,6 +377,7 @@ func GetProfile(c *gin.Context) {
 			"manage_position_en": stringValue(user.ManagePositionEn),
 			"lab_name":           stringValue(user.LabName),
 			"room":               stringValue(user.Room),
+			"date_of_employment": user.DateOfEmployment,
 			"cp_web_id":          stringValue(user.CPWebID),
 			"scopus_id":          stringValue(user.ScopusID),
 			"is_active":          stringValue(user.AccountStatus),
