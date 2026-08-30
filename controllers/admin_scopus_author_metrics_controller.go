@@ -114,48 +114,6 @@ func AdminListAuthorMetricsRuns(c *gin.Context) {
 	})
 }
 
-// GET /api/v1/admin/scopus/author-metrics/hgraph?scopus_id=54683571200&year_from=2011&year_to=2026
-// สร้าง Hirsch h-graph (documents เรียงตาม citations) จาก scopus_documents ที่ ingest ไว้แล้ว
-func AdminGetScopusAuthorHIndexGraph(c *gin.Context) {
-	scopusID := strings.TrimSpace(c.Query("scopus_id"))
-	if scopusID == "" {
-		// fallback: resolve from user_id -> users.scopus_id
-		if uidStr := strings.TrimSpace(c.Query("user_id")); uidStr != "" {
-			if uid, err := strconv.Atoi(uidStr); err == nil && uid > 0 {
-				var u models.User
-				if err := config.DB.Select("Scopus_id").Where("user_id = ?", uid).First(&u).Error; err == nil && u.ScopusID != nil {
-					scopusID = strings.TrimSpace(*u.ScopusID)
-				}
-			}
-		}
-	}
-	if scopusID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing scopus_id or user_id"})
-		return
-	}
-
-	var yearFrom, yearTo *int
-	if v := strings.TrimSpace(c.Query("year_from")); v != "" {
-		if y, err := strconv.Atoi(v); err == nil {
-			yearFrom = &y
-		}
-	}
-	if v := strings.TrimSpace(c.Query("year_to")); v != "" {
-		if y, err := strconv.Atoi(v); err == nil {
-			yearTo = &y
-		}
-	}
-
-	svc := services.NewAuthorHGraphService(nil)
-	graph, err := svc.GetGraph(c.Request.Context(), scopusID, yearFrom, yearTo)
-	if err != nil {
-		InternalError(c, "scopus", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": graph})
-}
-
 // GET /api/v1/admin/scopus/author-metrics/faculty-hgraph?year_from=2011&year_to=2026
 // สร้าง Hirsch h-graph ระดับคณะ (นับเฉพาะผลงานที่สังกัด KKU, dedupe ต่อ document) จาก scopus_documents
 func AdminGetScopusFacultyHIndexGraph(c *gin.Context) {
@@ -369,16 +327,4 @@ func AdminExportScopusFacultyHIndex(c *gin.Context) {
 	if err := f.Write(c.Writer); err != nil {
 		log.Printf("faculty h-index export write failed: %v", err)
 	}
-}
-
-// GET /api/v1/admin/scopus/author-metrics/summary
-// สรุป h-index ของอาจารย์ทุกคน (คำนวณจากเอกสาร + ค่าทางการจาก Author API) สำหรับ export CSV
-func AdminGetAuthorHIndexSummary(c *gin.Context) {
-	svc := services.NewAuthorHGraphService(nil)
-	rows, err := svc.GetAllSummary(c.Request.Context())
-	if err != nil {
-		InternalError(c, "scopus", err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
 }

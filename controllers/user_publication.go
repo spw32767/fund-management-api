@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"fund-management-api/config"
 	"fund-management-api/models"
 	"fund-management-api/services"
 
@@ -283,6 +284,48 @@ func RestoreUserPublication(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// GET /api/v1/teacher/scopus/author-metrics/hgraph?year_from=&year_to=
+// Hirsch h-graph ของผู้ใช้ที่ล็อกอินอยู่เท่านั้น (self-only) — resolve scopus_id จาก auth context
+// ไม่รับ user_id/scopus_id override ใด ๆ เพื่อให้เห็นเฉพาะของตัวเอง
+func GetMyScopusAuthorHIndexGraph(c *gin.Context) {
+	uid, ok := getUserIDFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthenticated"})
+		return
+	}
+
+	var u models.User
+	scopusID := ""
+	if err := config.DB.Select("Scopus_id").Where("user_id = ?", uid).First(&u).Error; err == nil && u.ScopusID != nil {
+		scopusID = strings.TrimSpace(*u.ScopusID)
+	}
+	if scopusID == "" {
+		// ไม่มี Scopus profile — คืน data null ให้ frontend แสดง empty state
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": nil})
+		return
+	}
+
+	var yearFrom, yearTo *int
+	if v := strings.TrimSpace(c.Query("year_from")); v != "" {
+		if y, err := strconv.Atoi(v); err == nil {
+			yearFrom = &y
+		}
+	}
+	if v := strings.TrimSpace(c.Query("year_to")); v != "" {
+		if y, err := strconv.Atoi(v); err == nil {
+			yearTo = &y
+		}
+	}
+
+	svc := services.NewAuthorHGraphService(nil)
+	graph, err := svc.GetGraph(c.Request.Context(), scopusID, yearFrom, yearTo)
+	if err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": graph})
 }
 
 // ------- helpers (same as before) -------
