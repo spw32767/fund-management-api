@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ─── Diff item types ─────────────────────────────────────────────────────────
+//  Diff item types 
 
 type DeleteDiffItem struct {
 	ID        uint
@@ -43,10 +43,10 @@ type TextbookDiffItem struct {
 type PropertyDiffItem struct {
 	models.InstructorIntellectualProperty
 	UpdatedAt time.Time
-	Type      string //ADDED: เพิ่มฟิลด์ Type เพื่อให้ด้านล่างเรียก u.Type ได้ไม่พัง
+	Type      string //ADDED: เพิ่มฟิลด์ Type เพื่อให้ด้านล่างเรียก u.Type ได้
 }
 
-// ─── Interface ───────────────────────────────────────────────────────────────
+//  Interface 
 
 type InstructorService interface {
 	GetFullProfile(ctx context.Context, userID int) (*models.InstructorFullProfile, error)
@@ -65,7 +65,7 @@ type InstructorService interface {
 		courses []models.InstructorCourseResponsibility,
 	) error
 
-	// ➕ ADDED: ประกาศ Method เพิ่มใน Interface เพื่อให้ Controller เรียกใช้ได้
+	//ADDED: ประกาศ Method เพิ่มใน Interface เพื่อให้ Controller เรียกใช้ได้
 	DeleteTextbook(ctx context.Context, editorID int, id uint) error
 	DeleteIntellectualProperty(ctx context.Context, editorID int, id uint) error
 	DeleteResearchProject(ctx context.Context, editorID int, id uint) error
@@ -79,7 +79,7 @@ func NewInstructorService(db *gorm.DB) InstructorService {
 	return &instructorService{db: db}
 }
 
-// ─── GetFullProfile ───────────────────────────────────────────────────────────
+// GetFullProfile
 
 func (s *instructorService) GetFullProfile(ctx context.Context, userID int) (*models.InstructorFullProfile, error) {
 	var fp models.InstructorFullProfile
@@ -119,7 +119,7 @@ func (s *instructorService) GetFullProfile(ctx context.Context, userID int) (*mo
 	return &fp, nil
 }
 
-// ─── UpdateInstructorProfile (self-edit) ─────────────────────────────────────
+//  UpdateInstructorProfile (self-edit) 
 
 func (s *instructorService) UpdateInstructorProfile(ctx context.Context, user models.InstructorFullProfile) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -177,7 +177,7 @@ func (s *instructorService) UpdateInstructorProfile(ctx context.Context, user mo
 	})
 }
 
-// ─── GetInstructorList ────────────────────────────────────────────────────────
+//  GetInstructorList 
 
 func (s *instructorService) GetInstructorList(ctx context.Context) ([]models.InstructorProfileHeader, error) {
 	var list []models.InstructorProfileHeader
@@ -188,7 +188,7 @@ func (s *instructorService) GetInstructorList(ctx context.Context) ([]models.Ins
 	return list, err
 }
 
-// ─── UpdateInstructorByAdmin ──────────────────────────────────────────────────
+//  UpdateInstructorByAdmin 
 
 func (s *instructorService) UpdateInstructorByAdmin(
 	ctx context.Context,

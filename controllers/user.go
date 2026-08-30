@@ -9,22 +9,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetUsers returns list of users for dropdown selection
 func GetUsers(c *gin.Context) {
 	roleID, _ := c.Get("roleID")
 
 	var users []models.User
-	// เพิ่ม Preload("Role") และ Preload("Position") เพื่อดึงข้อมูล relationship
 	query := config.DB.Preload("Role").Preload("Position").
 		Select("user_id, user_fname, user_lname, email, role_id, position_id, prefix").
-		Where("delete_at IS NULL")
+		Where("delete_at IS NULL").
+		Where("is_test = ?", 0) 
 
-	// Filter by role if specified
 	if role := c.Query("role"); role != "" {
 		query = query.Where("role_id = ?", role)
 	}
 
-	// Non-admins can only see teachers
 	if roleID.(int) != 3 {
 		query = query.Where("role_id = ?", 1) // Only teachers
 	}
@@ -39,3 +36,4 @@ func GetUsers(c *gin.Context) {
 		"total": len(users),
 	})
 }
+

@@ -43,17 +43,16 @@ type InstructorExpertiseTab struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
-// 1. ตัวอย่างสำหรับโมเดล Header ให้ไปดึงจากตาราง users
+//ตัวอย่างสำหรับโมเดล Header ให้ไปดึงจากตาราง users
 func (InstructorProfileHeader) TableName() string {
     return "users"
 }
 
-// 2. ตัวอย่างสำหรับโมเดล Education ให้ไปดึงจากตาราง instructor_educations
+//ตัวอย่างสำหรับโมเดล Education ให้ไปดึงจากตาราง instructor_educations
 func (InstructorEducationTab) TableName() string {
     return "instructor_educations"
 }
 
-// 3. ตัวอย่างสำหรับโมเดล Expertise
 func (InstructorExpertiseTab) TableName() string {
     return "instructor_expertises"
 }
