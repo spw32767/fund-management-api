@@ -76,14 +76,32 @@ type ScopusBenchmarkAuthor struct {
 
 func (ScopusBenchmarkAuthor) TableName() string { return "scopus_benchmark_authors" }
 
+// ScopusBenchmarkAffiliation mirrors affiliation metadata inside the isolated
+// benchmark dataset. It must not share rows with the dashboard affiliation table.
+type ScopusBenchmarkAffiliation struct {
+	ID             uint      `gorm:"primaryKey;column:id" json:"id"`
+	Afid           string    `gorm:"column:afid;uniqueIndex" json:"afid"`
+	Name           *string   `gorm:"column:name" json:"name,omitempty"`
+	City           *string   `gorm:"column:city" json:"city,omitempty"`
+	Country        *string   `gorm:"column:country" json:"country,omitempty"`
+	AffiliationURL *string   `gorm:"column:affiliation_url" json:"affiliation_url,omitempty"`
+	CreatedAt      time.Time `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt      time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+func (ScopusBenchmarkAffiliation) TableName() string {
+	return "scopus_benchmark_affiliations"
+}
+
 // ScopusBenchmarkDocumentAuthor links a benchmark document to an author, flagging
 // authors that belong to our faculty (users.scopus_id) so the faculty subset can be derived.
 type ScopusBenchmarkDocumentAuthor struct {
-	ID         uint `gorm:"primaryKey;column:id" json:"id"`
-	DocumentID uint `gorm:"column:document_id" json:"document_id"`
-	AuthorID   uint `gorm:"column:author_id" json:"author_id"`
-	AuthorSeq  *int `gorm:"column:author_seq" json:"author_seq,omitempty"`
-	IsFaculty  bool `gorm:"column:is_faculty" json:"is_faculty"`
+	ID            uint  `gorm:"primaryKey;column:id" json:"id"`
+	DocumentID    uint  `gorm:"column:document_id" json:"document_id"`
+	AuthorID      uint  `gorm:"column:author_id" json:"author_id"`
+	AuthorSeq     *int  `gorm:"column:author_seq" json:"author_seq,omitempty"`
+	AffiliationID *uint `gorm:"column:affiliation_id" json:"affiliation_id,omitempty"`
+	IsFaculty     bool  `gorm:"column:is_faculty" json:"is_faculty"`
 }
 
 func (ScopusBenchmarkDocumentAuthor) TableName() string {

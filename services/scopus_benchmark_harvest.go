@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -18,6 +21,7 @@ const (
 	benchmarkHarvestView         = "COMPLETE"
 	benchmarkPageDelay           = 150 * time.Millisecond
 	benchmarkRateLimitBackoff    = 8 * time.Second
+	benchmarkTransientBackoff    = 2 * time.Second
 	benchmarkMaxRateLimitRetries = 3
 	benchmarkRunFinalizeTimeout  = 10 * time.Second
 )
@@ -174,6 +178,7 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 	}
 
 	cursor := "*"
+	seenEIDs := make(map[string]struct{})
 	for {
 		if s.isCancelRequested(ctx, run.ID) {
 			return errBenchmarkCancelled
@@ -192,10 +197,11 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		summary.PagesFetched++
 
 		for _, raw := range entries {
-			if err := s.upsertBenchmarkEntry(ctx, raw, scope.ID, facultySet, summary); err != nil {
-				log.Printf("scopus benchmark: failed to upsert entry: %v", err)
-				continue
+			eid, err := s.upsertBenchmarkEntry(ctx, raw, scope.ID, facultySet, summary)
+			if err != nil {
+				return fmt.Errorf("upsert benchmark entry: %w", err)
 			}
+			seenEIDs[eid] = struct{}{}
 		}
 
 		// persist progress / resume cursor
@@ -213,10 +219,17 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		cursor = nextCursor
 		time.Sleep(benchmarkPageDelay)
 	}
+	if year != nil {
+		if err := s.reconcileHarvestedScopeYear(ctx, scope.ID, *year, seenEIDs); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// searchPageWithRetry wraps searchPageCursor (cursor-based) with 429 backoff.
+// searchPageWithRetry wraps searchPageCursor with backoff for rate limits and
+// transient network timeouts. A timeout must not invalidate a multi-year run
+// that may already have spent many minutes writing earlier pages.
 func (s *ScopusBenchmarkService) searchPageWithRetry(ctx context.Context, apiKey, query, cursor string) (int, []json.RawMessage, string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= benchmarkMaxRateLimitRetries; attempt++ {
@@ -224,34 +237,46 @@ func (s *ScopusBenchmarkService) searchPageWithRetry(ctx context.Context, apiKey
 		if err == nil {
 			return total, entries, next, nil
 		}
-		if !errors.Is(err, errScopusRateLimited) {
+		rateLimited := errors.Is(err, errScopusRateLimited)
+		if !rateLimited && !isTransientScopusRequestError(err) {
 			return 0, nil, "", err
 		}
 		lastErr = err
-		log.Printf("scopus benchmark: rate limited, backing off (attempt %d)", attempt+1)
+		backoff := benchmarkTransientBackoff
+		if rateLimited {
+			backoff = benchmarkRateLimitBackoff
+		}
+		log.Printf("scopus benchmark: transient request failure, backing off %s (attempt %d): %v", backoff, attempt+1, err)
 		select {
 		case <-ctx.Done():
 			return 0, nil, "", ctx.Err()
-		case <-time.After(benchmarkRateLimitBackoff):
+		case <-time.After(backoff):
 		}
 	}
 	return 0, nil, "", lastErr
 }
 
+func isTransientScopusRequestError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary())
+}
+
 // upsertBenchmarkEntry stores one search entry + its authors + scope membership.
-func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw json.RawMessage, scopeID uint64, facultySet map[string]bool, summary *ScopusBenchmarkHarvestSummary) error {
+func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw json.RawMessage, scopeID uint64, facultySet map[string]bool, summary *ScopusBenchmarkHarvestSummary) (string, error) {
 	entry, err := parseScopusEntry(raw)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if strings.TrimSpace(entry.EID) == "" {
-		return errors.New("entry missing eid")
+		return "", errors.New("entry missing eid")
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		docModel := buildBenchmarkDocument(entry)
-		docModel.RawJSON = cloneJSON(raw)
 		docModel.LastSeenAt = &now
 
 		var existing models.ScopusBenchmarkDocument
@@ -275,7 +300,11 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 		}
 		summary.DocumentsUpserted++
 
-		if err := s.upsertBenchmarkAuthors(tx, entry, existing.ID, facultySet, summary); err != nil {
+		affiliationMap, err := s.upsertBenchmarkAffiliations(tx, entry)
+		if err != nil {
+			return err
+		}
+		if err := s.upsertBenchmarkAuthors(tx, entry, existing.ID, affiliationMap, facultySet, summary); err != nil {
 			return err
 		}
 
@@ -294,14 +323,92 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 			if err := tx.Create(membership).Error; err != nil {
 				return err
 			}
-		} else if existingMember.PubYear == nil && existing.PubYear != nil {
-			tx.Model(&existingMember).Update("pub_year", existing.PubYear)
+		} else if existing.PubYear != nil && (existingMember.PubYear == nil || *existingMember.PubYear != *existing.PubYear) {
+			if err := tx.Model(&existingMember).Update("pub_year", existing.PubYear).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(entry.EID), nil
 }
 
-func (s *ScopusBenchmarkService) upsertBenchmarkAuthors(tx *gorm.DB, entry *scopusEntry, documentID uint, facultySet map[string]bool, summary *ScopusBenchmarkHarvestSummary) error {
+// reconcileHarvestedScopeYear removes only stale scope memberships after a
+// complete, successful year query. Documents and their core Scopus data remain
+// intact, including memberships in other benchmark scopes.
+func (s *ScopusBenchmarkService) reconcileHarvestedScopeYear(ctx context.Context, scopeID uint64, year int, seenEIDs map[string]struct{}) error {
+	query := s.db.WithContext(ctx).
+		Where("scope_id = ? AND pub_year = ?", scopeID, year)
+	if len(seenEIDs) > 0 {
+		eids := make([]string, 0, len(seenEIDs))
+		for eid := range seenEIDs {
+			eids = append(eids, eid)
+		}
+		seenDocumentIDs := s.db.Model(&models.ScopusBenchmarkDocument{}).
+			Select("id").
+			Where("eid IN ?", eids)
+		query = query.Where("document_id NOT IN (?)", seenDocumentIDs)
+	}
+	if err := query.Delete(&models.ScopusBenchmarkDocumentScope{}).Error; err != nil {
+		return fmt.Errorf("reconcile harvested benchmark scope %d year %d: %w", scopeID, year, err)
+	}
+	return nil
+}
+
+func (s *ScopusBenchmarkService) upsertBenchmarkAffiliations(tx *gorm.DB, entry *scopusEntry) (map[string]uint, error) {
+	affiliationMap := make(map[string]uint)
+	for _, affiliation := range entry.Affiliation {
+		afid := strings.TrimSpace(affiliation.Afid)
+		if afid == "" {
+			continue
+		}
+
+		model := &models.ScopusBenchmarkAffiliation{
+			Afid:           afid,
+			Name:           optionalString(affiliation.AffilName),
+			City:           optionalString(affiliation.City),
+			Country:        optionalString(affiliation.Country),
+			AffiliationURL: optionalString(affiliation.URL),
+		}
+		var existing models.ScopusBenchmarkAffiliation
+		found := tx.Where("afid = ?", afid).Limit(1).Find(&existing)
+		if found.Error != nil {
+			return nil, found.Error
+		}
+		if found.RowsAffected == 0 {
+			if err := tx.Create(model).Error; err != nil {
+				return nil, err
+			}
+			existing = *model
+		} else {
+			model.ID = existing.ID
+			model.CreatedAt = existing.CreatedAt
+			if err := tx.Save(model).Error; err != nil {
+				return nil, err
+			}
+			existing = *model
+		}
+		affiliationMap[afid] = existing.ID
+	}
+	return affiliationMap, nil
+}
+
+func benchmarkAuthorAffiliationID(author scopusAuthor, affiliationMap map[string]uint) *uint {
+	firstAfid := strings.TrimSpace(author.Affiliations.First())
+	if firstAfid == "" {
+		return nil
+	}
+	affiliationID, ok := affiliationMap[firstAfid]
+	if !ok {
+		return nil
+	}
+	return &affiliationID
+}
+
+func (s *ScopusBenchmarkService) upsertBenchmarkAuthors(tx *gorm.DB, entry *scopusEntry, documentID uint, affiliationMap map[string]uint, facultySet map[string]bool, summary *ScopusBenchmarkHarvestSummary) error {
 	for idx, author := range entry.Author {
 		authID := normalizeScopusID(author.AuthID)
 		if authID == "" {
@@ -341,10 +448,11 @@ func (s *ScopusBenchmarkService) upsertBenchmarkAuthors(tx *gorm.DB, entry *scop
 		}
 		seq := idx + 1
 		link := &models.ScopusBenchmarkDocumentAuthor{
-			DocumentID: documentID,
-			AuthorID:   existing.ID,
-			AuthorSeq:  &seq,
-			IsFaculty:  isFaculty,
+			DocumentID:    documentID,
+			AuthorID:      existing.ID,
+			AuthorSeq:     &seq,
+			AffiliationID: benchmarkAuthorAffiliationID(author, affiliationMap),
+			IsFaculty:     isFaculty,
 		}
 		var existingLink models.ScopusBenchmarkDocumentAuthor
 		lfound := tx.Where("document_id = ? AND author_id = ?", documentID, existing.ID).Limit(1).Find(&existingLink)
