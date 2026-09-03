@@ -427,3 +427,39 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 		},
 	})
 }
+
+// GET /api/v1/admin/scopus/benchmark/insights?year=2026
+func AdminGetBenchmarkInsights(c *gin.Context) {
+	year, err := strconv.Atoi(strings.TrimSpace(c.Query("year")))
+	if err != nil || year < 1900 || year > time.Now().Year()+1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid year"})
+		return
+	}
+
+	data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkInsightsForYear(c.Request.Context(), year)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+// GET /api/v1/admin/scopus/benchmark/top-journals?limit=8
+func AdminGetBenchmarkTopJournals(c *gin.Context) {
+	limit := 8
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "limit must be between 1 and 50"})
+			return
+		}
+		limit = parsed
+	}
+
+	data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkTopJournals(c.Request.Context(), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}

@@ -640,6 +640,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/scopus/benchmark/runs", controllers.AdminListBenchmarkRuns)
 				admin.POST("/scopus/benchmark/runs/:id/cancel", controllers.AdminCancelBenchmarkRun)
 				admin.GET("/scopus/benchmark/comparison", controllers.AdminGetBenchmarkComparison)
+				admin.GET("/scopus/benchmark/insights", controllers.AdminGetBenchmarkInsights)
+				admin.GET("/scopus/benchmark/top-journals", controllers.AdminGetBenchmarkTopJournals)
 				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
 				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
 				admin.GET("/scopus/import/jobs", controllers.AdminListScopusAPIImportJobs)
