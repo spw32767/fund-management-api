@@ -10,7 +10,7 @@ import (
 )
 
 var insightColumns = []string{
-	"docs", "oa_pct", "intl_pct", "avg_cite", "q1", "q2", "q3", "q4", "unclassified", "article", "conference", "other",
+	"docs", "oa_pct", "intl_pct", "avg_cite", "t1", "q1", "q2", "q3", "q4", "article", "conference", "other",
 }
 
 func TestBenchmarkInsightQueryUsesDocumentLevelRules(t *testing.T) {
@@ -24,6 +24,8 @@ func TestBenchmarkInsightQueryUsesDocumentLevelRules(t *testing.T) {
 		"scopus_source_metrics AS m",
 		"MAX(latest_m.metric_year)",
 		"conference paper",
+		"m.cite_score_percentile >= 90 AND m.cite_score_percentile <= 100",
+		"m.cite_score_percentile < 90",
 	}
 	for _, fragment := range required {
 		if !strings.Contains(query, fragment) {
@@ -50,12 +52,12 @@ func TestBenchmarkInsightsForYearBuildsCoverageAndUnavailableLevel(t *testing.T)
 		{
 			kind: kindQuery, pattern: regexp.MustCompile(`(?s)SELECT.*bds\.scope_id = \? AND bds\.pub_year = \?.*faculty_da\.is_faculty = 1`),
 			args: []driver.Value{int64(1), int64(2026)}, columns: insightColumns,
-			rows: [][]driver.Value{{int64(59), float64(53), float64(53), float64(0.83), int64(27), int64(8), int64(2), int64(13), int64(9), int64(37), int64(12), int64(10)}},
+			rows: [][]driver.Value{{int64(59), float64(53), float64(53), float64(0.83), int64(10), int64(17), int64(8), int64(2), int64(13), int64(37), int64(12), int64(10)}},
 		},
 		{
 			kind: kindQuery, pattern: regexp.MustCompile(`(?s)SELECT.*scopus_benchmark_document_scopes.*bds\.scope_id = \? AND bds\.pub_year = \?`),
 			args: []driver.Value{int64(1), int64(2026)}, columns: insightColumns,
-			rows: [][]driver.Value{{int64(221), float64(57), float64(39), float64(1.25), int64(90), int64(31), int64(18), int64(47), int64(35), int64(140), int64(51), int64(30)}},
+			rows: [][]driver.Value{{int64(221), float64(57), float64(39), float64(1.25), int64(20), int64(70), int64(31), int64(18), int64(47), int64(140), int64(51), int64(30)}},
 		},
 		{
 			kind: kindQuery, pattern: regexp.MustCompile(`(?s)SELECT.*scopus_benchmark_document_scopes.*bds\.scope_id = \? AND bds\.pub_year = \?`),

@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
-// BenchmarkQuartileBreakdown groups benchmark documents by their latest
-// available CiteScore quartile.
+// BenchmarkQuartileBreakdown groups benchmark documents by their journal tier,
+// using the same rule as the Scopus dashboard: conference proceedings sit outside
+// the tiers, a CiteScore percentile of 90–100 is T1, otherwise the CiteScore
+// quartile applies. T1 is carved out of Q1 so a paper is never counted in both.
 type BenchmarkQuartileBreakdown struct {
+	T1           int `json:"t1"`
 	Q1           int `json:"q1"`
 	Q2           int `json:"q2"`
 	Q3           int `json:"q3"`
@@ -71,11 +74,11 @@ type benchmarkInsightRow struct {
 	OAPct        float64 `gorm:"column:oa_pct"`
 	IntlPct      float64 `gorm:"column:intl_pct"`
 	AvgCite      float64 `gorm:"column:avg_cite"`
+	T1           int     `gorm:"column:t1"`
 	Q1           int     `gorm:"column:q1"`
 	Q2           int     `gorm:"column:q2"`
 	Q3           int     `gorm:"column:q3"`
 	Q4           int     `gorm:"column:q4"`
-	Unclassified int     `gorm:"column:unclassified"`
 	Article      int     `gorm:"column:article"`
 	Conference   int     `gorm:"column:conference"`
 	Other        int     `gorm:"column:other"`
@@ -106,11 +109,20 @@ func benchmarkInsightQuery(facultyOnly bool) string {
 				  AND LOWER(TRIM(intl_a.country)) <> 'thailand'
 			) THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2), 0) AS intl_pct,
 			COALESCE(ROUND(AVG(d.citedby_count), 2), 0) AS avg_cite,
-			SUM(CASE WHEN UPPER(TRIM(m.cite_score_quartile)) = 'Q1' THEN 1 ELSE 0 END) AS q1,
-			SUM(CASE WHEN UPPER(TRIM(m.cite_score_quartile)) = 'Q2' THEN 1 ELSE 0 END) AS q2,
-			SUM(CASE WHEN UPPER(TRIM(m.cite_score_quartile)) = 'Q3' THEN 1 ELSE 0 END) AS q3,
-			SUM(CASE WHEN UPPER(TRIM(m.cite_score_quartile)) = 'Q4' THEN 1 ELSE 0 END) AS q4,
-			SUM(CASE WHEN UPPER(TRIM(COALESCE(m.cite_score_quartile, ''))) NOT IN ('Q1', 'Q2', 'Q3', 'Q4') THEN 1 ELSE 0 END) AS unclassified,
+			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.aggregation_type, ''))) <> 'conference proceeding'
+				AND m.cite_score_percentile >= 90 AND m.cite_score_percentile <= 100 THEN 1 ELSE 0 END) AS t1,
+			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.aggregation_type, ''))) <> 'conference proceeding'
+				AND UPPER(TRIM(m.cite_score_quartile)) = 'Q1'
+				AND (m.cite_score_percentile IS NULL OR m.cite_score_percentile < 90) THEN 1 ELSE 0 END) AS q1,
+			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.aggregation_type, ''))) <> 'conference proceeding'
+				AND UPPER(TRIM(m.cite_score_quartile)) = 'Q2'
+				AND (m.cite_score_percentile IS NULL OR m.cite_score_percentile < 90) THEN 1 ELSE 0 END) AS q2,
+			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.aggregation_type, ''))) <> 'conference proceeding'
+				AND UPPER(TRIM(m.cite_score_quartile)) = 'Q3'
+				AND (m.cite_score_percentile IS NULL OR m.cite_score_percentile < 90) THEN 1 ELSE 0 END) AS q3,
+			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.aggregation_type, ''))) <> 'conference proceeding'
+				AND UPPER(TRIM(m.cite_score_quartile)) = 'Q4'
+				AND (m.cite_score_percentile IS NULL OR m.cite_score_percentile < 90) THEN 1 ELSE 0 END) AS q4,
 			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.subtype_description, ''))) = 'article' THEN 1 ELSE 0 END) AS article,
 			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.subtype_description, ''))) = 'conference paper' THEN 1 ELSE 0 END) AS conference,
 			SUM(CASE WHEN LOWER(TRIM(COALESCE(d.subtype_description, ''))) NOT IN ('article', 'conference paper') THEN 1 ELSE 0 END) AS other
@@ -142,7 +154,9 @@ func (s *ScopusBenchmarkService) benchmarkInsightLevel(ctx context.Context, scop
 		IntlPct:   row.IntlPct,
 		AvgCite:   row.AvgCite,
 		Quartile: BenchmarkQuartileBreakdown{
-			Q1: row.Q1, Q2: row.Q2, Q3: row.Q3, Q4: row.Q4, Unclassified: row.Unclassified,
+			T1: row.T1, Q1: row.Q1, Q2: row.Q2, Q3: row.Q3, Q4: row.Q4,
+			// Everything with no journal tier (conference proceedings or no CiteScore).
+			Unclassified: row.Docs - (row.T1 + row.Q1 + row.Q2 + row.Q3 + row.Q4),
 		},
 		DocTypes: BenchmarkDocumentTypes{
 			Article: row.Article, Conference: row.Conference, Other: row.Other,
@@ -173,7 +187,7 @@ func (s *ScopusBenchmarkService) BenchmarkInsightsForYear(ctx context.Context, y
 		}
 		result.Levels[definition.name] = level
 		if level.Available {
-			classified := level.Quartile.Q1 + level.Quartile.Q2 + level.Quartile.Q3 + level.Quartile.Q4
+			classified := level.Quartile.T1 + level.Quartile.Q1 + level.Quartile.Q2 + level.Quartile.Q3 + level.Quartile.Q4
 			result.Coverage.Classified += classified
 			result.Coverage.Total += level.Docs
 		}
