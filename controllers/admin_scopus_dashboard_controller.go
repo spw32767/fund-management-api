@@ -245,6 +245,13 @@ func (f scopusDashboardFilters) includeTCI() bool {
 	return false
 }
 
+// scopusNormalizeThaiNameExpr คืน SQL expression ที่ยุบช่องว่างซ้อนให้เหลือช่องเดียว + trim
+// ใช้ตอน query (read-time) เพื่อจับคู่ชื่อไทยของอาจารย์กับ ThaiJO ให้ทนต่อช่องว่างไม่สม่ำเสมอ
+// โดยไม่แก้ข้อมูลจริงในตาราง (รองรับ MariaDB 10.0.5+ / MySQL 8+)
+func scopusNormalizeThaiNameExpr(col string) string {
+	return "TRIM(REGEXP_REPLACE(" + col + ", '[[:space:]]+', ' '))"
+}
+
 func (f scopusDashboardFilters) cacheKey() string {
 	aggregationTypes := append([]string(nil), f.AggregationTypes...)
 	qualityBuckets := append([]string(nil), f.QualityBuckets...)
@@ -604,7 +611,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 func AdminGetScopusDashboardSummary(c *gin.Context) {
 	filters := parseScopusDashboardFilters(c)
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
-	cacheKey := "scopus_dashboard_summary_v10:" + filters.cacheKey()
+	cacheKey := "scopus_dashboard_summary_v11:" + filters.cacheKey()
 
 	if !forceRefresh {
 		if cached, ok := readScopusDashboardCache(cacheKey); ok {
@@ -1130,30 +1137,51 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			tciOnlyUsers := make([]tciPersonRow, 0)
 			if filters.includeTCI() {
 				tciPersonRows := make([]tciPersonRow, 0)
-				tciPersonQuery := config.DB.Table("users AS u").
-					Select(`
-						u.user_id AS user_id,
-						TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) AS user_name,
-						COALESCE(NULLIF(TRIM(u.email), ''), '-') AS user_email,
-						COALESCE(NULLIF(TRIM(u.scopus_id), ''), '-') AS user_scopus_id,
-						COUNT(DISTINCT td.id) AS tci_count,
-						COALESCE(MIN(td.year), 0) AS first_year_ce,
-						COALESCE(MAX(td.year), 0) AS latest_year_ce
-					`).
-					Joins("JOIN thaijo_authors ta ON CONCAT(u.user_fname, ' ', u.user_lname) = ta.full_name_th").
-					Joins("JOIN thaijo_document_authors tda ON tda.author_id = ta.id").
-					Joins("JOIN thaijo_documents td ON td.id = tda.document_id").
-					Where("u.delete_at IS NULL AND u.is_test = 0").
-					Where("td.year IS NOT NULL AND td.year > 0").
-					Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
+				// จับคู่ชื่อแบบ normalize (ยุบช่องว่างซ้อน) + รวมผู้แต่งแบบ name-only (tda.name_th)
+				// รวมคู่ (user, document) จาก 2 ทางด้วย UNION แล้วค่อย group เป็นจำนวนต่อคน
+				normUserExpr := scopusNormalizeThaiNameExpr("CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))")
+				userNameSel := "TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) AS user_name"
+				userEmailSel := "COALESCE(NULLIF(TRIM(u.email), ''), '-') AS user_email"
+				userScopusSel := "COALESCE(NULLIF(TRIM(u.scopus_id), ''), '-') AS user_scopus_id"
+
+				tciYearCond := ""
+				tciArgs := []interface{}{}
 				if filters.YearStartCE != nil {
-					tciPersonQuery = tciPersonQuery.Where("td.year >= ?", *filters.YearStartCE)
+					tciYearCond += " AND td.year >= ?"
+					tciArgs = append(tciArgs, *filters.YearStartCE)
 				}
 				if filters.YearEndCE != nil {
-					tciPersonQuery = tciPersonQuery.Where("td.year <= ?", *filters.YearEndCE)
+					tciYearCond += " AND td.year <= ?"
+					tciArgs = append(tciArgs, *filters.YearEndCE)
 				}
-				tciPersonQuery = tciPersonQuery.Group("u.user_id, user_name, user_email, user_scopus_id")
-				if err := tciPersonQuery.Find(&tciPersonRows).Error; err == nil {
+
+				tciPersonSQL := `
+					SELECT
+						p.user_id AS user_id,
+						MAX(p.user_name) AS user_name,
+						MAX(p.user_email) AS user_email,
+						MAX(p.user_scopus_id) AS user_scopus_id,
+						COUNT(DISTINCT p.document_id) AS tci_count,
+						COALESCE(MIN(td.year), 0) AS first_year_ce,
+						COALESCE(MAX(td.year), 0) AS latest_year_ce
+					FROM (
+						SELECT u.user_id AS user_id, ` + userNameSel + `, ` + userEmailSel + `, ` + userScopusSel + `, tda.document_id AS document_id
+						FROM users u
+						JOIN thaijo_authors ta ON ` + normUserExpr + ` = ` + scopusNormalizeThaiNameExpr("ta.full_name_th") + `
+						JOIN thaijo_document_authors tda ON tda.author_id = ta.id
+						WHERE u.delete_at IS NULL AND u.is_test = 0 AND ta.full_name_th IS NOT NULL AND TRIM(ta.full_name_th) <> ''
+						UNION
+						SELECT u.user_id AS user_id, ` + userNameSel + `, ` + userEmailSel + `, ` + userScopusSel + `, tda.document_id AS document_id
+						FROM users u
+						JOIN thaijo_document_authors tda ON ` + normUserExpr + ` = ` + scopusNormalizeThaiNameExpr("tda.name_th") + `
+						WHERE u.delete_at IS NULL AND u.is_test = 0 AND tda.name_th IS NOT NULL AND TRIM(tda.name_th) <> ''
+					) AS p
+					JOIN thaijo_documents td ON td.id = p.document_id
+						AND td.year IS NOT NULL AND td.year > 0
+						AND EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)` + tciYearCond + `
+					GROUP BY p.user_id`
+
+				if err := config.DB.Raw(tciPersonSQL, tciArgs...).Scan(&tciPersonRows).Error; err == nil {
 					for _, r := range tciPersonRows {
 						if r.TCICount <= 0 {
 							continue
@@ -1584,16 +1612,27 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 		// อาจารย์ในคณะ: จับคู่ผู้แต่ง ThaiJO กับ users ด้วยชื่อไทยเต็ม (full_name_th)
 		// ใช้วิธีเดียวกับ services/instructor_research.go เพราะคอลัมน์ users.thaijo_author_id
 		// แทบไม่ถูก populate (การ join ด้วย thaijo_author_id จึงคืนค่าว่างเป็น "-")
+		// จับคู่ชื่ออาจารย์แบบ normalize (ยุบช่องว่างซ้อน) ตอน query — ไม่แก้ข้อมูลจริง
+		// รวม 2 ทาง: ผู้แต่งที่ track ไว้ (thaijo_authors.full_name_th) + ผู้แต่งแบบ name-only (tda.name_th)
+		// ใช้ EXISTS (correlate กับ td.id) แทน derived table เพราะ MySQL/MariaDB ไม่อนุญาต
+		// correlation ข้ามชั้นเข้าไปใน subquery ที่อยู่ใน FROM
+		normUserOwner := scopusNormalizeThaiNameExpr("CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))")
 		ownersSubquery := `(
 			SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) SEPARATOR ', ')
-			FROM thaijo_document_authors tda
-			JOIN thaijo_authors ta ON ta.id = tda.author_id
-			JOIN users u ON CONCAT(u.user_fname, ' ', u.user_lname) = ta.full_name_th
-			WHERE tda.document_id = td.id
-			  AND u.delete_at IS NULL
-			  AND u.is_test = 0
-			  AND ta.full_name_th IS NOT NULL
-			  AND TRIM(ta.full_name_th) <> ''
+			FROM users u
+			WHERE u.delete_at IS NULL AND u.is_test = 0 AND (
+				EXISTS (
+					SELECT 1 FROM thaijo_document_authors tda
+					JOIN thaijo_authors ta ON ta.id = tda.author_id
+					WHERE tda.document_id = td.id AND ta.full_name_th IS NOT NULL AND TRIM(ta.full_name_th) <> ''
+					  AND ` + normUserOwner + ` = ` + scopusNormalizeThaiNameExpr("ta.full_name_th") + `
+				)
+				OR EXISTS (
+					SELECT 1 FROM thaijo_document_authors tda
+					WHERE tda.document_id = td.id AND tda.name_th IS NOT NULL AND TRIM(tda.name_th) <> ''
+					  AND ` + normUserOwner + ` = ` + scopusNormalizeThaiNameExpr("tda.name_th") + `
+				)
+			)
 		) AS owners_in_system`
 
 		journalNameSub := `(
