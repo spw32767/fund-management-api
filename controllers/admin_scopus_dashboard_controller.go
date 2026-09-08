@@ -579,7 +579,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 func AdminGetScopusDashboardSummary(c *gin.Context) {
 	filters := parseScopusDashboardFilters(c)
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
-	cacheKey := "scopus_dashboard_summary_v8:" + filters.cacheKey()
+	cacheKey := "scopus_dashboard_summary_v9:" + filters.cacheKey()
 
 	if !forceRefresh {
 		if cached, ok := readScopusDashboardCache(cacheKey); ok {
@@ -771,36 +771,34 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 		}
 	}
 
+	// TCI นับจากผลงานตีพิมพ์จริงใน ThaiJO (thaijo_documents) เฉพาะบทความที่ตีพิมพ์
+	// ในวารสารที่มี TCI tier (thaijo_journals.tier IS NOT NULL) และอิง "ปีที่ตีพิมพ์"
+	// ให้ตรงหลักเดียวกับ Q1-Q4 แทนการอิงวันยื่นคำร้องขอรางวัลจาก publication_reward_details แบบเดิม
 	tciRows := make([]struct {
-		SubmittedYearCE  int `gorm:"column:submitted_year_ce"`
-		SubmittedMonthCE int `gorm:"column:submitted_month_ce"`
-		Total            int `gorm:"column:total"`
+		PublicationYearCE  int `gorm:"column:publication_year_ce"`
+		PublicationMonthCE int `gorm:"column:publication_month_ce"`
+		Total              int `gorm:"column:total"`
 	}, 0)
-	tciQuery := config.DB.Table("publication_reward_details AS prd").
-		Select("YEAR(s.submitted_at) AS submitted_year_ce, MONTH(s.submitted_at) AS submitted_month_ce, COUNT(DISTINCT s.submission_id) AS total").
-		Joins("JOIN submissions AS s ON s.submission_id = prd.submission_id").
-		Where("prd.delete_at IS NULL").
-		Where("s.deleted_at IS NULL").
-		Where("s.submission_type = ?", "publication_reward").
-		Where("s.submitted_at IS NOT NULL").
-		Where("s.status_id <> ?", 5).
-		Where("UPPER(TRIM(prd.quartile)) = ?", "TCI")
+	tciQuery := config.DB.Table("thaijo_documents AS td").
+		Select("td.year AS publication_year_ce, MONTH(td.date_published) AS publication_month_ce, COUNT(DISTINCT td.id) AS total").
+		Where("td.year IS NOT NULL AND td.year > 0").
+		Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
 	if filters.YearStartCE != nil {
-		tciQuery = tciQuery.Where("YEAR(s.submitted_at) >= ?", *filters.YearStartCE)
+		tciQuery = tciQuery.Where("td.year >= ?", *filters.YearStartCE)
 	}
 	if filters.YearEndCE != nil {
-		tciQuery = tciQuery.Where("YEAR(s.submitted_at) <= ?", *filters.YearEndCE)
+		tciQuery = tciQuery.Where("td.year <= ?", *filters.YearEndCE)
 	}
-	tciQuery = tciQuery.Group("YEAR(s.submitted_at), MONTH(s.submitted_at)")
+	tciQuery = tciQuery.Group("td.year, MONTH(td.date_published)")
 	if err := tciQuery.Find(&tciRows).Error; err == nil {
 		for _, row := range tciRows {
-			if row.SubmittedYearCE <= 0 || row.Total <= 0 {
+			if row.PublicationYearCE <= 0 || row.Total <= 0 {
 				continue
 			}
 
-			yearBE := row.SubmittedYearCE + 543
+			yearBE := row.PublicationYearCE + 543
 			fiscalYearBE := yearBE
-			if row.SubmittedMonthCE >= 10 {
+			if row.PublicationMonthCE >= 10 {
 				fiscalYearBE = yearBE + 1
 			}
 
@@ -1412,7 +1410,7 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 	bucket := strings.ToLower(strings.TrimSpace(c.Query("bucket")))
 	allowedBuckets := map[string]struct{}{
 		"t1": {}, "q1": {}, "q2": {}, "q3": {}, "q4": {}, "na": {},
-		"journal": {}, "conference": {}, "total": {},
+		"journal": {}, "conference": {}, "total": {}, "tci": {},
 	}
 	if _, ok := allowedBuckets[bucket]; !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid bucket"})
@@ -1429,6 +1427,126 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 	}
 	if pageSize > 200 {
 		pageSize = 200
+	}
+
+	// ── TCI (ThaiJO) : สาขาแยกอิสระ ─────────────────────────────────────────
+	// TCI ไม่ได้อยู่ในชุดข้อมูล Scopus จึง drilldown จาก thaijo_documents โดยเฉพาะ
+	// แล้ว return ทันที เพื่อไม่ให้ไปแตะ logic/ตัวกรองของฝั่ง Scopus เลย (กันผลกระทบ)
+	if bucket == "tci" {
+		buildTCIBase := func() *gorm.DB {
+			q := config.DB.Table("thaijo_documents AS td").
+				Where("td.year IS NOT NULL AND td.year > 0").
+				Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
+
+			// เงื่อนไขปีให้ตรงกับการนับ TCI ใน AdminGetScopusDashboardSummary
+			if yearType == "fiscal" {
+				q = q.Where(
+					"((MONTH(td.date_published) >= 10 AND td.year = ?) OR ((MONTH(td.date_published) IS NULL OR MONTH(td.date_published) < 10) AND td.year = ?))",
+					yearCE-1, yearCE,
+				)
+			} else {
+				q = q.Where("td.year = ?", yearCE)
+			}
+			return q
+		}
+
+		var total int64
+		if err := buildTCIBase().Distinct("td.id").Count(&total).Error; err != nil {
+			InternalError(c, "scopus_dashboard", err)
+			return
+		}
+
+		// อาจารย์ในคณะ: จับคู่ผู้แต่ง ThaiJO กับ users ด้วยชื่อไทยเต็ม (full_name_th)
+		// ใช้วิธีเดียวกับ services/instructor_research.go เพราะคอลัมน์ users.thaijo_author_id
+		// แทบไม่ถูก populate (การ join ด้วย thaijo_author_id จึงคืนค่าว่างเป็น "-")
+		ownersSubquery := `(
+			SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) SEPARATOR ', ')
+			FROM thaijo_document_authors tda
+			JOIN thaijo_authors ta ON ta.id = tda.author_id
+			JOIN users u ON CONCAT(u.user_fname, ' ', u.user_lname) = ta.full_name_th
+			WHERE tda.document_id = td.id
+			  AND u.delete_at IS NULL
+			  AND u.is_test = 0
+			  AND ta.full_name_th IS NOT NULL
+			  AND TRIM(ta.full_name_th) <> ''
+		) AS owners_in_system`
+
+		journalNameSub := `(
+			SELECT COALESCE(NULLIF(TRIM(tj.name_th), ''), NULLIF(TRIM(tj.name_en), ''), 'TCI')
+			FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id LIMIT 1
+		) AS aggregation_type`
+
+		rows := make([]scopusDrilldownRow, 0)
+		dataQuery := buildTCIBase().
+			Select(`
+				td.id AS document_id,
+				COALESCE(NULLIF(TRIM(td.title_th), ''), NULLIF(TRIM(td.title_en), ''), '-') AS title,
+				` + ownersSubquery + `,
+				td.year AS publication_year_ce,
+				MONTH(td.date_published) AS publication_month_ce,
+				'TCI' AS quartile,
+				` + journalNameSub + `
+			`).
+			Group("td.id").
+			Order("td.year DESC, td.id DESC").
+			Limit(pageSize).
+			Offset((page - 1) * pageSize)
+
+		if err := dataQuery.Find(&rows).Error; err != nil {
+			InternalError(c, "scopus_dashboard", err)
+			return
+		}
+
+		rowsPayload := make([]map[string]interface{}, 0, len(rows))
+		for _, row := range rows {
+			var publicationYearBE *int
+			if row.PublicationYearCE != nil && *row.PublicationYearCE > 0 {
+				be := *row.PublicationYearCE + 543
+				publicationYearBE = &be
+			}
+
+			owners := "-"
+			if row.OwnersInSystem != nil && strings.TrimSpace(*row.OwnersInSystem) != "" {
+				owners = strings.TrimSpace(*row.OwnersInSystem)
+			}
+
+			aggType := strings.TrimSpace(row.AggregationType)
+			if aggType == "" {
+				aggType = "TCI"
+			}
+
+			rowsPayload = append(rowsPayload, map[string]interface{}{
+				"document_id":          row.DocumentID,
+				"title":                row.Title,
+				"owners_in_system":     owners,
+				"publication_year_be":  publicationYearBE,
+				"aggregation_type":     aggType,
+				"quartile":             "TCI",
+				"metric_year_selected": nil,
+				"metric_status":        "-",
+				"metric_pick_reason":   "ผลงานตีพิมพ์ในวารสาร TCI (ThaiJO)",
+			})
+		}
+
+		totalPages := 1
+		if total > 0 {
+			totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": map[string]interface{}{
+				"year_type":   yearType,
+				"year_be":     yearBE,
+				"bucket":      bucket,
+				"rows":        rowsPayload,
+				"total":       total,
+				"page":        page,
+				"page_size":   pageSize,
+				"total_pages": totalPages,
+			},
+		})
+		return
 	}
 
 	pubYearExpr := scopusPublicationYearExpr()
