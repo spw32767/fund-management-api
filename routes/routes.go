@@ -562,6 +562,8 @@ func SetupRoutes(router *gin.Engine) {
 				"ui.page.admin.import_export.view",
 				"ui.page.admin.academic_imports.view",
 				"ui.page.admin.access_control.view",
+				"users.view",
+				"users.manage",
 			))
 			{
 				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
@@ -588,6 +590,14 @@ func SetupRoutes(router *gin.Engine) {
 					accessControl.GET("/users/:id/overrides", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserPermissionOverrides)
 					accessControl.PUT("/users/:id/overrides", middleware.RequirePermission("access.manage"), controllers.AdminUpdateUserPermissionOverrides)
 					accessControl.GET("/users/:id/effective", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetUserEffectivePermissions)
+				}
+
+				userManagement := admin.Group("/users")
+				{
+					userManagement.GET("", middleware.RequirePermission("users.view", "users.manage"), controllers.AdminListManagedUsers)
+					userManagement.GET("/options", middleware.RequirePermission("users.view", "users.manage"), controllers.AdminGetManagedUserOptions)
+					userManagement.POST("", middleware.RequirePermission("users.manage"), controllers.AdminCreateManagedUser)
+					userManagement.PUT("/:id", middleware.RequirePermission("users.manage"), controllers.AdminUpdateManagedUser)
 				}
 
 				// External API client & key management (guarded by api.clients.manage)

@@ -322,6 +322,9 @@ func sendPasswordResetEmail(user models.User, rawToken string) error {
 		notifyEmail = strings.TrimSpace(*user.EmailNotification)
 	}
 	if notifyEmail == "" {
+		notifyEmail = strings.TrimSpace(user.Email)
+	}
+	if notifyEmail == "" {
 		return nil
 	}
 

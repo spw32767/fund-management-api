@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -183,7 +183,7 @@ func newScriptedGormDB(t *testing.T, steps []*queryStep) (*gorm.DB, *scriptedDB,
 	t.Helper()
 
 	state := &scriptedDB{steps: steps}
-	driverName := fmt.Sprintf("scripted_controller_%d", time.Now().UnixNano())
+	driverName := fmt.Sprintf("scripted_controller_%d", atomic.AddUint64(&scriptedDriverSequence, 1))
 	sql.Register(driverName, &scriptedDriver{db: state})
 
 	sqlDB, err := sql.Open(driverName, "")
@@ -203,6 +203,8 @@ func newScriptedGormDB(t *testing.T, steps []*queryStep) (*gorm.DB, *scriptedDB,
 	cleanup := func() { _ = sqlDB.Close() }
 	return gormDB, state, cleanup
 }
+
+var scriptedDriverSequence uint64
 
 type stubSSOClient struct {
 	result *services.SSOExchangeResult
@@ -247,8 +249,8 @@ func TestSSOCallbackRejectsUnknownUser(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
-			args:    []driver.Value{"new.teacher@kku.ac.th"},
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT \?`),
+			args:    []driver.Value{"new.teacher@kku.ac.th", int64(1)},
 			columns: []string{"user_id"},
 			rows:    [][]driver.Value{},
 		},
@@ -303,15 +305,15 @@ func TestSSOCallbackMergesExistingUserByEmail(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
-			args:    []driver.Value{"existing.user@kku.ac.th"},
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT \?`),
+			args:    []driver.Value{"existing.user@kku.ac.th", int64(1)},
 			columns: []string{"user_id", "email", "role_id", "delete_at"},
 			rows:    [][]driver.Value{{int64(7), "existing.user@kku.ac.th", int64(2), nil}},
 		},
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*auth_identities.*provider = \?.*provider_subject = \?.*LIMIT 1`),
-			args:    []driver.Value{services.DefaultSSOProvider, "immutable-existing"},
+			pattern: regexp.MustCompile(`SELECT .* FROM .*auth_identities.*provider = \?.*provider_subject = \?.*LIMIT \?`),
+			args:    []driver.Value{services.DefaultSSOProvider, "immutable-existing", int64(1)},
 			columns: []string{"identity_id"},
 			rows:    [][]driver.Value{},
 		},
@@ -324,6 +326,16 @@ func TestSSOCallbackMergesExistingUserByEmail(t *testing.T) {
 			kind:    stepExec,
 			pattern: regexp.MustCompile(`UPDATE .*users.*last_login_at`),
 			result:  scriptedResult{rowsAffected: 1},
+		},
+		{
+			kind:    stepExec,
+			pattern: regexp.MustCompile(`INSERT INTO .*user_sessions`),
+			result:  scriptedResult{lastInsertID: 1, rowsAffected: 1},
+		},
+		{
+			kind:    stepExec,
+			pattern: regexp.MustCompile(`INSERT INTO .*user_tokens`),
+			result:  scriptedResult{lastInsertID: 1, rowsAffected: 1},
 		},
 	}
 
@@ -366,8 +378,8 @@ func TestSSOCallbackRejectsSoftDeletedUser(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT 1`),
-			args:    []driver.Value{"soft.deleted@kku.ac.th"},
+			pattern: regexp.MustCompile(`SELECT .* FROM .*users.*email = \?.*delete_at IS NULL.*LIMIT \?`),
+			args:    []driver.Value{"soft.deleted@kku.ac.th", int64(1)},
 			columns: []string{"user_id"},
 			rows:    [][]driver.Value{},
 		},

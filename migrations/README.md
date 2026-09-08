@@ -57,6 +57,7 @@ done
 | 034 | 20260805_add_faculty_benchmark_scope | เพิ่ม scope ระดับคณะ (faculty_cs) สำหรับ author-set count |
 | 039 | 20260816_create_scopus_author_metrics | สร้างตาราง scopus_author_metrics (h-index/citation ต่ออาจารย์ จาก Scopus Author API, snapshot รายวัน) |
 | 040 | 20260816_create_scopus_author_metrics_logs | สร้าง scopus_author_metrics_runs (runs summary) + scopus_author_metric_requests (per-request log ไว้ audit โควตา Author API) |
+| 041 | 20260902_add_user_management_permissions | เพิ่มสิทธิ์ `users.view` / `users.manage` และกำหนดค่าเริ่มต้นให้ Admin |
 
 ## ✅ ครบแล้ว — schema + seed
 
