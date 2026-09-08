@@ -189,7 +189,7 @@ func parseScopusDashboardFilters(c *gin.Context) scopusDashboardFilters {
 
 	qualityRaw := normalizeCommaValues(c.Query("quality_buckets"))
 	qualityAllowed := map[string]struct{}{
-		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "N/A": {}, "T1": {},
+		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "N/A": {}, "T1": {}, "TCI": {},
 	}
 	quality := make([]string, 0, len(qualityRaw))
 	for _, value := range qualityRaw {
@@ -228,6 +228,21 @@ func parseScopusDashboardFilters(c *gin.Context) scopusDashboardFilters {
 	}
 
 	return filters
+}
+
+// includeTCI บอกว่าควรนับ/แสดงผลงาน TCI (ThaiJO) หรือไม่ ตามตัวกรองคุณภาพวารสาร
+// - ไม่ได้เลือกกรองคุณภาพเลย (ว่าง) → รวม TCI ด้วย (เหมือนแสดงทุกอย่าง)
+// - เลือกกรองแล้ว → รวม TCI เฉพาะเมื่อมีการติ๊ก TCI ไว้ (เคารพ filter)
+func (f scopusDashboardFilters) includeTCI() bool {
+	if len(f.QualityBuckets) == 0 {
+		return true
+	}
+	for _, b := range f.QualityBuckets {
+		if strings.EqualFold(strings.TrimSpace(b), "TCI") {
+			return true
+		}
+	}
+	return false
 }
 
 func (f scopusDashboardFilters) cacheKey() string {
@@ -505,6 +520,16 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		qualityCounts["T1"] = t1Count
 	}
 
+	// TCI มาจากผลงานตีพิมพ์จริงใน ThaiJO (วารสารที่มี tier) — คนละชุดข้อมูลกับ Scopus
+	var tciCount int64
+	if err := config.DB.Table("thaijo_documents AS td").
+		Where("td.year IS NOT NULL AND td.year > 0").
+		Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)").
+		Distinct("td.id").
+		Count(&tciCount).Error; err == nil {
+		qualityCounts["TCI"] = tciCount
+	}
+
 	yearOptions := make([]map[string]interface{}, 0, len(years))
 	minBE := 0
 	maxBE := 0
@@ -530,7 +555,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 		})
 	}
 
-	qualityOrder := []string{"T1", "Q1", "Q2", "Q3", "Q4", "N/A"}
+	qualityOrder := []string{"T1", "Q1", "Q2", "Q3", "Q4", "N/A", "TCI"}
 	qualityOptions := make([]map[string]interface{}, 0, len(qualityOrder))
 	for _, key := range qualityOrder {
 		label := key
@@ -579,7 +604,7 @@ func AdminGetScopusDashboardFilterOptions(c *gin.Context) {
 func AdminGetScopusDashboardSummary(c *gin.Context) {
 	filters := parseScopusDashboardFilters(c)
 	forceRefresh := strings.TrimSpace(c.Query("refresh")) == "1"
-	cacheKey := "scopus_dashboard_summary_v9:" + filters.cacheKey()
+	cacheKey := "scopus_dashboard_summary_v10:" + filters.cacheKey()
 
 	if !forceRefresh {
 		if cached, ok := readScopusDashboardCache(cacheKey); ok {
@@ -774,47 +799,50 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	// TCI นับจากผลงานตีพิมพ์จริงใน ThaiJO (thaijo_documents) เฉพาะบทความที่ตีพิมพ์
 	// ในวารสารที่มี TCI tier (thaijo_journals.tier IS NOT NULL) และอิง "ปีที่ตีพิมพ์"
 	// ให้ตรงหลักเดียวกับ Q1-Q4 แทนการอิงวันยื่นคำร้องขอรางวัลจาก publication_reward_details แบบเดิม
-	tciRows := make([]struct {
-		PublicationYearCE  int `gorm:"column:publication_year_ce"`
-		PublicationMonthCE int `gorm:"column:publication_month_ce"`
-		Total              int `gorm:"column:total"`
-	}, 0)
-	tciQuery := config.DB.Table("thaijo_documents AS td").
-		Select("td.year AS publication_year_ce, MONTH(td.date_published) AS publication_month_ce, COUNT(DISTINCT td.id) AS total").
-		Where("td.year IS NOT NULL AND td.year > 0").
-		Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
-	if filters.YearStartCE != nil {
-		tciQuery = tciQuery.Where("td.year >= ?", *filters.YearStartCE)
-	}
-	if filters.YearEndCE != nil {
-		tciQuery = tciQuery.Where("td.year <= ?", *filters.YearEndCE)
-	}
-	tciQuery = tciQuery.Group("td.year, MONTH(td.date_published)")
-	if err := tciQuery.Find(&tciRows).Error; err == nil {
-		for _, row := range tciRows {
-			if row.PublicationYearCE <= 0 || row.Total <= 0 {
-				continue
-			}
+	// เคารพตัวกรองคุณภาพวารสาร: นับ TCI เฉพาะเมื่อไม่ได้กรอง หรือมีการติ๊ก TCI ไว้
+	if filters.includeTCI() {
+		tciRows := make([]struct {
+			PublicationYearCE  int `gorm:"column:publication_year_ce"`
+			PublicationMonthCE int `gorm:"column:publication_month_ce"`
+			Total              int `gorm:"column:total"`
+		}, 0)
+		tciQuery := config.DB.Table("thaijo_documents AS td").
+			Select("td.year AS publication_year_ce, MONTH(td.date_published) AS publication_month_ce, COUNT(DISTINCT td.id) AS total").
+			Where("td.year IS NOT NULL AND td.year > 0").
+			Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
+		if filters.YearStartCE != nil {
+			tciQuery = tciQuery.Where("td.year >= ?", *filters.YearStartCE)
+		}
+		if filters.YearEndCE != nil {
+			tciQuery = tciQuery.Where("td.year <= ?", *filters.YearEndCE)
+		}
+		tciQuery = tciQuery.Group("td.year, MONTH(td.date_published)")
+		if err := tciQuery.Find(&tciRows).Error; err == nil {
+			for _, row := range tciRows {
+				if row.PublicationYearCE <= 0 || row.Total <= 0 {
+					continue
+				}
 
-			yearBE := row.PublicationYearCE + 543
-			fiscalYearBE := yearBE
-			if row.PublicationMonthCE >= 10 {
-				fiscalYearBE = yearBE + 1
-			}
+				yearBE := row.PublicationYearCE + 543
+				fiscalYearBE := yearBE
+				if row.PublicationMonthCE >= 10 {
+					fiscalYearBE = yearBE + 1
+				}
 
-			bucket, ok := historyByYear[yearBE]
-			if !ok {
-				bucket = &historyBucket{PublicationYearBE: yearBE}
-				historyByYear[yearBE] = bucket
-			}
-			bucket.TCI += row.Total
+				bucket, ok := historyByYear[yearBE]
+				if !ok {
+					bucket = &historyBucket{PublicationYearBE: yearBE}
+					historyByYear[yearBE] = bucket
+				}
+				bucket.TCI += row.Total
 
-			fiscalBucket, okFiscal := historyByFiscalYear[fiscalYearBE]
-			if !okFiscal {
-				fiscalBucket = &historyBucket{PublicationYearBE: fiscalYearBE}
-				historyByFiscalYear[fiscalYearBE] = fiscalBucket
+				fiscalBucket, okFiscal := historyByFiscalYear[fiscalYearBE]
+				if !okFiscal {
+					fiscalBucket = &historyBucket{PublicationYearBE: fiscalYearBE}
+					historyByFiscalYear[fiscalYearBE] = fiscalBucket
+				}
+				fiscalBucket.TCI += row.Total
 			}
-			fiscalBucket.TCI += row.Total
 		}
 	}
 
@@ -1086,6 +1114,58 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				}
 			}
 
+			// ── TCI (ThaiJO) ต่อคน ────────────────────────────────────────────
+			// รวมผลงาน TCI เข้าตารางบุคคลเมื่อเคารพ filter แล้วต้องนับ TCI
+			// จับคู่อาจารย์ด้วยชื่อไทยเต็ม (full_name_th) เหมือน services/instructor_research.go
+			type tciPersonRow struct {
+				UserID       int    `gorm:"column:user_id"`
+				UserName     string `gorm:"column:user_name"`
+				UserEmail    string `gorm:"column:user_email"`
+				UserScopusID string `gorm:"column:user_scopus_id"`
+				TCICount     int    `gorm:"column:tci_count"`
+				FirstYearCE  int    `gorm:"column:first_year_ce"`
+				LatestYearCE int    `gorm:"column:latest_year_ce"`
+			}
+			tciByUser := map[int]int{}
+			tciOnlyUsers := make([]tciPersonRow, 0)
+			if filters.includeTCI() {
+				tciPersonRows := make([]tciPersonRow, 0)
+				tciPersonQuery := config.DB.Table("users AS u").
+					Select(`
+						u.user_id AS user_id,
+						TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) AS user_name,
+						COALESCE(NULLIF(TRIM(u.email), ''), '-') AS user_email,
+						COALESCE(NULLIF(TRIM(u.scopus_id), ''), '-') AS user_scopus_id,
+						COUNT(DISTINCT td.id) AS tci_count,
+						COALESCE(MIN(td.year), 0) AS first_year_ce,
+						COALESCE(MAX(td.year), 0) AS latest_year_ce
+					`).
+					Joins("JOIN thaijo_authors ta ON CONCAT(u.user_fname, ' ', u.user_lname) = ta.full_name_th").
+					Joins("JOIN thaijo_document_authors tda ON tda.author_id = ta.id").
+					Joins("JOIN thaijo_documents td ON td.id = tda.document_id").
+					Where("u.delete_at IS NULL AND u.is_test = 0").
+					Where("td.year IS NOT NULL AND td.year > 0").
+					Where("EXISTS (SELECT 1 FROM thaijo_journals tj WHERE tj.journal_id = td.journal_id AND tj.tier IS NOT NULL)")
+				if filters.YearStartCE != nil {
+					tciPersonQuery = tciPersonQuery.Where("td.year >= ?", *filters.YearStartCE)
+				}
+				if filters.YearEndCE != nil {
+					tciPersonQuery = tciPersonQuery.Where("td.year <= ?", *filters.YearEndCE)
+				}
+				tciPersonQuery = tciPersonQuery.Group("u.user_id, user_name, user_email, user_scopus_id")
+				if err := tciPersonQuery.Find(&tciPersonRows).Error; err == nil {
+					for _, r := range tciPersonRows {
+						if r.TCICount <= 0 {
+							continue
+						}
+						tciByUser[r.UserID] = r.TCICount
+						if _, exists := aggByUser[r.UserID]; !exists {
+							tciOnlyUsers = append(tciOnlyUsers, r)
+						}
+					}
+				}
+			}
+
 			type personSortable struct {
 				Data            map[string]interface{}
 				T1Count         int
@@ -1133,6 +1213,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"q3_count":         agg.Q3Count,
 					"q4_count":         agg.Q4Count,
 					"quartile_na":      agg.NACount,
+					"tci_count":        tciByUser[agg.UserID],
 					"journal_count":    agg.JournalCount,
 					"book_count":       agg.BookCount,
 					"conference_count": agg.ConferenceCount,
@@ -1179,6 +1260,50 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 			personSummaryRows = make([]map[string]interface{}, 0, len(sortableRows))
 			for _, row := range sortableRows {
 				personSummaryRows = append(personSummaryRows, row.Data)
+			}
+
+			// ต่อท้ายอาจารย์ที่มีเฉพาะผลงาน TCI (ไม่มีผลงาน Scopus ที่ผ่านตัวกรอง)
+			// เรียงตามจำนวน TCI มาก→น้อย แล้วตามชื่อ ไม่ยุ่งกับ person_year_matrix (คงอิง Scopus)
+			sort.Slice(tciOnlyUsers, func(i, j int) bool {
+				if tciOnlyUsers[i].TCICount != tciOnlyUsers[j].TCICount {
+					return tciOnlyUsers[i].TCICount > tciOnlyUsers[j].TCICount
+				}
+				return tciOnlyUsers[i].UserName < tciOnlyUsers[j].UserName
+			})
+			for _, r := range tciOnlyUsers {
+				firstYearBE := 0
+				latestYearBE := 0
+				activeYears := 0
+				if r.FirstYearCE > 0 {
+					firstYearBE = r.FirstYearCE + 543
+					activeYears = 1
+				}
+				if r.LatestYearCE > 0 {
+					latestYearBE = r.LatestYearCE + 543
+				}
+				personSummaryRows = append(personSummaryRows, map[string]interface{}{
+					"user_id":          r.UserID,
+					"user_name":        r.UserName,
+					"user_email":       r.UserEmail,
+					"user_scopus_id":   r.UserScopusID,
+					"publication_rows": 0,
+					"unique_documents": 0,
+					"cited_by_total":   0,
+					"avg_cited_by":     0.0,
+					"t1_count":         0,
+					"q1_count":         0,
+					"q2_count":         0,
+					"q3_count":         0,
+					"q4_count":         0,
+					"quartile_na":      0,
+					"tci_count":        r.TCICount,
+					"journal_count":    0,
+					"book_count":       0,
+					"conference_count": 0,
+					"first_year":       firstYearBE,
+					"latest_year":      latestYearBE,
+					"active_years":     activeYears,
+				})
 			}
 
 			if len(allYearsSet) > 0 {
