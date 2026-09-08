@@ -57,7 +57,10 @@ done
 | 034 | 20260805_add_faculty_benchmark_scope | เพิ่ม scope ระดับคณะ (faculty_cs) สำหรับ author-set count |
 | 039 | 20260816_create_scopus_author_metrics | สร้างตาราง scopus_author_metrics (h-index/citation ต่ออาจารย์ จาก Scopus Author API, snapshot รายวัน) |
 | 040 | 20260816_create_scopus_author_metrics_logs | สร้าง scopus_author_metrics_runs (runs summary) + scopus_author_metric_requests (per-request log ไว้ audit โควตา Author API) |
-| 041 | 20260902_add_user_management_permissions | เพิ่มสิทธิ์ `users.view` / `users.manage` และกำหนดค่าเริ่มต้นให้ Admin |
+| 041 | 20260903_add_benchmark_affiliations | สร้าง scopus_benchmark_affiliations และเพิ่ม affiliation_id ใน scopus_benchmark_document_authors |
+| 042 | 20260903_clear_benchmark_raw_json | ล้าง payload raw_json หลัง affiliation coverage ผ่าน แล้ว optimize ตารางโดยยังเก็บคอลัมน์ไว้ |
+| 043 | 20260908_add_scopus_conference_indexes | เพิ่ม index ให้คอลัมน์ conference_country และ conference_city ของ scopus_documents |
+| 044 | 20260902_add_user_management_permissions | เพิ่มสิทธิ์ `users.view` / `users.manage` และกำหนดค่าเริ่มต้นให้ Admin |
 
 ## ✅ ครบแล้ว — schema + seed
 

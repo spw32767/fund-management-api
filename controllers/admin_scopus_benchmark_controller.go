@@ -161,8 +161,8 @@ func AdminUpdateBenchmarkScope(c *gin.Context) {
 }
 
 // POST /api/v1/admin/scopus/benchmark/counts/refresh?year_from=2015&year_to=2025
-// (or ?years_back=10). Counts CS totals for every active scope (all-years total +
-// per-year within the window) and stores snapshots.
+// (or ?years_back=10). Counts CS totals for every active scope within the
+// selected window and stores per-year snapshots.
 func AdminRefreshBenchmarkCounts(c *gin.Context) {
 	yearFrom, yearTo := benchmarkYearBounds(c, 10)
 
@@ -180,7 +180,7 @@ func AdminRefreshBenchmarkCounts(c *gin.Context) {
 		scope := &scopes[i]
 		entry := gin.H{"scope_id": scope.ID, "code": scope.Code, "label": scope.Label}
 
-		total, err := svc.CountScope(ctx, scope, nil)
+		total, counts, err := svc.CountScopeRange(ctx, scope, yearFrom, yearTo)
 		if err != nil {
 			entry["error"] = err.Error()
 			results = append(results, entry)
@@ -190,13 +190,7 @@ func AdminRefreshBenchmarkCounts(c *gin.Context) {
 
 		byYear := make([]gin.H, 0, yearTo-yearFrom+1)
 		for y := yearTo; y >= yearFrom; y-- {
-			year := y
-			n, err := svc.CountScope(ctx, scope, &year)
-			if err != nil {
-				byYear = append(byYear, gin.H{"year": year, "error": err.Error()})
-				continue
-			}
-			byYear = append(byYear, gin.H{"year": year, "count": n})
+			byYear = append(byYear, gin.H{"year": y, "count": counts[y]})
 		}
 		entry["by_year"] = byYear
 		results = append(results, entry)
@@ -396,11 +390,27 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	uniByYear := latestSnapshotByYear(uni.ID)
 	countryByYear := latestSnapshotByYear(country.ID)
 
+	svc := services.NewScopusBenchmarkService(nil, nil)
+	facultyCoverage, err := svc.FacultyMetricCoverage(c.Request.Context(), yearFrom, yearTo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
 	rows := make([]gin.H, 0, yearTo-yearFrom+1)
+	missingFacultyYears := make(map[int]struct{}, len(facultyCoverage.BenchmarkYearsMissing))
+	for _, year := range facultyCoverage.BenchmarkYearsMissing {
+		missingFacultyYears[year] = struct{}{}
+	}
 	for y := yearTo; y >= yearFrom; y-- {
+		var facultyTotal interface{}
+		_, benchmarkMissing := missingFacultyYears[y]
+		if facultyCoverage.Ready && !benchmarkMissing {
+			facultyTotal = facultyByYear[y]
+		}
 		rows = append(rows, gin.H{
 			"year":       y,
-			"faculty":    facultyByYear[y],
+			"faculty":    facultyTotal,
 			"university": uniByYear[y],
 			"country":    countryByYear[y],
 		})
@@ -410,6 +420,7 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 		"success": true,
 		"data": gin.H{
 			"years":            rows,
+			"faculty_metric":   facultyCoverage,
 			"faculty_scope":    faculty,
 			"university_scope": uni,
 			"country_scope":    country,

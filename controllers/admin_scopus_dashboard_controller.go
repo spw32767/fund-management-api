@@ -292,6 +292,7 @@ func applyScopusKKUAffiliationConstraint(query *gorm.DB) *gorm.DB {
 			JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
 			WHERE sda.document_id = sd.id
 			  AND u.delete_at IS NULL
+			  AND u.is_test = 0
 			  AND u.scopus_id IS NOT NULL
 			  AND TRIM(u.scopus_id) <> ''
 			  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
@@ -840,6 +841,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	var totalTeachersInFaculty int64
 	if err := config.DB.Table("users").
 		Where("delete_at IS NULL").
+		Where("is_test = ?", 0).
 		Where("role_id IN ?", []int{1, 4, 5}).
 		Count(&totalTeachersInFaculty).Error; err != nil {
 		totalTeachersInFaculty = 0
@@ -1264,6 +1266,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				JOIN scopus_document_authors sda ON sda.author_id = sa.id
 				JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
 				WHERE u.delete_at IS NULL
+				  AND u.is_test = 0
 				  AND u.scopus_id IS NOT NULL
 				  AND TRIM(u.scopus_id) <> ''
 				  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
@@ -1275,6 +1278,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				JOIN scopus_document_authors sda ON sda.author_id = sa.id
 				JOIN scopus_affiliations aff ON aff.id = sda.affiliation_id
 				WHERE u.delete_at IS NULL
+				  AND u.is_test = 0
 				  AND u.scopus_id IS NOT NULL
 				  AND TRIM(u.scopus_id) <> ''
 				  AND LOWER(TRIM(COALESCE(aff.name, ''))) IN (?, ?)
@@ -1481,6 +1485,7 @@ func AdminGetScopusDashboardDrilldown(c *gin.Context) {
 		JOIN scopus_affiliations aff_o ON aff_o.id = sda_o.affiliation_id
 		WHERE sda_o.document_id = sd.id
 		  AND u.delete_at IS NULL
+		  AND u.is_test = 0
 		  AND u.scopus_id IS NOT NULL
 		  AND TRIM(u.scopus_id) <> ''
 		  AND LOWER(TRIM(COALESCE(aff_o.name, ''))) IN ('%s', '%s')
