@@ -358,17 +358,25 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	config.DB.Where("level = ?", "university").First(&uni)
 	config.DB.Where("level = ?", "country").First(&country)
 
-	// latest snapshot per year for a scope
-	latestSnapshotByYear := func(scopeID uint64) map[int]int {
+	// latest snapshot per year for a scope, keeping the count AND its captured_at so
+	// the UI can distinguish a real zero snapshot from a missing one and show a
+	// per-level data date (§4/§9 A). A NULL captured_at is reported as no date.
+	type snapMeta struct {
+		total      int
+		exists     bool
+		snapshotAt *time.Time
+	}
+	latestSnapshotByYear := func(scopeID uint64) map[int]snapMeta {
 		type row struct {
-			PubYear *int
-			Total   int
+			PubYear    *int
+			Total      int
+			CapturedAt *time.Time
 		}
 		var rows []row
 		// pick the newest snapshot per year using MAX(id) — deterministic even if
 		// two snapshots land in the same second (id is a monotonic autoincrement).
 		config.DB.Raw(`
-			SELECT s.pub_year AS pub_year, s.total_results AS total
+			SELECT s.pub_year AS pub_year, s.total_results AS total, s.captured_at AS captured_at
 			FROM scopus_benchmark_count_snapshots s
 			JOIN (
 				SELECT pub_year, MAX(id) AS mx
@@ -377,10 +385,10 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 				GROUP BY pub_year
 			) latest ON latest.pub_year = s.pub_year AND latest.mx = s.id
 			WHERE s.scope_id = ?`, scopeID, scopeID).Scan(&rows)
-		out := map[int]int{}
+		out := map[int]snapMeta{}
 		for _, r := range rows {
 			if r.PubYear != nil {
-				out[*r.PubYear] = r.Total
+				out[*r.PubYear] = snapMeta{total: r.Total, exists: true, snapshotAt: r.CapturedAt}
 			}
 		}
 		return out
@@ -402,18 +410,94 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	for _, year := range facultyCoverage.BenchmarkYearsMissing {
 		missingFacultyYears[year] = struct{}{}
 	}
+
+	// Additive per-year/per-level snapshot metadata so the report can pick a report
+	// year deterministically and label per-level data dates (handoff §4/§9 A). All
+	// existing fields above are preserved unchanged for backward compatibility.
+	yearMeta := gin.H{}
+	snapAt := func(meta snapMeta) interface{} {
+		if meta.snapshotAt == nil {
+			return nil
+		}
+		return meta.snapshotAt.UTC().Format(time.RFC3339)
+	}
 	for y := yearTo; y >= yearFrom; y-- {
+		facultySnap := facultyByYear[y]
+		uniSnap := uniByYear[y]
+		countrySnap := countryByYear[y]
+
 		var facultyTotal interface{}
 		_, benchmarkMissing := missingFacultyYears[y]
-		if facultyCoverage.Ready && !benchmarkMissing {
-			facultyTotal = facultyByYear[y]
+		facultyUsable := facultyCoverage.Ready && !benchmarkMissing
+		if facultyUsable {
+			facultyTotal = facultySnap.total
 		}
 		rows = append(rows, gin.H{
 			"year":       y,
 			"faculty":    facultyTotal,
-			"university": uniByYear[y],
-			"country":    countryByYear[y],
+			"university": uniSnap.total,
+			"country":    countrySnap.total,
 		})
+
+		// Faculty status: available only when a snapshot exists AND the verified
+		// metric is ready for this year; blocked when a snapshot exists but the
+		// metric is not usable (not ready / incomplete KKU docs / active harvest);
+		// missing when there is no snapshot at all.
+		facultyStatus := "missing"
+		facultyReason := "no faculty snapshot for this year"
+		if facultySnap.exists {
+			if facultyUsable {
+				facultyStatus = "available"
+				facultyReason = ""
+			} else {
+				facultyStatus = "blocked"
+				facultyReason = "faculty metric not ready or KKU benchmark documents incomplete for this year"
+			}
+		}
+		uniStatus := "missing"
+		if uniSnap.exists {
+			uniStatus = "available"
+		}
+		countryStatus := "missing"
+		if countrySnap.exists {
+			countryStatus = "available"
+		}
+
+		yearMeta[strconv.Itoa(y)] = gin.H{
+			"faculty":    gin.H{"status": facultyStatus, "snapshot_exists": facultySnap.exists, "snapshot_at": snapAt(facultySnap), "reason": facultyReason},
+			"university": gin.H{"status": uniStatus, "snapshot_exists": uniSnap.exists, "snapshot_at": snapAt(uniSnap), "reason": ""},
+			"country":    gin.H{"status": countryStatus, "snapshot_exists": countrySnap.exists, "snapshot_at": snapAt(countrySnap), "reason": ""},
+		}
+	}
+
+	normSubject := func(s string) string {
+		s = strings.ToUpper(strings.TrimSpace(s))
+		if s == "" {
+			return "COMP"
+		}
+		return s
+	}
+	subjectArea := normSubject(uni.SubjectArea)
+	facultySubject := normSubject(faculty.SubjectArea)
+	countrySubject := normSubject(country.SubjectArea)
+	// All three scopes that feed the comparison must be the same subject and it must
+	// be COMP; otherwise the report must withhold cross-scope conclusions (§4, R2-3).
+	scopeConsistent := subjectArea == "COMP" && facultySubject == "COMP" && countrySubject == "COMP"
+
+	// available_years lists EVERY year each scope has a snapshot for (existence, not
+	// readiness — a real zero or a blocked-faculty year still counts), across all
+	// stored years rather than just the requested window, so the report can discover
+	// and load older years (handoff §4/§9 A, R7).
+	allSnapshotYears := func(scopeID uint64) []int {
+		var years []int
+		config.DB.Raw(`
+			SELECT DISTINCT pub_year FROM scopus_benchmark_count_snapshots
+			WHERE scope_id = ? AND pub_year IS NOT NULL
+			ORDER BY pub_year DESC`, scopeID).Scan(&years)
+		if years == nil {
+			years = []int{}
+		}
+		return years
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -424,6 +508,22 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 			"faculty_scope":    faculty,
 			"university_scope": uni,
 			"country_scope":    country,
+			"year_meta":        yearMeta,
+			"available_years": gin.H{
+				"faculty":    allSnapshotYears(faculty.ID),
+				"university": allSnapshotYears(uni.ID),
+				"country":    allSnapshotYears(country.ID),
+			},
+			"report_scope": gin.H{
+				"subject_area":            subjectArea,
+				"faculty_subject_area":    facultySubject,
+				"university_subject_area": subjectArea,
+				"country_subject_area":    countrySubject,
+				"consistent":              scopeConsistent,
+				"faculty_scope_id":        faculty.ID,
+				"university_scope_id":     uni.ID,
+				"country_scope_id":        country.ID,
+			},
 		},
 	})
 }
