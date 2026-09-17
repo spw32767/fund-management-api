@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -596,6 +597,62 @@ func AdminGetBenchmarkInsights(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+// GET /api/v1/admin/scopus/benchmark/documents/export?level=university|country&year_from=&year_to=
+// Streams the Documents CSV (36 columns matching the search page) for one benchmark
+// level over an inclusive year range. Read-only: it never harvests or refreshes.
+func AdminExportBenchmarkDocuments(c *gin.Context) {
+	level := strings.ToLower(strings.TrimSpace(c.Query("level")))
+	if _, ok := services.BenchmarkDocumentExportLevels[level]; !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "level must be university or country"})
+		return
+	}
+
+	rawFrom := strings.TrimSpace(c.Query("year_from"))
+	rawTo := strings.TrimSpace(c.Query("year_to"))
+	if rawFrom == "" || rawTo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "both year_from and year_to are required"})
+		return
+	}
+	yearFrom, errFrom := strconv.Atoi(rawFrom)
+	yearTo, errTo := strconv.Atoi(rawTo)
+	if errFrom != nil || errTo != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from and year_to must be integers"})
+		return
+	}
+	minYear, maxYear := 1900, time.Now().Year()+1
+	if yearFrom < minYear || yearFrom > maxYear || yearTo < minYear || yearTo > maxYear {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from/year_to out of range"})
+		return
+	}
+	if yearFrom > yearTo {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from must be <= year_to"})
+		return
+	}
+	if yearTo-yearFrom+1 > benchmarkInsightsMaxRange {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "requested year range is too wide"})
+		return
+	}
+
+	csv, count, err := services.NewScopusBenchmarkService(nil, nil).ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
+	if err != nil {
+		if errors.Is(err, services.ErrBenchmarkExportEmpty) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	label := "kku"
+	if level == "country" {
+		label = "thailand"
+	}
+	filename := fmt.Sprintf("scopus-benchmark-documents-%s-%d-%d.csv", label, yearFrom, yearTo)
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("X-Total-Count", strconv.Itoa(count))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", csv)
 }
 
 // GET /api/v1/admin/scopus/benchmark/top-journals?limit=8
