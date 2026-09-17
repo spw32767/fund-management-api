@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -665,16 +667,32 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 	c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(completeness.ActiveHarvest))
 	// Ask nginx to disable proxy buffering for THIS export response only.
 	c.Header("X-Accel-Buffering", "no")
-	// Set an explicit Content-Length so the (multi-MB) CSV is a fully length-delimited
-	// response. gin's c.Data does not set it, and Go omits Content-Length for any body
-	// over ~2 KB — sending it chunked, or close-delimited when nginx proxies as HTTP/1.0
-	// — which a proxy chain can abort mid-download (net::ERR_FAILED), the observed
-	// symptom where only the tiny current-year export succeeds. The whole CSV is already
-	// built in memory, so len(csv) is exact. Experimental and complementary to
-	// X-Accel-Buffering; still only the successful CSV path, no change to auth/CORS/
-	// columns/completeness/streaming.
-	c.Header("Content-Length", strconv.Itoa(len(csv)))
-	c.Data(http.StatusOK, "text/csv; charset=utf-8", csv)
+
+	// gzip the CSV on the wire when the client accepts it. The large Thailand exports
+	// (tens of MB) hit a proxy size ceiling and abort with net::ERR_FAILED; CSV text
+	// compresses ~5-8x, bringing the on-wire bytes under that ceiling. The browser's
+	// fetch() transparently decompresses, so the saved file is the SAME 36-column CSV
+	// (BOM included) — no change to columns/data/auth/CORS/frontend. Content-Encoding
+	// describes only the wire encoding; Content-Type stays text/csv. The whole CSV is
+	// already built in memory, so this stays a single build-then-send (no streaming).
+	body := csv
+	if strings.Contains(strings.ToLower(c.GetHeader("Accept-Encoding")), "gzip") {
+		var compressed bytes.Buffer
+		zw := gzip.NewWriter(&compressed)
+		_, writeErr := zw.Write(csv)
+		closeErr := zw.Close()
+		if writeErr == nil && closeErr == nil {
+			body = compressed.Bytes()
+			c.Header("Content-Encoding", "gzip")
+			c.Header("Vary", "Accept-Encoding")
+		}
+	}
+	// Set an explicit Content-Length (of the bytes actually sent) so the response is
+	// fully length-delimited. gin's c.Data does not set it, and Go omits Content-Length
+	// for any body over ~2 KB — sending it chunked, or close-delimited when nginx
+	// proxies as HTTP/1.0 — which a proxy chain can abort mid-download.
+	c.Header("Content-Length", strconv.Itoa(len(body)))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", body)
 }
 
 // GET /api/v1/admin/scopus/benchmark/top-journals?limit=8
