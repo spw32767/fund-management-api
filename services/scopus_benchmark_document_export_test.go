@@ -131,6 +131,41 @@ func TestExportCompletenessIsPerYearNotSum(t *testing.T) {
 	}
 }
 
+// R4.1: completeness is derived from the harvested counts of the EXPORTED FILE, so a
+// 60-row file stays incomplete even if the snapshot re-reads to 100 (harvest finished
+// mid-request). deriveExportCompleteness is pure, so this is deterministic.
+func TestDeriveExportCompletenessUsesFileHarvestNotReQuery(t *testing.T) {
+	// File has 60 rows for 2025; snapshot (possibly re-read after harvest finished) = 100.
+	got := deriveExportCompleteness(2025, 2025, map[int]int{2025: 100}, map[int]int{2025: 60}, false, 60)
+	if !got.Incomplete {
+		t.Fatalf("60-row file vs 100 snapshot must be incomplete: %+v", got)
+	}
+	if len(got.MissingYears) != 1 || got.MissingYears[0] != 2025 {
+		t.Fatalf("2025 must be flagged: %+v", got.MissingYears)
+	}
+	if got.ExportedRows != 60 || got.ExpectedDocs != 100 {
+		t.Fatalf("exported/expected mismatch: %+v", got)
+	}
+
+	// Fully harvested file (100/100) → complete.
+	full := deriveExportCompleteness(2025, 2025, map[int]int{2025: 100}, map[int]int{2025: 100}, false, 100)
+	if full.Incomplete || len(full.MissingYears) != 0 {
+		t.Fatalf("100/100 must be complete: %+v", full)
+	}
+
+	// An active harvest on the scope flags incomplete even when counts happen to match.
+	busy := deriveExportCompleteness(2025, 2025, map[int]int{2025: 100}, map[int]int{2025: 100}, true, 100)
+	if !busy.Incomplete || !busy.ActiveHarvest {
+		t.Fatalf("active harvest must flag incomplete: %+v", busy)
+	}
+
+	// Offsetting years (over + short) sum to equal but both are flagged.
+	off := deriveExportCompleteness(2024, 2025, map[int]int{2024: 100, 2025: 100}, map[int]int{2024: 120, 2025: 80}, false, 200)
+	if len(off.MissingYears) != 2 {
+		t.Fatalf("offsetting years must both be flagged: %+v", off)
+	}
+}
+
 func TestJoinCSVEscapesEachField(t *testing.T) {
 	line := joinCSV([]string{"1", "a,b", "=x", "ปกติ"})
 	if line != `1,"a,b",'=x,ปกติ` {

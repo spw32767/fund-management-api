@@ -78,6 +78,9 @@ type benchmarkExportRow struct {
 	CiteScorePercentile *float64   `gorm:"column:cs_pct"`
 	CiteScoreQuartile   *string    `gorm:"column:cs_quartile"`
 	Authors             *string    `gorm:"column:authors"`
+	// MembershipYear is bds.pub_year — the year used by the WHERE filter, so the
+	// per-year harvested count is derived from the exact rows in the file (R4.1).
+	MembershipYear int `gorm:"column:membership_year"`
 }
 
 type benchmarkAffiliationRow struct {
@@ -130,6 +133,7 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 			d.citedby_count, d.authkeywords, d.fund_sponsor, d.pub_year, d.eid,
 			m.cite_score_status AS cs_status, m.cite_score_rank AS cs_rank,
 			m.cite_score_percentile AS cs_pct, m.cite_score_quartile AS cs_quartile,
+			bds.pub_year AS membership_year,
 			(SELECT GROUP_CONCAT(COALESCE(a.full_name, a.surname, a.scopus_author_id) ORDER BY da.author_seq SEPARATOR '; ')
 				FROM scopus_benchmark_document_authors AS da
 				JOIN scopus_benchmark_authors AS a ON a.id = da.author_id
@@ -159,7 +163,14 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 		return nil, completeness, err
 	}
 
-	completeness, err = s.benchmarkExportCompleteness(ctx, scope.ID, yearFrom, yearTo, len(rows))
+	// Harvested-per-year is counted from the EXACT rows that will be written to the
+	// file (by the membership year used in the WHERE), so a harvest that finishes
+	// mid-request can never make a short file read as complete (R4.1).
+	harvestedByYear := make(map[int]int, yearTo-yearFrom+1)
+	for _, r := range rows {
+		harvestedByYear[r.MembershipYear]++
+	}
+	completeness, err = s.benchmarkExportCompleteness(ctx, scope.ID, yearFrom, yearTo, harvestedByYear, len(rows))
 	if err != nil {
 		return nil, completeness, err
 	}
@@ -227,12 +238,11 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 }
 
 // benchmarkExportCompleteness compares, per year, the latest count snapshot total for
-// the scope against the number of documents actually harvested, and reports the years
-// that are short plus whether a harvest is currently writing this scope. Exported rows
-// are still returned in full — the flag only tells the UI to warn (§10.3, R4).
-func (s *ScopusBenchmarkService) benchmarkExportCompleteness(ctx context.Context, scopeID uint64, yearFrom, yearTo, exportedRows int) (BenchmarkExportCompleteness, error) {
-	out := BenchmarkExportCompleteness{ExportedRows: exportedRows, MissingYears: []int{}}
-
+// the scope against the documents ACTUALLY IN THE EXPORTED FILE (harvestedByYear, from
+// the exported rows — not a re-query), and reports the short years plus whether a
+// harvest is currently writing this scope. Exported rows are still returned in full —
+// the flag only tells the UI to warn (§10.3, R4/R4.1).
+func (s *ScopusBenchmarkService) benchmarkExportCompleteness(ctx context.Context, scopeID uint64, yearFrom, yearTo int, harvestedByYear map[int]int, exportedRows int) (BenchmarkExportCompleteness, error) {
 	type yearCount struct {
 		PubYear int `gorm:"column:pub_year"`
 		Total   int `gorm:"column:total"`
@@ -249,39 +259,35 @@ func (s *ScopusBenchmarkService) benchmarkExportCompleteness(ctx context.Context
 		) AS latest ON latest.max_id = s.id
 		WHERE s.scope_id = ?`, scopeID, yearFrom, yearTo, scopeID).
 		Scan(&snapshotRows).Error; err != nil {
-		return out, fmt.Errorf("load export snapshot coverage: %w", err)
+		return BenchmarkExportCompleteness{ExportedRows: exportedRows, MissingYears: []int{}}, fmt.Errorf("load export snapshot coverage: %w", err)
 	}
-	var harvestedRows []yearCount
-	if err := s.db.WithContext(ctx).Raw(`
-		SELECT bds.pub_year AS pub_year, COUNT(DISTINCT bds.document_id) AS total
-		FROM scopus_benchmark_document_scopes AS bds
-		WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?
-		GROUP BY bds.pub_year`, scopeID, yearFrom, yearTo).
-		Scan(&harvestedRows).Error; err != nil {
-		return out, fmt.Errorf("load export harvested coverage: %w", err)
-	}
-
 	expected := make(map[int]int, len(snapshotRows))
 	for _, r := range snapshotRows {
 		expected[r.PubYear] = r.Total
-		out.ExpectedDocs += r.Total
 	}
-	harvested := make(map[int]int, len(harvestedRows))
-	for _, r := range harvestedRows {
-		harvested[r.PubYear] = r.Total
-	}
-	out.MissingYears = missingBenchmarkYears(yearFrom, yearTo, expected, harvested)
 
 	activeRun, err := s.GetActiveRun(ctx)
 	if err != nil {
-		return out, err
+		return BenchmarkExportCompleteness{ExportedRows: exportedRows, MissingYears: []int{}}, err
 	}
-	if activeRun != nil && activeRun.ScopeID != nil && *activeRun.ScopeID == scopeID {
-		out.ActiveHarvest = true
-	}
+	activeHarvest := activeRun != nil && activeRun.ScopeID != nil && *activeRun.ScopeID == scopeID
 
-	out.Incomplete = len(out.MissingYears) > 0 || out.ActiveHarvest
-	return out, nil
+	return deriveExportCompleteness(yearFrom, yearTo, expected, harvestedByYear, activeHarvest, exportedRows), nil
+}
+
+// deriveExportCompleteness is the pure completeness decision: per-year snapshot totals
+// (expected) vs the counts actually in the file (harvested), checked YEAR BY YEAR so an
+// over-harvested year can never offset a short one, plus the active-harvest guard. It
+// takes the harvested counts as data (from the exported rows), so the result never
+// depends on when a second query ran (R4.1).
+func deriveExportCompleteness(yearFrom, yearTo int, expected, harvested map[int]int, activeHarvest bool, exportedRows int) BenchmarkExportCompleteness {
+	out := BenchmarkExportCompleteness{ExportedRows: exportedRows, MissingYears: []int{}, ActiveHarvest: activeHarvest}
+	for _, v := range expected {
+		out.ExpectedDocs += v
+	}
+	out.MissingYears = missingBenchmarkYears(yearFrom, yearTo, expected, harvested)
+	out.Incomplete = len(out.MissingYears) > 0 || activeHarvest
+	return out
 }
 
 // loadBenchmarkExportAffiliations returns each document's distinct affiliations in a
