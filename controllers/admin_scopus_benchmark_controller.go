@@ -528,10 +528,64 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	})
 }
 
+// benchmarkInsightsMaxRange bounds the width of a range request so a malformed or
+// hostile window can never fan out into an unbounded number of per-year reads (§4.2,
+// §4.5). The benchmark dataset spans well under this many years.
+const benchmarkInsightsMaxRange = 60
+
 // GET /api/v1/admin/scopus/benchmark/insights?year=2026
+// GET /api/v1/admin/scopus/benchmark/insights?year_from=2025&year_to=2026
+//
+// The single-year form is unchanged (same response shape for legacy callers). The
+// range form returns the aggregated BenchmarkInsightsRange payload. Mixing `year`
+// with `year_from`/`year_to`, an incomplete/unparseable range, or start > end is a
+// 400 (§4.2) — the range path never silently swaps values or falls back to a year.
 func AdminGetBenchmarkInsights(c *gin.Context) {
-	year, err := strconv.Atoi(strings.TrimSpace(c.Query("year")))
-	if err != nil || year < 1900 || year > time.Now().Year()+1 {
+	rawYear := strings.TrimSpace(c.Query("year"))
+	rawFrom := strings.TrimSpace(c.Query("year_from"))
+	rawTo := strings.TrimSpace(c.Query("year_to"))
+	hasRange := rawFrom != "" || rawTo != ""
+
+	minYear, maxYear := 1900, time.Now().Year()+1
+
+	if hasRange {
+		if rawYear != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "cannot combine year with year_from/year_to"})
+			return
+		}
+		if rawFrom == "" || rawTo == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "both year_from and year_to are required for a range"})
+			return
+		}
+		yearFrom, errFrom := strconv.Atoi(rawFrom)
+		yearTo, errTo := strconv.Atoi(rawTo)
+		if errFrom != nil || errTo != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from and year_to must be integers"})
+			return
+		}
+		if yearFrom < minYear || yearFrom > maxYear || yearTo < minYear || yearTo > maxYear {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from/year_to out of range"})
+			return
+		}
+		if yearFrom > yearTo {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from must be <= year_to"})
+			return
+		}
+		if yearTo-yearFrom+1 > benchmarkInsightsMaxRange {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "requested year range is too wide"})
+			return
+		}
+		data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkInsightsForRange(c.Request.Context(), yearFrom, yearTo)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+		return
+	}
+
+	year, err := strconv.Atoi(rawYear)
+	if err != nil || year < minYear || year > maxYear {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid year"})
 		return
 	}
