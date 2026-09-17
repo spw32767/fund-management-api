@@ -37,6 +37,19 @@ var BenchmarkDocumentExportLevels = map[string]string{
 	"country":    "country",
 }
 
+// BenchmarkExportCompleteness reports whether the exported document set is the full
+// harvested cohort the count snapshots imply, so the UI can warn when a level/year is
+// still being harvested rather than presenting a short file as complete (§10.3, R4).
+// The check is PER YEAR (missingBenchmarkYears) — a year that over-harvested can never
+// mask another year that is short.
+type BenchmarkExportCompleteness struct {
+	ExportedRows  int
+	ExpectedDocs  int
+	MissingYears  []int
+	ActiveHarvest bool
+	Incomplete    bool
+}
+
 type benchmarkExportRow struct {
 	ID                  int64      `gorm:"column:id"`
 	ScopusID            *string    `gorm:"column:scopus_id"`
@@ -91,10 +104,11 @@ type benchmarkAffiliationJSON struct {
 // multiply the document rows (§10.4). The whole file is built in memory and returned
 // only on full success, so a mid-build failure never yields a partial "successful"
 // download (§10.4). Returns ErrBenchmarkExportEmpty when nothing matches.
-func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context, level string, yearFrom, yearTo int) ([]byte, int, error) {
+func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context, level string, yearFrom, yearTo int) ([]byte, BenchmarkExportCompleteness, error) {
+	var completeness BenchmarkExportCompleteness
 	scopeLevel, ok := BenchmarkDocumentExportLevels[level]
 	if !ok {
-		return nil, 0, fmt.Errorf("unsupported export level %q", level)
+		return nil, completeness, fmt.Errorf("unsupported export level %q", level)
 	}
 	if yearFrom > yearTo {
 		yearFrom, yearTo = yearTo, yearFrom
@@ -102,7 +116,7 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 
 	var scope models.ScopusBenchmarkScope
 	if err := s.db.WithContext(ctx).Where("level = ?", scopeLevel).First(&scope).Error; err != nil {
-		return nil, 0, fmt.Errorf("resolve %s benchmark scope: %w", scopeLevel, err)
+		return nil, completeness, fmt.Errorf("resolve %s benchmark scope: %w", scopeLevel, err)
 	}
 
 	var rows []benchmarkExportRow
@@ -130,10 +144,10 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 		WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?
 		ORDER BY d.pub_year DESC, d.id ASC`, scope.ID, yearFrom, yearTo).
 		Scan(&rows).Error; err != nil {
-		return nil, 0, fmt.Errorf("load benchmark documents: %w", err)
+		return nil, completeness, fmt.Errorf("load benchmark documents: %w", err)
 	}
 	if len(rows) == 0 {
-		return nil, 0, ErrBenchmarkExportEmpty
+		return nil, completeness, ErrBenchmarkExportEmpty
 	}
 
 	ids := make([]int64, len(rows))
@@ -142,7 +156,12 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 	}
 	affByDoc, err := s.loadBenchmarkExportAffiliations(ctx, ids)
 	if err != nil {
-		return nil, 0, err
+		return nil, completeness, err
+	}
+
+	completeness, err = s.benchmarkExportCompleteness(ctx, scope.ID, yearFrom, yearTo, len(rows))
+	if err != nil {
+		return nil, completeness, err
 	}
 
 	var buf bytes.Buffer
@@ -152,10 +171,10 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 
 	for i, r := range rows {
 		affs := affByDoc[r.ID]
-		primary := benchmarkAffiliationJSON{}
-		if len(affs) > 0 {
-			primary = affs[0]
-		}
+		// The single afid/name/city/country/affiliation_url columns aggregate ALL of the
+		// document's affiliations joined with " | " (dedup, stable order), exactly like
+		// the search page's Documents export (joinNonEmptyValues) — never just the first,
+		// so filtering the country column still reveals foreign collaboration (R2).
 		affJSON := "[]"
 		if len(affs) > 0 {
 			if encoded, err := json.Marshal(affs); err == nil {
@@ -172,11 +191,11 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 			deref(r.AggregationType),
 			deref(r.SourceID),
 			deref(r.PublicationName),
-			primary.Afid,
-			primary.Name,
-			primary.City,
-			primary.Country,
-			primary.AffiliationURL,
+			joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.Afid }),
+			joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.Name }),
+			joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.City }),
+			joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.Country }),
+			joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.AffiliationURL }),
 			affJSON,
 			deref(r.ISSN),
 			deref(r.EISSN),
@@ -204,7 +223,65 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 		buf.WriteString("\r\n")
 	}
 
-	return buf.Bytes(), len(rows), nil
+	return buf.Bytes(), completeness, nil
+}
+
+// benchmarkExportCompleteness compares, per year, the latest count snapshot total for
+// the scope against the number of documents actually harvested, and reports the years
+// that are short plus whether a harvest is currently writing this scope. Exported rows
+// are still returned in full — the flag only tells the UI to warn (§10.3, R4).
+func (s *ScopusBenchmarkService) benchmarkExportCompleteness(ctx context.Context, scopeID uint64, yearFrom, yearTo, exportedRows int) (BenchmarkExportCompleteness, error) {
+	out := BenchmarkExportCompleteness{ExportedRows: exportedRows, MissingYears: []int{}}
+
+	type yearCount struct {
+		PubYear int `gorm:"column:pub_year"`
+		Total   int `gorm:"column:total"`
+	}
+	var snapshotRows []yearCount
+	if err := s.db.WithContext(ctx).Raw(`
+		SELECT s.pub_year AS pub_year, s.total_results AS total
+		FROM scopus_benchmark_count_snapshots AS s
+		JOIN (
+			SELECT pub_year, MAX(id) AS max_id
+			FROM scopus_benchmark_count_snapshots
+			WHERE scope_id = ? AND pub_year BETWEEN ? AND ?
+			GROUP BY pub_year
+		) AS latest ON latest.max_id = s.id
+		WHERE s.scope_id = ?`, scopeID, yearFrom, yearTo, scopeID).
+		Scan(&snapshotRows).Error; err != nil {
+		return out, fmt.Errorf("load export snapshot coverage: %w", err)
+	}
+	var harvestedRows []yearCount
+	if err := s.db.WithContext(ctx).Raw(`
+		SELECT bds.pub_year AS pub_year, COUNT(DISTINCT bds.document_id) AS total
+		FROM scopus_benchmark_document_scopes AS bds
+		WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?
+		GROUP BY bds.pub_year`, scopeID, yearFrom, yearTo).
+		Scan(&harvestedRows).Error; err != nil {
+		return out, fmt.Errorf("load export harvested coverage: %w", err)
+	}
+
+	expected := make(map[int]int, len(snapshotRows))
+	for _, r := range snapshotRows {
+		expected[r.PubYear] = r.Total
+		out.ExpectedDocs += r.Total
+	}
+	harvested := make(map[int]int, len(harvestedRows))
+	for _, r := range harvestedRows {
+		harvested[r.PubYear] = r.Total
+	}
+	out.MissingYears = missingBenchmarkYears(yearFrom, yearTo, expected, harvested)
+
+	activeRun, err := s.GetActiveRun(ctx)
+	if err != nil {
+		return out, err
+	}
+	if activeRun != nil && activeRun.ScopeID != nil && *activeRun.ScopeID == scopeID {
+		out.ActiveHarvest = true
+	}
+
+	out.Incomplete = len(out.MissingYears) > 0 || out.ActiveHarvest
+	return out, nil
 }
 
 // loadBenchmarkExportAffiliations returns each document's distinct affiliations in a
@@ -243,6 +320,19 @@ func (s *ScopusBenchmarkService) loadBenchmarkExportAffiliations(ctx context.Con
 		}
 	}
 	return out, nil
+}
+
+// joinAffField joins one affiliation field across every distinct affiliation of a
+// document with " | " (skipping empties), matching the search page's Documents export
+// so the single-value columns carry the full set, not just the primary affiliation.
+func joinAffField(affs []benchmarkAffiliationJSON, pick func(benchmarkAffiliationJSON) string) string {
+	parts := make([]string, 0, len(affs))
+	for _, a := range affs {
+		if v := strings.TrimSpace(pick(a)); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, " | ")
 }
 
 // ── CSV formatting helpers ───────────────────────────────────────────────────

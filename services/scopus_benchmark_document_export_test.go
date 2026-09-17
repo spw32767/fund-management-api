@@ -83,6 +83,54 @@ func TestBenchmarkAuthKeywordsShapes(t *testing.T) {
 	}
 }
 
+func TestJoinAffFieldJoinsAllAffiliations(t *testing.T) {
+	// R2: the single country column must carry EVERY affiliation's country joined with
+	// " | " (not just the first), so a Thailand+Japan paper still shows Japan.
+	affs := []benchmarkAffiliationJSON{
+		{Afid: "60001", Name: "KKU", City: "Khon Kaen", Country: "Thailand", AffiliationURL: "u1"},
+		{Afid: "60999", Name: "U-Tokyo", City: "Tokyo", Country: "Japan", AffiliationURL: ""},
+	}
+	if got := joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.Country }); got != "Thailand | Japan" {
+		t.Fatalf("country join = %q", got)
+	}
+	if got := joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.Afid }); got != "60001 | 60999" {
+		t.Fatalf("afid join = %q", got)
+	}
+	// Empty values are skipped, not joined as blanks.
+	if got := joinAffField(affs, func(a benchmarkAffiliationJSON) string { return a.AffiliationURL }); got != "u1" {
+		t.Fatalf("url join must skip empties = %q", got)
+	}
+	if got := joinAffField(nil, func(a benchmarkAffiliationJSON) string { return a.Afid }); got != "" {
+		t.Fatalf("no affiliations = %q", got)
+	}
+}
+
+// R4: export completeness is decided PER YEAR — a year that over-harvests can never
+// offset another year that is short (missingBenchmarkYears, reused by the export).
+func TestExportCompletenessIsPerYearNotSum(t *testing.T) {
+	// 60 harvested vs 100 snapshot for a single year → that year is short.
+	if got := missingBenchmarkYears(2025, 2025, map[int]int{2025: 100}, map[int]int{2025: 60}); len(got) != 1 || got[0] != 2025 {
+		t.Fatalf("60/100 must flag 2025: %v", got)
+	}
+	// Complete: harvested == snapshot → not flagged.
+	if got := missingBenchmarkYears(2025, 2025, map[int]int{2025: 100}, map[int]int{2025: 100}); len(got) != 0 {
+		t.Fatalf("100/100 must be complete: %v", got)
+	}
+	// Offsetting: 120/100 (over) + 80/100 (short) sums to 200/200 but BOTH years mismatch.
+	got := missingBenchmarkYears(2024, 2025, map[int]int{2024: 100, 2025: 100}, map[int]int{2024: 120, 2025: 80})
+	if len(got) != 2 {
+		t.Fatalf("offsetting years must both be flagged, not netted: %v", got)
+	}
+	// Missing snapshot for a year in range → flagged.
+	if got := missingBenchmarkYears(2024, 2025, map[int]int{2025: 10}, map[int]int{2025: 10}); len(got) != 1 || got[0] != 2024 {
+		t.Fatalf("year with no snapshot must be flagged: %v", got)
+	}
+	// A real zero year (snapshot 0, harvested 0) is complete, not missing.
+	if got := missingBenchmarkYears(2025, 2025, map[int]int{2025: 0}, map[int]int{}); len(got) != 0 {
+		t.Fatalf("zero/zero must be complete: %v", got)
+	}
+}
+
 func TestJoinCSVEscapesEachField(t *testing.T) {
 	line := joinCSV([]string{"1", "a,b", "=x", "ปกติ"})
 	if line != `1,"a,b",'=x,ปกติ` {

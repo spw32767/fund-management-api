@@ -635,7 +635,7 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 		return
 	}
 
-	csv, count, err := services.NewScopusBenchmarkService(nil, nil).ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
+	csv, completeness, err := services.NewScopusBenchmarkService(nil, nil).ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
 	if err != nil {
 		if errors.Is(err, services.ErrBenchmarkExportEmpty) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
@@ -650,8 +650,19 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 		label = "thailand"
 	}
 	filename := fmt.Sprintf("scopus-benchmark-documents-%s-%d-%d.csv", label, yearFrom, yearTo)
+	// Completeness metadata rides in headers so the CSV keeps exactly 36 columns; the
+	// FE reads them to show the exported row count and warn when a level/year is still
+	// short of its snapshot (R4). These headers are exposed via CORS.
+	missing := make([]string, len(completeness.MissingYears))
+	for i, y := range completeness.MissingYears {
+		missing[i] = strconv.Itoa(y)
+	}
 	c.Header("Content-Disposition", "attachment; filename="+filename)
-	c.Header("X-Total-Count", strconv.Itoa(count))
+	c.Header("X-Total-Count", strconv.Itoa(completeness.ExportedRows))
+	c.Header("X-Benchmark-Expected", strconv.Itoa(completeness.ExpectedDocs))
+	c.Header("X-Benchmark-Incomplete", strconv.FormatBool(completeness.Incomplete))
+	c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
+	c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(completeness.ActiveHarvest))
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", csv)
 }
 
