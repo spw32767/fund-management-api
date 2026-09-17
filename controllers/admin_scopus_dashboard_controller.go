@@ -1592,7 +1592,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	payload := map[string]interface{}{
 		"kpi": map[string]interface{}{
 			"total_documents":            totalDocuments,
-			"total_teachers_with_scopus": totalTeachersInFaculty,
+			"total_teachers_in_faculty": totalTeachersInFaculty,
 			"total_citations":            totalCitations,
 			"avg_citations_per_document": avgCitations,
 			"open_access_documents":      openAccessDocuments,
