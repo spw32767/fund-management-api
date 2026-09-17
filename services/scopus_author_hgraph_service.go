@@ -38,7 +38,7 @@ type AuthorHIndexGraph struct {
 }
 
 // AuthorHGraphService computes the classic Hirsch h-graph from already-ingested Scopus documents.
-// This reproduces the graph shown on scopus.com (documents ranked by citations, h-index = the
+// This reproduces the graph shown on scopus.com (documents ranked by citations, H-index = the
 // point where the curve crosses y=x) without any additional API calls. Citation counts reflect
 // the freshness of scopus_documents.citedby_count at ingest time.
 type AuthorHGraphService struct {
@@ -291,7 +291,7 @@ func (s *AuthorHGraphService) GetFacultyGraph(ctx context.Context, yearFrom, yea
 	return graph, nil
 }
 
-// FacultyExportRow is one document in the faculty h-index XLSX export (Data sheet).
+// FacultyExportRow is one document in the faculty H-index XLSX export (Data sheet).
 type FacultyExportRow struct {
 	ScopusID            string
 	Title               string
@@ -311,7 +311,7 @@ type FacultyExportRow struct {
 	EID                 string
 	ScopusURL           string
 	DOIURL              string
-	Order4Index         int // rank in citation-desc order (the ordering that defines h-index)
+	Order4Index         int // rank in citation-desc order (the ordering that defines H-index)
 }
 
 // FacultyYearCount is one row of the per-year breakdown on the Summary sheet.
@@ -359,7 +359,7 @@ func facultyTierBucket(aggType string, percentile *float64, quartile string) str
 	}
 }
 
-// GetFacultyExport returns the deduped, KKU-only faculty document set (ranked for h-index) plus a
+// GetFacultyExport returns the deduped, KKU-only faculty document set (ranked for H-index) plus a
 // summary block, for the XLSX export. It applies the same KKU-affiliation dedupe rule as
 // GetFacultyGraph and joins CiteScore metrics using the dashboard's metric-year resolution.
 func (s *AuthorHGraphService) GetFacultyExport(ctx context.Context, yearFrom, yearTo *int) ([]FacultyExportRow, *FacultySummary, error) {
@@ -588,7 +588,7 @@ func (s *AuthorHGraphService) GetFacultyExport(ctx context.Context, yearFrom, ye
 	return rows, summary, nil
 }
 
-// AuthorSummaryRow is one row of the "all teachers h-index" export.
+// AuthorSummaryRow is one row of the "all teachers H-index" export.
 type AuthorSummaryRow struct {
 	Rank                int     `json:"rank"`
 	UserID              int     `json:"user_id"`
@@ -605,9 +605,9 @@ type AuthorSummaryRow struct {
 	ScopusSnapshotDate  *string `json:"scopus_snapshot_date,omitempty"`
 }
 
-// GetAllSummary computes an h-index summary for every teacher that has a Scopus ID, joining the
+// GetAllSummary computes an H-index summary for every teacher that has a Scopus ID, joining the
 // official Author API snapshot (scopus_author_metrics) when present. Rows are ranked by the
-// computed h-index (the same number shown on the graph) descending.
+// computed H-index (the same number shown on the graph) descending.
 func (s *AuthorHGraphService) GetAllSummary(ctx context.Context) ([]AuthorSummaryRow, error) {
 	type teacher struct {
 		UserID   int

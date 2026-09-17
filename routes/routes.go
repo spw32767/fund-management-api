@@ -283,7 +283,7 @@ func SetupRoutes(router *gin.Engine) {
 				teacher.GET("/user-publications", controllers.GetUserPublications)
 				teacher.GET("/user-publications/scopus", controllers.GetUserScopusPublications)
 				teacher.GET("/user-publications/scopus/stats", controllers.GetUserScopusPublicationStats)
-				teacher.GET("/scopus/author-metrics/hgraph", controllers.GetMyScopusAuthorHIndexGraph) // h-index graph ของตัวเอง (self-only)
+				teacher.GET("/scopus/author-metrics/hgraph", controllers.GetMyScopusAuthorHIndexGraph) // H-index graph ของตัวเอง (self-only)
 				teacher.GET("/user-publications/thaijo", controllers.GetUserThaiJOPublications)
 				teacher.POST("/user-publications/upsert", controllers.UpsertUserPublication)
 				teacher.DELETE("/user-publications/:id", controllers.DeleteUserPublication)
