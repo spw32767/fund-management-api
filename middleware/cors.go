@@ -56,7 +56,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		// exported row count and completeness on a cross-origin download.
 		exposeHeaders := os.Getenv("EXPOSE_HEADERS")
 		if exposeHeaders == "" {
-			exposeHeaders = "Content-Disposition,X-Total-Count,X-Benchmark-Expected,X-Benchmark-Incomplete,X-Benchmark-Missing-Years,X-Benchmark-Active-Harvest"
+			exposeHeaders = "Content-Disposition,X-Total-Count,X-Benchmark-Expected,X-Benchmark-Incomplete,X-Benchmark-Missing-Years,X-Benchmark-Active-Harvest,X-Next-Cursor"
 		}
 		c.Header("Access-Control-Expose-Headers", exposeHeaders)
 		c.Header("Access-Control-Allow-Credentials", "true")

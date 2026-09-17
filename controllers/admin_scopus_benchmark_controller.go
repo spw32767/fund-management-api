@@ -637,7 +637,78 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 		return
 	}
 
-	csv, completeness, err := services.NewScopusBenchmarkService(nil, nil).ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
+	label := "kku"
+	if level == "country" {
+		label = "thailand"
+	}
+	filename := fmt.Sprintf("scopus-benchmark-documents-%s-%d-%d.csv", label, yearFrom, yearTo)
+	svc := services.NewScopusBenchmarkService(nil, nil)
+
+	// Paged mode (FE default): the client requests keyset pages and stitches them into
+	// one CSV, so no single HTTP response is large enough to hit the production proxy's
+	// size ceiling. Triggered by a `limit` param. Without it, the endpoint keeps its
+	// original single-file behaviour for any direct caller.
+	if c.Query("limit") != "" {
+		limit, _ := strconv.Atoi(strings.TrimSpace(c.Query("limit")))
+		if limit <= 0 || limit > 5000 {
+			limit = 2000
+		}
+		var afterYear *int
+		var afterID *int64
+		rawAfterYear := strings.TrimSpace(c.Query("after_year"))
+		rawAfterID := strings.TrimSpace(c.Query("after_id"))
+		if (rawAfterYear == "") != (rawAfterID == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "after_year and after_id must be provided together"})
+			return
+		}
+		if rawAfterYear != "" {
+			ay, e1 := strconv.Atoi(rawAfterYear)
+			aid, e2 := strconv.ParseInt(rawAfterID, 10, 64)
+			if e1 != nil || e2 != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "after_year/after_id must be integers"})
+				return
+			}
+			afterYear, afterID = &ay, &aid
+		}
+		rowOffset, _ := strconv.Atoi(strings.TrimSpace(c.Query("row_offset")))
+		if rowOffset < 0 {
+			rowOffset = 0
+		}
+
+		page, err := svc.ExportBenchmarkDocumentsPage(c.Request.Context(), level, yearFrom, yearTo, limit, afterYear, afterID, rowOffset)
+		if err != nil {
+			if errors.Is(err, services.ErrBenchmarkExportEmpty) {
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+
+		// Cursor for the next page (empty when this is the last page); total count and
+		// completeness only on the first page.
+		nextCursor := ""
+		if page.NextYear != nil && page.NextID != nil {
+			nextCursor = fmt.Sprintf("%d,%d", *page.NextYear, *page.NextID)
+		}
+		c.Header("X-Next-Cursor", nextCursor)
+		if page.FirstPage {
+			c.Header("Content-Disposition", "attachment; filename="+filename)
+			c.Header("X-Total-Count", strconv.Itoa(page.TotalRows))
+			c.Header("X-Benchmark-Expected", strconv.Itoa(page.Completeness.ExpectedDocs))
+			c.Header("X-Benchmark-Incomplete", strconv.FormatBool(page.Completeness.Incomplete))
+			missing := make([]string, len(page.Completeness.MissingYears))
+			for i, y := range page.Completeness.MissingYears {
+				missing[i] = strconv.Itoa(y)
+			}
+			c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
+			c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(page.Completeness.ActiveHarvest))
+		}
+		sendBenchmarkExportCSV(c, page.Body)
+		return
+	}
+
+	csv, completeness, err := svc.ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
 	if err != nil {
 		if errors.Is(err, services.ErrBenchmarkExportEmpty) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
@@ -646,12 +717,6 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-
-	label := "kku"
-	if level == "country" {
-		label = "thailand"
-	}
-	filename := fmt.Sprintf("scopus-benchmark-documents-%s-%d-%d.csv", label, yearFrom, yearTo)
 	// Completeness metadata rides in headers so the CSV keeps exactly 36 columns; the
 	// FE reads them to show the exported row count and warn when a level/year is still
 	// short of its snapshot (R4). These headers are exposed via CORS.
@@ -665,16 +730,16 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 	c.Header("X-Benchmark-Incomplete", strconv.FormatBool(completeness.Incomplete))
 	c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
 	c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(completeness.ActiveHarvest))
-	// Ask nginx to disable proxy buffering for THIS export response only.
-	c.Header("X-Accel-Buffering", "no")
+	sendBenchmarkExportCSV(c, csv)
+}
 
-	// gzip the CSV on the wire when the client accepts it. The large Thailand exports
-	// (tens of MB) hit a proxy size ceiling and abort with net::ERR_FAILED; CSV text
-	// compresses ~5-8x, bringing the on-wire bytes under that ceiling. The browser's
-	// fetch() transparently decompresses, so the saved file is the SAME 36-column CSV
-	// (BOM included) — no change to columns/data/auth/CORS/frontend. Content-Encoding
-	// describes only the wire encoding; Content-Type stays text/csv. The whole CSV is
-	// already built in memory, so this stays a single build-then-send (no streaming).
+// sendBenchmarkExportCSV writes a CSV body with the proxy-friendly transfer headers:
+// X-Accel-Buffering (ask nginx not to buffer), gzip on the wire when the client accepts
+// it (CSV compresses ~4x; the browser's fetch transparently decompresses to the SAME
+// bytes), and an explicit Content-Length so the response is fully length-delimited
+// rather than chunked/close-delimited. Falls back to plain bytes if gzip fails.
+func sendBenchmarkExportCSV(c *gin.Context, csv []byte) {
+	c.Header("X-Accel-Buffering", "no")
 	body := csv
 	if strings.Contains(strings.ToLower(c.GetHeader("Accept-Encoding")), "gzip") {
 		var compressed bytes.Buffer
@@ -687,10 +752,6 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 			c.Header("Vary", "Accept-Encoding")
 		}
 	}
-	// Set an explicit Content-Length (of the bytes actually sent) so the response is
-	// fully length-delimited. gin's c.Data does not set it, and Go omits Content-Length
-	// for any body over ~2 KB — sending it chunked, or close-delimited when nginx
-	// proxies as HTTP/1.0 — which a proxy chain can abort mid-download.
 	c.Header("Content-Length", strconv.Itoa(len(body)))
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", body)
 }
