@@ -176,10 +176,23 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 	}
 
 	var buf bytes.Buffer
-	buf.Write([]byte{0xEF, 0xBB, 0xBF}) // UTF-8 BOM so Thai text opens correctly in Excel (§10.4)
+	writeBenchmarkExportBOMAndHeader(&buf)
+	writeBenchmarkExportCSVRows(&buf, rows, affByDoc, 1)
+	return buf.Bytes(), completeness, nil
+}
+
+// writeBenchmarkExportBOMAndHeader writes the UTF-8 BOM (so Thai opens in Excel) and
+// the 36-column header row. Only the first page of an export carries these.
+func writeBenchmarkExportBOMAndHeader(buf *bytes.Buffer) {
+	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 	buf.WriteString(joinCSV(benchmarkDocumentExportHeaders))
 	buf.WriteString("\r\n")
+}
 
+// writeBenchmarkExportCSVRows appends one CSV line per document, numbered from
+// startNumber so the "ลำดับ" column stays continuous across pages. Shared by the full
+// and paged exports so the 36-column format is byte-identical either way.
+func writeBenchmarkExportCSVRows(buf *bytes.Buffer, rows []benchmarkExportRow, affByDoc map[int64][]benchmarkAffiliationJSON, startNumber int) {
 	for i, r := range rows {
 		affs := affByDoc[r.ID]
 		// The single afid/name/city/country/affiliation_url columns aggregate ALL of the
@@ -193,7 +206,7 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 			}
 		}
 		record := []string{
-			strconv.Itoa(i + 1),
+			strconv.Itoa(startNumber + i),
 			deref(r.ScopusID),
 			deref(r.ScopusLink),
 			deref(r.Title),
@@ -233,8 +246,151 @@ func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsCSV(ctx context.Context
 		buf.WriteString(joinCSV(record))
 		buf.WriteString("\r\n")
 	}
+}
 
-	return buf.Bytes(), completeness, nil
+// BenchmarkExportPage is one keyset page of the document export. The FE requests pages
+// in order and concatenates their bodies into one CSV file, so no single HTTP response
+// is large enough to hit the production proxy's size ceiling (net::ERR_FAILED on big
+// Thailand exports). Only the first page carries the BOM+header, the total row count
+// and the completeness metadata.
+type BenchmarkExportPage struct {
+	Body         []byte
+	RowsInPage   int
+	NextYear     *int
+	NextID       *int64
+	TotalRows    int
+	Completeness BenchmarkExportCompleteness
+	FirstPage    bool
+}
+
+// ExportBenchmarkDocumentsPage returns one keyset page of the export, ordered by
+// pub_year DESC, id ASC. afterYear/afterID is the cursor (nil on the first page).
+// rowOffset is the number of rows already emitted by earlier pages, so the "ลำดับ"
+// column stays continuous. Read-only; one row per document (same joins as the full
+// export). Keyset (not OFFSET) avoids re-scanning skipped rows on a slow DB.
+func (s *ScopusBenchmarkService) ExportBenchmarkDocumentsPage(ctx context.Context, level string, yearFrom, yearTo, limit int, afterYear *int, afterID *int64, rowOffset int) (BenchmarkExportPage, error) {
+	var page BenchmarkExportPage
+	page.FirstPage = afterYear == nil && afterID == nil
+	scopeLevel, ok := BenchmarkDocumentExportLevels[level]
+	if !ok {
+		return page, fmt.Errorf("unsupported export level %q", level)
+	}
+	if yearFrom > yearTo {
+		yearFrom, yearTo = yearTo, yearFrom
+	}
+	if limit <= 0 {
+		limit = 2000
+	}
+
+	var scope models.ScopusBenchmarkScope
+	if err := s.db.WithContext(ctx).Where("level = ?", scopeLevel).First(&scope).Error; err != nil {
+		return page, fmt.Errorf("resolve %s benchmark scope: %w", scopeLevel, err)
+	}
+
+	cursor := ""
+	args := []interface{}{scope.ID, yearFrom, yearTo}
+	if !page.FirstPage {
+		// Rows AFTER (afterYear, afterID) in pub_year DESC, id ASC order.
+		cursor = "\n\t\t\tAND (d.pub_year < ? OR (d.pub_year = ? AND d.id > ?))"
+		args = append(args, *afterYear, *afterYear, *afterID)
+	}
+	args = append(args, limit)
+
+	var rows []benchmarkExportRow
+	if err := s.db.WithContext(ctx).Raw(`
+		SELECT
+			d.id, d.scopus_id, d.scopus_link, d.title, d.abstract, d.aggregation_type, d.source_id, d.publication_name,
+			d.issn, d.eissn, d.isbn, d.volume, d.issue, d.page_range, d.article_number, d.cover_date, d.doi,
+			d.citedby_count, d.authkeywords, d.fund_sponsor, d.pub_year, d.eid,
+			m.cite_score_status AS cs_status, m.cite_score_rank AS cs_rank,
+			m.cite_score_percentile AS cs_pct, m.cite_score_quartile AS cs_quartile,
+			bds.pub_year AS membership_year,
+			(SELECT GROUP_CONCAT(COALESCE(a.full_name, a.surname, a.scopus_author_id) ORDER BY da.author_seq SEPARATOR '; ')
+				FROM scopus_benchmark_document_authors AS da
+				JOIN scopus_benchmark_authors AS a ON a.id = da.author_id
+				WHERE da.document_id = d.id) AS authors
+		FROM scopus_benchmark_document_scopes AS bds
+		JOIN scopus_benchmark_documents AS d ON d.id = bds.document_id
+		LEFT JOIN scopus_source_metrics AS m ON m.source_metric_id = (
+			SELECT im.source_metric_id FROM scopus_source_metrics AS im
+			WHERE im.source_id = d.source_id AND im.doc_type = 'all'
+			ORDER BY im.metric_year DESC, im.source_metric_id DESC
+			LIMIT 1)
+		WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?`+cursor+`
+		ORDER BY d.pub_year DESC, d.id ASC
+		LIMIT ?`, args...).
+		Scan(&rows).Error; err != nil {
+		return page, fmt.Errorf("load benchmark documents page: %w", err)
+	}
+
+	if page.FirstPage && len(rows) == 0 {
+		return page, ErrBenchmarkExportEmpty
+	}
+
+	ids := make([]int64, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
+	}
+	affByDoc, err := s.loadBenchmarkExportAffiliations(ctx, ids)
+	if err != nil {
+		return page, err
+	}
+
+	var buf bytes.Buffer
+	if page.FirstPage {
+		writeBenchmarkExportBOMAndHeader(&buf)
+	}
+	writeBenchmarkExportCSVRows(&buf, rows, affByDoc, rowOffset+1)
+	page.Body = buf.Bytes()
+	page.RowsInPage = len(rows)
+
+	// A full page means there may be more — hand back the keyset cursor of the last row.
+	if len(rows) == limit {
+		last := rows[len(rows)-1]
+		year := 0
+		if last.PubYear != nil {
+			year = *last.PubYear
+		}
+		id := last.ID
+		page.NextYear = &year
+		page.NextID = &id
+	}
+
+	// Total row count + completeness are computed once, on the first page.
+	if page.FirstPage {
+		var total int64
+		if err := s.db.WithContext(ctx).Raw(`
+			SELECT COUNT(*) FROM scopus_benchmark_document_scopes AS bds
+			WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?`, scope.ID, yearFrom, yearTo).
+			Scan(&total).Error; err != nil {
+			return page, fmt.Errorf("count benchmark documents: %w", err)
+		}
+		page.TotalRows = int(total)
+
+		type yearCount struct {
+			PubYear int `gorm:"column:pub_year"`
+			Total   int `gorm:"column:total"`
+		}
+		var harvestedRows []yearCount
+		if err := s.db.WithContext(ctx).Raw(`
+			SELECT bds.pub_year AS pub_year, COUNT(DISTINCT bds.document_id) AS total
+			FROM scopus_benchmark_document_scopes AS bds
+			WHERE bds.scope_id = ? AND bds.pub_year BETWEEN ? AND ?
+			GROUP BY bds.pub_year`, scope.ID, yearFrom, yearTo).
+			Scan(&harvestedRows).Error; err != nil {
+			return page, fmt.Errorf("load export harvested coverage: %w", err)
+		}
+		harvestedByYear := make(map[int]int, len(harvestedRows))
+		for _, r := range harvestedRows {
+			harvestedByYear[r.PubYear] = r.Total
+		}
+		page.Completeness, err = s.benchmarkExportCompleteness(ctx, scope.ID, yearFrom, yearTo, harvestedByYear, int(total))
+		if err != nil {
+			return page, err
+		}
+	}
+
+	return page, nil
 }
 
 // benchmarkExportCompleteness compares, per year, the latest count snapshot total for
