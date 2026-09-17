@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"fund-management-api/models"
@@ -117,20 +119,42 @@ func (level BenchmarkInsightLevel) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(level))
 }
 
+// benchmarkInsightScope is the shared scope descriptor for both the single-year and
+// range payloads (§4.3: the range response carries the same scope block, never a
+// bare year=end that would masquerade as single-year data).
+type benchmarkInsightScope struct {
+	SubjectArea       string `json:"subject_area"`
+	FacultyScopeID    uint64 `json:"faculty_scope_id"`
+	UniversityScopeID uint64 `json:"university_scope_id"`
+	CountryScopeID    uint64 `json:"country_scope_id"`
+}
+
+type benchmarkQuartileCoverage struct {
+	Classified int `json:"classified"`
+	Total      int `json:"total"`
+}
+
 // BenchmarkInsights is the complete deep-dive payload for a selected year.
 type BenchmarkInsights struct {
 	Year     int                              `json:"year"`
 	Levels   map[string]BenchmarkInsightLevel `json:"levels"`
-	Coverage struct {
-		Classified int `json:"classified"`
-		Total      int `json:"total"`
-	} `json:"quartile_coverage"`
-	Scope struct {
-		SubjectArea       string `json:"subject_area"`
-		FacultyScopeID    uint64 `json:"faculty_scope_id"`
-		UniversityScopeID uint64 `json:"university_scope_id"`
-		CountryScopeID    uint64 `json:"country_scope_id"`
-	} `json:"scope"`
+	Coverage benchmarkQuartileCoverage        `json:"quartile_coverage"`
+	Scope    benchmarkInsightScope            `json:"scope"`
+}
+
+// BenchmarkInsightsRange is the deep-dive payload for an inclusive year range
+// (§3–4). `levels` aggregates the numerators/denominators across every year of the
+// range (never an average of per-year percentages — §3.2); `years` keeps the full
+// per-year detail so a caller can drill in and so readiness reasons stay
+// year-attributable. There is deliberately NO top-level `year` field: a range is
+// not a single year and must never be mistaken for one (§4.3).
+type BenchmarkInsightsRange struct {
+	YearFrom int                              `json:"year_from"`
+	YearTo   int                              `json:"year_to"`
+	Years    map[string]BenchmarkInsights     `json:"years"`
+	Levels   map[string]BenchmarkInsightLevel `json:"levels"`
+	Coverage benchmarkQuartileCoverage        `json:"quartile_coverage"`
+	Scope    benchmarkInsightScope            `json:"scope"`
 }
 
 // BenchmarkTopJournal is one KKU publication venue ordered by document count.
@@ -533,54 +557,42 @@ func (s *ScopusBenchmarkService) benchmarkSnapshotTotal(ctx context.Context, sco
 	return &total, nil
 }
 
-// BenchmarkInsightsForYear reads the harvested benchmark dataset without
-// mutating either benchmark or main Scopus dashboard tables.
-func (s *ScopusBenchmarkService) BenchmarkInsightsForYear(ctx context.Context, year int) (BenchmarkInsights, error) {
-	var result BenchmarkInsights
-	result.Year = year
-	result.Levels = make(map[string]BenchmarkInsightLevel, 3)
-
-	scopes, err := s.resolveInsightScopes(ctx)
-	if err != nil {
-		return result, err
+// benchmarkInsightScopeInfo builds the shared scope block from the resolved scopes.
+func benchmarkInsightScopeInfo(scopes insightScopeSet) benchmarkInsightScope {
+	info := benchmarkInsightScope{
+		SubjectArea:       benchmarkSubjectDefault,
+		FacultyScopeID:    scopes.Faculty.ID,
+		UniversityScopeID: scopes.University.ID,
+		CountryScopeID:    scopes.Country.ID,
 	}
-	result.Scope.SubjectArea = benchmarkSubjectDefault
 	if trimmed := strings.TrimSpace(scopes.University.SubjectArea); trimmed != "" {
-		result.Scope.SubjectArea = trimmed
+		info.SubjectArea = trimmed
 	}
-	result.Scope.FacultyScopeID = scopes.Faculty.ID
-	result.Scope.UniversityScopeID = scopes.University.ID
-	result.Scope.CountryScopeID = scopes.Country.ID
+	return info
+}
 
-	// Readiness inputs: verified-faculty coverage for this single year plus the
-	// active-harvest guard, reusing the same rules as the KPI count path.
-	facultyCoverage, err := s.FacultyMetricCoverage(ctx, year, year)
-	if err != nil {
-		return result, err
-	}
-	facultyYearMissing := false
-	for _, missing := range facultyCoverage.BenchmarkYearsMissing {
-		if missing == year {
-			facultyYearMissing = true
-			break
-		}
-	}
-	activeRun, err := s.GetActiveRun(ctx)
-	if err != nil {
-		return result, err
-	}
-	readinessInputs := levelReadinessInputs{
-		facultyMetricReady: facultyCoverage.Ready,
-		facultyYearMissing: facultyYearMissing,
-	}
+// benchmarkRunReadinessInputs derives the range-constant readiness inputs (verified-
+// faculty readiness + active-harvest guards). The per-year facultyYearMissing flag is
+// layered on top per year by the caller.
+func benchmarkRunReadinessInputs(coverageReady bool, activeRun *models.ScopusBenchmarkHarvestRun, scopes insightScopeSet) levelReadinessInputs {
+	in := levelReadinessInputs{facultyMetricReady: coverageReady}
 	if activeRun != nil {
 		if activeRun.ScopeID == nil || *activeRun.ScopeID == scopes.University.ID {
-			readinessInputs.kkuHarvestActive = true
+			in.kkuHarvestActive = true
 		}
 		if activeRun.ScopeID != nil && *activeRun.ScopeID == scopes.Country.ID {
-			readinessInputs.countryHarvestActive = true
+			in.countryHarvestActive = true
 		}
 	}
+	return in
+}
+
+// insightsForYear computes one year's full insight payload from already-resolved
+// scopes and readiness inputs, so a range read can resolve the scopes / faculty
+// coverage / active run ONCE and loop years cheaply (§4.5 — no unbounded fan-out of
+// the shared setup). It shares the exact per-year formulas of the single-year path.
+func (s *ScopusBenchmarkService) insightsForYear(ctx context.Context, year int, scopes insightScopeSet, readinessInputs levelReadinessInputs) (BenchmarkInsights, error) {
+	result := BenchmarkInsights{Year: year, Levels: make(map[string]BenchmarkInsightLevel, 3), Scope: benchmarkInsightScopeInfo(scopes)}
 
 	levels := []struct {
 		name            string
@@ -623,6 +635,238 @@ func (s *ScopusBenchmarkService) BenchmarkInsightsForYear(ctx context.Context, y
 	}
 
 	return result, nil
+}
+
+// BenchmarkInsightsForYear reads the harvested benchmark dataset without
+// mutating either benchmark or main Scopus dashboard tables.
+func (s *ScopusBenchmarkService) BenchmarkInsightsForYear(ctx context.Context, year int) (BenchmarkInsights, error) {
+	scopes, err := s.resolveInsightScopes(ctx)
+	if err != nil {
+		return BenchmarkInsights{Year: year, Levels: map[string]BenchmarkInsightLevel{}}, err
+	}
+
+	// Readiness inputs: verified-faculty coverage for this single year plus the
+	// active-harvest guard, reusing the same rules as the KPI count path.
+	facultyCoverage, err := s.FacultyMetricCoverage(ctx, year, year)
+	if err != nil {
+		return BenchmarkInsights{Year: year, Levels: map[string]BenchmarkInsightLevel{}, Scope: benchmarkInsightScopeInfo(scopes)}, err
+	}
+	activeRun, err := s.GetActiveRun(ctx)
+	if err != nil {
+		return BenchmarkInsights{Year: year, Levels: map[string]BenchmarkInsightLevel{}, Scope: benchmarkInsightScopeInfo(scopes)}, err
+	}
+
+	readinessInputs := benchmarkRunReadinessInputs(facultyCoverage.Ready, activeRun, scopes)
+	readinessInputs.facultyYearMissing = yearInSlice(year, facultyCoverage.BenchmarkYearsMissing)
+	return s.insightsForYear(ctx, year, scopes, readinessInputs)
+}
+
+// BenchmarkInsightsForRange reads the harvested benchmark dataset for an inclusive
+// [yearFrom, yearTo] window. The shared setup (scopes, faculty coverage, active run)
+// is resolved once; each year's insight reuses the single-year formulas; and the
+// per-level metrics are then aggregated across the range by a pure helper. Read-only
+// like the single-year path (§4.9) — no harvest/refresh/backfill is triggered.
+func (s *ScopusBenchmarkService) BenchmarkInsightsForRange(ctx context.Context, yearFrom, yearTo int) (BenchmarkInsightsRange, error) {
+	if yearFrom > yearTo {
+		yearFrom, yearTo = yearTo, yearFrom
+	}
+	result := BenchmarkInsightsRange{
+		YearFrom: yearFrom,
+		YearTo:   yearTo,
+		Years:    make(map[string]BenchmarkInsights, yearTo-yearFrom+1),
+		Levels:   make(map[string]BenchmarkInsightLevel, 3),
+	}
+
+	scopes, err := s.resolveInsightScopes(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Scope = benchmarkInsightScopeInfo(scopes)
+
+	// One coverage read for the whole range: BenchmarkYearsMissing is decided per year
+	// independently (missingBenchmarkYears), so the per-year facultyYearMissing flags
+	// match what year-by-year reads would produce (§4.5).
+	facultyCoverage, err := s.FacultyMetricCoverage(ctx, yearFrom, yearTo)
+	if err != nil {
+		return result, err
+	}
+	missingSet := make(map[int]struct{}, len(facultyCoverage.BenchmarkYearsMissing))
+	for _, y := range facultyCoverage.BenchmarkYearsMissing {
+		missingSet[y] = struct{}{}
+	}
+	activeRun, err := s.GetActiveRun(ctx)
+	if err != nil {
+		return result, err
+	}
+	baseInputs := benchmarkRunReadinessInputs(facultyCoverage.Ready, activeRun, scopes)
+
+	years := make([]int, 0, yearTo-yearFrom+1)
+	perYearLevels := map[string]map[int]BenchmarkInsightLevel{
+		"faculty":  {},
+		"kku":      {},
+		"thailand": {},
+	}
+	for year := yearFrom; year <= yearTo; year++ {
+		years = append(years, year)
+		inputs := baseInputs
+		_, inputs.facultyYearMissing = missingSet[year]
+		yearInsight, err := s.insightsForYear(ctx, year, scopes, inputs)
+		if err != nil {
+			return result, err
+		}
+		result.Years[strconv.Itoa(year)] = yearInsight
+		for name := range perYearLevels {
+			perYearLevels[name][year] = yearInsight.Levels[name]
+		}
+	}
+
+	for _, name := range []string{"faculty", "kku", "thailand"} {
+		agg := aggregateRangeLevel(years, perYearLevels[name])
+		result.Levels[name] = agg
+		if agg.Available {
+			classified := agg.Quartile.T1 + agg.Quartile.Q1 + agg.Quartile.Q2 + agg.Quartile.Q3 + agg.Quartile.Q4
+			result.Coverage.Classified += classified
+			result.Coverage.Total += agg.Docs
+		}
+	}
+
+	return result, nil
+}
+
+// aggregateRangeLevel sums one level's numerators/denominators across the years of a
+// range and re-derives every rate from the summed components — never by averaging
+// per-year percentages (§3.2). Readiness is aggregated per metric: a metric is
+// range-ready only when EVERY year is ready for it, and each blocking reason keeps
+// its originating year so the FE can name the year that is not complete (§3.2). It is
+// a pure function of its inputs so it can be unit-tested without a database (§4.4).
+func aggregateRangeLevel(years []int, byYear map[int]BenchmarkInsightLevel) BenchmarkInsightLevel {
+	metricNames := []string{"count", "quality", "intl", "oa", "citations"}
+	metricReady := map[string]bool{}
+	metricReasons := map[string][]string{}
+	for _, m := range metricNames {
+		metricReady[m] = true
+		metricReasons[m] = []string{}
+	}
+
+	agg := BenchmarkInsightLevel{}
+	availableAny := false
+	var citCohort, citKnown int
+	var citTotal int64
+	citTotalHasKnown := false
+	observedDocs := 0
+	expectedSum := 0
+	expectedHasAny := false
+	anyActiveRun := false
+	anyMismatch := false
+
+	for _, y := range years {
+		lvl := byYear[y]
+		if lvl.Available {
+			availableAny = true
+		}
+		agg.Docs += lvl.Docs
+		agg.OA.Known += lvl.OA.Known
+		agg.OA.Positive += lvl.OA.Positive
+		agg.OA.Unknown += lvl.OA.Unknown
+		agg.Intl.Known += lvl.Intl.Known
+		agg.Intl.Positive += lvl.Intl.Positive
+		agg.Intl.Unknown += lvl.Intl.Unknown
+		agg.Quartile.T1 += lvl.Quartile.T1
+		agg.Quartile.Q1 += lvl.Quartile.Q1
+		agg.Quartile.Q2 += lvl.Quartile.Q2
+		agg.Quartile.Q3 += lvl.Quartile.Q3
+		agg.Quartile.Q4 += lvl.Quartile.Q4
+		agg.Quartile.UnclassifiedJournal += lvl.Quartile.UnclassifiedJournal
+		agg.Quartile.ExcludedNonJournal += lvl.Quartile.ExcludedNonJournal
+		agg.Quartile.Unresolved += lvl.Quartile.Unresolved
+		agg.DocTypes.Article += lvl.DocTypes.Article
+		agg.DocTypes.Conference += lvl.DocTypes.Conference
+		agg.DocTypes.Other += lvl.DocTypes.Other
+
+		citCohort += lvl.Citations.CohortDocs
+		citKnown += lvl.Citations.KnownDocs
+		if lvl.Citations.Total != nil {
+			citTotal += *lvl.Citations.Total
+			citTotalHasKnown = true
+		}
+
+		r := lvl.Readiness
+		observedDocs += r.ObservedDocs
+		if r.ExpectedDocs != nil {
+			expectedSum += *r.ExpectedDocs
+			expectedHasAny = true
+		}
+		if r.ActiveRun {
+			anyActiveRun = true
+		}
+		if r.SnapshotMismatch {
+			anyMismatch = true
+		}
+		for _, m := range metricNames {
+			mr := r.Metrics[m]
+			if !mr.Ready {
+				metricReady[m] = false
+			}
+			for _, reason := range mr.Reasons {
+				metricReasons[m] = append(metricReasons[m], fmt.Sprintf("%d: %s", y, reason))
+			}
+		}
+	}
+
+	agg.Available = availableAny
+	// Legacy unclassified = observed docs not in any journal tier (recomputed on the sum).
+	agg.Quartile.Unclassified = agg.Docs - (agg.Quartile.T1 + agg.Quartile.Q1 + agg.Quartile.Q2 + agg.Quartile.Q3 + agg.Quartile.Q4)
+	if agg.OA.Known > 0 {
+		agg.OAPct = round2(100 * float64(agg.OA.Positive) / float64(agg.OA.Known))
+	}
+	if agg.Intl.Known > 0 {
+		agg.IntlPct = round2(100 * float64(agg.Intl.Positive) / float64(agg.Intl.Known))
+	}
+	var totalPtr *int64
+	if citTotalHasKnown {
+		v := citTotal
+		totalPtr = &v
+	}
+	agg.Citations = computeCitationSummary(citCohort, citKnown, totalPtr)
+	if agg.Citations.Average != nil {
+		agg.AvgCite = round2(*agg.Citations.Average)
+	}
+
+	metrics := make(map[string]BenchmarkMetricReadiness, len(metricNames))
+	for _, m := range metricNames {
+		metrics[m] = BenchmarkMetricReadiness{Ready: metricReady[m], Reasons: metricReasons[m]}
+	}
+	var expectedPtr *int
+	if expectedHasAny {
+		v := expectedSum
+		expectedPtr = &v
+	}
+	agg.Readiness = BenchmarkLevelReadiness{
+		ComparisonReady:  metricReady["count"],
+		ActiveRun:        anyActiveRun,
+		SnapshotMismatch: anyMismatch,
+		ExpectedDocs:     expectedPtr,
+		ObservedDocs:     observedDocs,
+		Reasons:          metricReasons["count"],
+		Metrics:          metrics,
+	}
+	return agg
+}
+
+// yearInSlice reports whether year is present in the slice.
+func yearInSlice(year int, years []int) bool {
+	for _, y := range years {
+		if y == year {
+			return true
+		}
+	}
+	return false
+}
+
+// round2 rounds to two decimals to match the SQL ROUND(...,2) used per year, so an
+// aggregated rate reads consistently with the single-year values.
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 // BenchmarkTopJournals returns the most frequent KKU publication venues across
