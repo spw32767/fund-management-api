@@ -1210,6 +1210,44 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				UserScopusID    string
 				YearDocCounts   map[int]int
 			}
+			// h-index ทางการจาก Author API — snapshot ล่าสุดต่อ scopus_author_id
+			// ใช้ร่วมทั้งตารางสรุปรายบุคคล (Person Summary) และเมทริกซ์รายปี (Person Year Matrix)
+			// เป็นค่าสะสมค่าเดียวต่อคน ไม่ขึ้นกับตัวกรองปี; คนที่ยังไม่เคยดึงจะไม่มีคีย์ = โชว์ "-" ฝั่งหน้าบ้าน
+			officialHIndexByScopus := map[string]int{}
+			{
+				scopusIDs := make([]string, 0, len(aggByUser))
+				for _, agg := range aggByUser {
+					if id := strings.TrimSpace(agg.UserScopusID); id != "" && id != "-" {
+						scopusIDs = append(scopusIDs, id)
+					}
+				}
+				if len(scopusIDs) > 0 {
+					type officialMetricRow struct {
+						ScopusAuthorID string `gorm:"column:scopus_author_id"`
+						HIndex         int    `gorm:"column:h_index"`
+					}
+					officialMetrics := make([]officialMetricRow, 0)
+					_ = config.DB.Raw(`
+						SELECT m.scopus_author_id, m.h_index
+						FROM scopus_author_metrics m
+						JOIN (
+							SELECT scopus_author_id, MAX(snapshot_date) AS md
+							FROM scopus_author_metrics
+							GROUP BY scopus_author_id
+						) x ON x.scopus_author_id = m.scopus_author_id AND x.md = m.snapshot_date
+						WHERE m.scopus_author_id IN ?`, scopusIDs).Scan(&officialMetrics).Error
+					for _, m := range officialMetrics {
+						officialHIndexByScopus[m.ScopusAuthorID] = m.HIndex
+					}
+				}
+			}
+			officialHIndexOrNil := func(scopusID string) interface{} {
+				if h, ok := officialHIndexByScopus[strings.TrimSpace(scopusID)]; ok {
+					return h
+				}
+				return nil
+			}
+
 			sortableRows := make([]personSortable, 0, len(aggByUser))
 			allYearsSet := map[int]struct{}{}
 			for _, agg := range aggByUser {
@@ -1231,6 +1269,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"user_name":        agg.UserName,
 					"user_email":       agg.UserEmail,
 					"user_scopus_id":   agg.UserScopusID,
+					"h_index":          officialHIndexOrNil(agg.UserScopusID),
 					"publication_rows": agg.PublicationRows,
 					"unique_documents": agg.UniqueDocuments,
 					"cited_by_total":   agg.CitedByTotal,
@@ -1314,6 +1353,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"user_name":        r.UserName,
 					"user_email":       r.UserEmail,
 					"user_scopus_id":   r.UserScopusID,
+					"h_index":          officialHIndexOrNil(r.UserScopusID),
 					"publication_rows": 0,
 					"unique_documents": 0,
 					"cited_by_total":   0,
@@ -1389,6 +1429,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 						"user_name":      row.UserName,
 						"user_email":     row.UserEmail,
 						"user_scopus_id": row.UserScopus,
+						"h_index":        officialHIndexOrNil(row.UserScopus),
 						"year_counts":    yearCounts,
 					})
 				}
