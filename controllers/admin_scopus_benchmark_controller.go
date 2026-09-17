@@ -663,13 +663,17 @@ func AdminExportBenchmarkDocuments(c *gin.Context) {
 	c.Header("X-Benchmark-Incomplete", strconv.FormatBool(completeness.Incomplete))
 	c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
 	c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(completeness.ActiveHarvest))
-	// Ask nginx to disable proxy buffering for THIS export response only (set before the
-	// body is written). Experimental: a large CSV (e.g. Thailand ~5.6k rows) downloads
-	// locally but fails with net::ERR_FAILED behind the production proxy; nginx buffering
-	// is a plausible cause not yet confirmed. This header is a no-op without nginx and
-	// only affects the successful CSV path — the 400/404/500 JSON replies above already
-	// returned, and auth/CORS/columns/completeness headers are unchanged.
+	// Ask nginx to disable proxy buffering for THIS export response only.
 	c.Header("X-Accel-Buffering", "no")
+	// Set an explicit Content-Length so the (multi-MB) CSV is a fully length-delimited
+	// response. gin's c.Data does not set it, and Go omits Content-Length for any body
+	// over ~2 KB — sending it chunked, or close-delimited when nginx proxies as HTTP/1.0
+	// — which a proxy chain can abort mid-download (net::ERR_FAILED), the observed
+	// symptom where only the tiny current-year export succeeds. The whole CSV is already
+	// built in memory, so len(csv) is exact. Experimental and complementary to
+	// X-Accel-Buffering; still only the successful CSV path, no change to auth/CORS/
+	// columns/completeness/streaming.
+	c.Header("Content-Length", strconv.Itoa(len(csv)))
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", csv)
 }
 
