@@ -150,9 +150,61 @@ func (s *CiteScoreMetricsService) EnsureJournalMetrics(ctx context.Context, issn
 	return s.persistMetrics(ctx, entry)
 }
 
+// citeScoreBackfillTarget is one journal candidate discovered while scanning a
+// document corpus for CiteScore backfill.
+type citeScoreBackfillTarget struct {
+	SourceID  *string
+	ISSN      *string
+	CoverDate *time.Time
+}
+
+// loadDocumentBackfillTargets returns distinct journals from the home Scopus
+// corpus (scopus_documents).
+func (s *CiteScoreMetricsService) loadDocumentBackfillTargets(ctx context.Context) ([]citeScoreBackfillTarget, error) {
+	var targets []citeScoreBackfillTarget
+	query := s.db.WithContext(ctx).Model(&models.ScopusDocument{}).
+		Select("source_id", "issn", "MAX(cover_date) AS cover_date").
+		Where("(source_id IS NOT NULL AND source_id <> '') OR (issn IS NOT NULL AND issn <> '')").
+		Group("source_id, issn")
+	if err := query.Find(&targets).Error; err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// loadBenchmarkBackfillTargets returns distinct journals from the benchmark
+// harvest corpus (scopus_benchmark_documents). These source ids typically cover
+// journals from institutions outside the home corpus and would otherwise never
+// have CiteScore metrics fetched.
+func (s *CiteScoreMetricsService) loadBenchmarkBackfillTargets(ctx context.Context) ([]citeScoreBackfillTarget, error) {
+	var targets []citeScoreBackfillTarget
+	query := s.db.WithContext(ctx).Model(&models.ScopusBenchmarkDocument{}).
+		Select("source_id", "issn", "MAX(cover_date) AS cover_date").
+		Where("(source_id IS NOT NULL AND source_id <> '') OR (issn IS NOT NULL AND issn <> '')").
+		Group("source_id, issn")
+	if err := query.Find(&targets).Error; err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
 // BackfillMissingMetrics scans existing Scopus documents and fetches CiteScore metrics for journals
 // that do not yet have stored metrics. It returns a summary of the backfill run.
 func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*CiteScoreBackfillSummary, error) {
+	return s.runBackfill(ctx, "backfill", s.loadDocumentBackfillTargets)
+}
+
+// BackfillBenchmarkMetrics scans benchmark harvest documents and fetches CiteScore metrics for
+// journals that do not yet have stored metrics. It shares the same target table
+// (scopus_source_metrics), run lock, and runs history as BackfillMissingMetrics, so the two jobs
+// are mutually exclusive and never re-fetch a journal the other already stored.
+func (s *CiteScoreMetricsService) BackfillBenchmarkMetrics(ctx context.Context) (*CiteScoreBackfillSummary, error) {
+	return s.runBackfill(ctx, "benchmark_backfill", s.loadBenchmarkBackfillTargets)
+}
+
+// runBackfill drives a backfill run for the journals returned by loadTargets: it records the run,
+// scans each distinct journal, skips those that already have metrics, and fetches the rest.
+func (s *CiteScoreMetricsService) runBackfill(ctx context.Context, runType string, loadTargets func(context.Context) ([]citeScoreBackfillTarget, error)) (*CiteScoreBackfillSummary, error) {
 	if s == nil {
 		return nil, errors.New("citescore metrics service is nil")
 	}
@@ -168,7 +220,7 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 	}()
 
 	summary := &CiteScoreBackfillSummary{}
-	run := &models.CiteScoreMetricsRun{RunType: "backfill", Status: "running", StartedAt: time.Now()}
+	run := &models.CiteScoreMetricsRun{RunType: runType, Status: "running", StartedAt: time.Now()}
 	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
 		return nil, err
 	}
@@ -200,22 +252,12 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 		defer cancel()
 
 		if err := s.db.WithContext(finalizeCtx).Model(run).Updates(updates).Error; err != nil {
-			log.Printf("failed to update citescore backfill run %d: %v", run.ID, err)
+			log.Printf("failed to update citescore %s run %d: %v", runType, run.ID, err)
 		}
 	}()
 
-	var targets []struct {
-		SourceID  *string
-		ISSN      *string
-		CoverDate *time.Time
-	}
-
-	query := s.db.WithContext(ctx).Model(&models.ScopusDocument{}).
-		Select("source_id", "issn", "MAX(cover_date) AS cover_date").
-		Where("(source_id IS NOT NULL AND source_id <> '') OR (issn IS NOT NULL AND issn <> '')").
-		Group("source_id, issn")
-
-	if err := query.Find(&targets).Error; err != nil {
+	targets, err := loadTargets(ctx)
+	if err != nil {
 		runErr = err
 		return nil, err
 	}
@@ -263,7 +305,7 @@ func (s *CiteScoreMetricsService) BackfillMissingMetrics(ctx context.Context) (*
 
 		if err := s.EnsureJournalMetrics(ctx, issn, sourceID, metricYear); err != nil {
 			summary.Errors++
-			log.Printf("citescore backfill: failed for issn %s source %s: %v", issn, sourceID, err)
+			log.Printf("citescore %s: failed for issn %s source %s: %v", runType, issn, sourceID, err)
 			continue
 		}
 
