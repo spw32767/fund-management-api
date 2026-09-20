@@ -153,6 +153,45 @@ func AdminBackfillCiteScoreMetrics(c *gin.Context) {
 	})
 }
 
+// POST /api/v1/admin/scopus/metrics/benchmark-backfill
+func AdminBackfillBenchmarkCiteScoreMetrics(c *gin.Context) {
+	metrics := services.NewCiteScoreMetricsService(nil, nil)
+	activeRun, err := metrics.GetActiveRun(c.Request.Context())
+	if err != nil {
+		InternalError(c, "scopus", err)
+		return
+	}
+	if activeRun != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "citescore metrics job already running",
+			"data":    activeRun,
+		})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), citeScoreRunTimeout)
+		defer cancel()
+
+		if _, err := metrics.BackfillBenchmarkMetrics(ctx); err != nil {
+			if errors.Is(err, services.ErrCiteScoreMetricsAlreadyRunning) {
+				log.Printf("citescore benchmark backfill skipped: job already running")
+				return
+			}
+			log.Printf("citescore benchmark backfill job failed: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success": true,
+		"summary": gin.H{
+			"status":  "running",
+			"message": "benchmark backfill started",
+		},
+	})
+}
+
 // POST /api/v1/admin/scopus/metrics/refresh
 func AdminRefreshCiteScoreMetrics(c *gin.Context) {
 	metrics := services.NewCiteScoreMetricsService(nil, nil)
@@ -623,7 +662,7 @@ func AdminListScopusBatchImportRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": runs, "pagination": pagination})
 }
 
-// GET /api/v1/admin/scopus/metrics/runs?run_type=refresh|backfill
+// GET /api/v1/admin/scopus/metrics/runs?run_type=refresh|backfill|benchmark_backfill
 func AdminListCiteScoreMetricRuns(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
