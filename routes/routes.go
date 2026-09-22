@@ -384,6 +384,16 @@ func SetupRoutes(router *gin.Engine) {
 				submissions.DELETE("/:id/detach-document/:doc_id", openFundOnly, controllers.DetachDocument)
 			}
 
+			paperAI := protected.Group("/paper-ai")
+			{
+				paperAI.GET("/categories", controllers.ListPaperCategories)
+				paperAI.POST("/extract", controllers.ExtractPaper)
+				paperAI.POST("/summarize", controllers.SummarizePaper)
+				paperAI.POST("/classify", controllers.ClassifyPaper)
+				paperAI.POST("/match", controllers.MatchPaper)
+				paperAI.GET("/jobs/:id", controllers.GetPaperAIJob)
+			}
+
 			// Files management
 			files := protected.Group("/files")
 			{
@@ -566,6 +576,7 @@ func SetupRoutes(router *gin.Engine) {
 				"users.manage",
 			))
 			{
+				admin.POST("/paper-ai/benchmark/:id/classify", controllers.ClassifyBenchmarkPaper)
 				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
 				admin.POST("/import-templates", controllers.CreateImportTemplateAdmin)
 				admin.PUT("/import-templates/:id", controllers.UpdateImportTemplateAdmin)
