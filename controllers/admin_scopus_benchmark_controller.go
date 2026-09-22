@@ -1,8 +1,11 @@
 package controllers
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -358,17 +361,25 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	config.DB.Where("level = ?", "university").First(&uni)
 	config.DB.Where("level = ?", "country").First(&country)
 
-	// latest snapshot per year for a scope
-	latestSnapshotByYear := func(scopeID uint64) map[int]int {
+	// latest snapshot per year for a scope, keeping the count AND its captured_at so
+	// the UI can distinguish a real zero snapshot from a missing one and show a
+	// per-level data date (§4/§9 A). A NULL captured_at is reported as no date.
+	type snapMeta struct {
+		total      int
+		exists     bool
+		snapshotAt *time.Time
+	}
+	latestSnapshotByYear := func(scopeID uint64) map[int]snapMeta {
 		type row struct {
-			PubYear *int
-			Total   int
+			PubYear    *int
+			Total      int
+			CapturedAt *time.Time
 		}
 		var rows []row
 		// pick the newest snapshot per year using MAX(id) — deterministic even if
 		// two snapshots land in the same second (id is a monotonic autoincrement).
 		config.DB.Raw(`
-			SELECT s.pub_year AS pub_year, s.total_results AS total
+			SELECT s.pub_year AS pub_year, s.total_results AS total, s.captured_at AS captured_at
 			FROM scopus_benchmark_count_snapshots s
 			JOIN (
 				SELECT pub_year, MAX(id) AS mx
@@ -377,10 +388,10 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 				GROUP BY pub_year
 			) latest ON latest.pub_year = s.pub_year AND latest.mx = s.id
 			WHERE s.scope_id = ?`, scopeID, scopeID).Scan(&rows)
-		out := map[int]int{}
+		out := map[int]snapMeta{}
 		for _, r := range rows {
 			if r.PubYear != nil {
-				out[*r.PubYear] = r.Total
+				out[*r.PubYear] = snapMeta{total: r.Total, exists: true, snapshotAt: r.CapturedAt}
 			}
 		}
 		return out
@@ -402,18 +413,94 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 	for _, year := range facultyCoverage.BenchmarkYearsMissing {
 		missingFacultyYears[year] = struct{}{}
 	}
+
+	// Additive per-year/per-level snapshot metadata so the report can pick a report
+	// year deterministically and label per-level data dates (handoff §4/§9 A). All
+	// existing fields above are preserved unchanged for backward compatibility.
+	yearMeta := gin.H{}
+	snapAt := func(meta snapMeta) interface{} {
+		if meta.snapshotAt == nil {
+			return nil
+		}
+		return meta.snapshotAt.UTC().Format(time.RFC3339)
+	}
 	for y := yearTo; y >= yearFrom; y-- {
+		facultySnap := facultyByYear[y]
+		uniSnap := uniByYear[y]
+		countrySnap := countryByYear[y]
+
 		var facultyTotal interface{}
 		_, benchmarkMissing := missingFacultyYears[y]
-		if facultyCoverage.Ready && !benchmarkMissing {
-			facultyTotal = facultyByYear[y]
+		facultyUsable := facultyCoverage.Ready && !benchmarkMissing
+		if facultyUsable {
+			facultyTotal = facultySnap.total
 		}
 		rows = append(rows, gin.H{
 			"year":       y,
 			"faculty":    facultyTotal,
-			"university": uniByYear[y],
-			"country":    countryByYear[y],
+			"university": uniSnap.total,
+			"country":    countrySnap.total,
 		})
+
+		// Faculty status: available only when a snapshot exists AND the verified
+		// metric is ready for this year; blocked when a snapshot exists but the
+		// metric is not usable (not ready / incomplete KKU docs / active harvest);
+		// missing when there is no snapshot at all.
+		facultyStatus := "missing"
+		facultyReason := "no faculty snapshot for this year"
+		if facultySnap.exists {
+			if facultyUsable {
+				facultyStatus = "available"
+				facultyReason = ""
+			} else {
+				facultyStatus = "blocked"
+				facultyReason = "faculty metric not ready or KKU benchmark documents incomplete for this year"
+			}
+		}
+		uniStatus := "missing"
+		if uniSnap.exists {
+			uniStatus = "available"
+		}
+		countryStatus := "missing"
+		if countrySnap.exists {
+			countryStatus = "available"
+		}
+
+		yearMeta[strconv.Itoa(y)] = gin.H{
+			"faculty":    gin.H{"status": facultyStatus, "snapshot_exists": facultySnap.exists, "snapshot_at": snapAt(facultySnap), "reason": facultyReason},
+			"university": gin.H{"status": uniStatus, "snapshot_exists": uniSnap.exists, "snapshot_at": snapAt(uniSnap), "reason": ""},
+			"country":    gin.H{"status": countryStatus, "snapshot_exists": countrySnap.exists, "snapshot_at": snapAt(countrySnap), "reason": ""},
+		}
+	}
+
+	normSubject := func(s string) string {
+		s = strings.ToUpper(strings.TrimSpace(s))
+		if s == "" {
+			return "COMP"
+		}
+		return s
+	}
+	subjectArea := normSubject(uni.SubjectArea)
+	facultySubject := normSubject(faculty.SubjectArea)
+	countrySubject := normSubject(country.SubjectArea)
+	// All three scopes that feed the comparison must be the same subject and it must
+	// be COMP; otherwise the report must withhold cross-scope conclusions (§4, R2-3).
+	scopeConsistent := subjectArea == "COMP" && facultySubject == "COMP" && countrySubject == "COMP"
+
+	// available_years lists EVERY year each scope has a snapshot for (existence, not
+	// readiness — a real zero or a blocked-faculty year still counts), across all
+	// stored years rather than just the requested window, so the report can discover
+	// and load older years (handoff §4/§9 A, R7).
+	allSnapshotYears := func(scopeID uint64) []int {
+		var years []int
+		config.DB.Raw(`
+			SELECT DISTINCT pub_year FROM scopus_benchmark_count_snapshots
+			WHERE scope_id = ? AND pub_year IS NOT NULL
+			ORDER BY pub_year DESC`, scopeID).Scan(&years)
+		if years == nil {
+			years = []int{}
+		}
+		return years
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -424,6 +511,267 @@ func AdminGetBenchmarkComparison(c *gin.Context) {
 			"faculty_scope":    faculty,
 			"university_scope": uni,
 			"country_scope":    country,
+			"year_meta":        yearMeta,
+			"available_years": gin.H{
+				"faculty":    allSnapshotYears(faculty.ID),
+				"university": allSnapshotYears(uni.ID),
+				"country":    allSnapshotYears(country.ID),
+			},
+			"report_scope": gin.H{
+				"subject_area":            subjectArea,
+				"faculty_subject_area":    facultySubject,
+				"university_subject_area": subjectArea,
+				"country_subject_area":    countrySubject,
+				"consistent":              scopeConsistent,
+				"faculty_scope_id":        faculty.ID,
+				"university_scope_id":     uni.ID,
+				"country_scope_id":        country.ID,
+			},
 		},
 	})
+}
+
+// benchmarkInsightsMaxRange bounds the width of a range request so a malformed or
+// hostile window can never fan out into an unbounded number of per-year reads (§4.2,
+// §4.5). The benchmark dataset spans well under this many years.
+const benchmarkInsightsMaxRange = 60
+
+// GET /api/v1/admin/scopus/benchmark/insights?year=2026
+// GET /api/v1/admin/scopus/benchmark/insights?year_from=2025&year_to=2026
+//
+// The single-year form is unchanged (same response shape for legacy callers). The
+// range form returns the aggregated BenchmarkInsightsRange payload. Mixing `year`
+// with `year_from`/`year_to`, an incomplete/unparseable range, or start > end is a
+// 400 (§4.2) — the range path never silently swaps values or falls back to a year.
+func AdminGetBenchmarkInsights(c *gin.Context) {
+	rawYear := strings.TrimSpace(c.Query("year"))
+	rawFrom := strings.TrimSpace(c.Query("year_from"))
+	rawTo := strings.TrimSpace(c.Query("year_to"))
+	hasRange := rawFrom != "" || rawTo != ""
+
+	minYear, maxYear := 1900, time.Now().Year()+1
+
+	if hasRange {
+		if rawYear != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "cannot combine year with year_from/year_to"})
+			return
+		}
+		if rawFrom == "" || rawTo == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "both year_from and year_to are required for a range"})
+			return
+		}
+		yearFrom, errFrom := strconv.Atoi(rawFrom)
+		yearTo, errTo := strconv.Atoi(rawTo)
+		if errFrom != nil || errTo != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from and year_to must be integers"})
+			return
+		}
+		if yearFrom < minYear || yearFrom > maxYear || yearTo < minYear || yearTo > maxYear {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from/year_to out of range"})
+			return
+		}
+		if yearFrom > yearTo {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from must be <= year_to"})
+			return
+		}
+		if yearTo-yearFrom+1 > benchmarkInsightsMaxRange {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "requested year range is too wide"})
+			return
+		}
+		data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkInsightsForRange(c.Request.Context(), yearFrom, yearTo)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+		return
+	}
+
+	year, err := strconv.Atoi(rawYear)
+	if err != nil || year < minYear || year > maxYear {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid year"})
+		return
+	}
+
+	data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkInsightsForYear(c.Request.Context(), year)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+// GET /api/v1/admin/scopus/benchmark/documents/export?level=university|country&year_from=&year_to=
+// Streams the Documents CSV (36 columns matching the search page) for one benchmark
+// level over an inclusive year range. Read-only: it never harvests or refreshes.
+func AdminExportBenchmarkDocuments(c *gin.Context) {
+	level := strings.ToLower(strings.TrimSpace(c.Query("level")))
+	if _, ok := services.BenchmarkDocumentExportLevels[level]; !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "level must be university or country"})
+		return
+	}
+
+	rawFrom := strings.TrimSpace(c.Query("year_from"))
+	rawTo := strings.TrimSpace(c.Query("year_to"))
+	if rawFrom == "" || rawTo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "both year_from and year_to are required"})
+		return
+	}
+	yearFrom, errFrom := strconv.Atoi(rawFrom)
+	yearTo, errTo := strconv.Atoi(rawTo)
+	if errFrom != nil || errTo != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from and year_to must be integers"})
+		return
+	}
+	minYear, maxYear := 1900, time.Now().Year()+1
+	if yearFrom < minYear || yearFrom > maxYear || yearTo < minYear || yearTo > maxYear {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from/year_to out of range"})
+		return
+	}
+	if yearFrom > yearTo {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from must be <= year_to"})
+		return
+	}
+	if yearTo-yearFrom+1 > benchmarkInsightsMaxRange {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "requested year range is too wide"})
+		return
+	}
+
+	label := "kku"
+	if level == "country" {
+		label = "thailand"
+	}
+	filename := fmt.Sprintf("scopus-benchmark-documents-%s-%d-%d.csv", label, yearFrom, yearTo)
+	svc := services.NewScopusBenchmarkService(nil, nil)
+
+	// Paged mode (FE default): the client requests keyset pages and stitches them into
+	// one CSV, so no single HTTP response is large enough to hit the production proxy's
+	// size ceiling. Triggered by a `limit` param. Without it, the endpoint keeps its
+	// original single-file behaviour for any direct caller.
+	if c.Query("limit") != "" {
+		limit, _ := strconv.Atoi(strings.TrimSpace(c.Query("limit")))
+		if limit <= 0 || limit > 5000 {
+			limit = 2000
+		}
+		var afterYear *int
+		var afterID *int64
+		rawAfterYear := strings.TrimSpace(c.Query("after_year"))
+		rawAfterID := strings.TrimSpace(c.Query("after_id"))
+		if (rawAfterYear == "") != (rawAfterID == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "after_year and after_id must be provided together"})
+			return
+		}
+		if rawAfterYear != "" {
+			ay, e1 := strconv.Atoi(rawAfterYear)
+			aid, e2 := strconv.ParseInt(rawAfterID, 10, 64)
+			if e1 != nil || e2 != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "after_year/after_id must be integers"})
+				return
+			}
+			afterYear, afterID = &ay, &aid
+		}
+		rowOffset, _ := strconv.Atoi(strings.TrimSpace(c.Query("row_offset")))
+		if rowOffset < 0 {
+			rowOffset = 0
+		}
+
+		page, err := svc.ExportBenchmarkDocumentsPage(c.Request.Context(), level, yearFrom, yearTo, limit, afterYear, afterID, rowOffset)
+		if err != nil {
+			if errors.Is(err, services.ErrBenchmarkExportEmpty) {
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+
+		// Cursor for the next page (empty when this is the last page); total count and
+		// completeness only on the first page.
+		nextCursor := ""
+		if page.NextYear != nil && page.NextID != nil {
+			nextCursor = fmt.Sprintf("%d,%d", *page.NextYear, *page.NextID)
+		}
+		c.Header("X-Next-Cursor", nextCursor)
+		if page.FirstPage {
+			c.Header("Content-Disposition", "attachment; filename="+filename)
+			c.Header("X-Total-Count", strconv.Itoa(page.TotalRows))
+			c.Header("X-Benchmark-Expected", strconv.Itoa(page.Completeness.ExpectedDocs))
+			c.Header("X-Benchmark-Incomplete", strconv.FormatBool(page.Completeness.Incomplete))
+			missing := make([]string, len(page.Completeness.MissingYears))
+			for i, y := range page.Completeness.MissingYears {
+				missing[i] = strconv.Itoa(y)
+			}
+			c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
+			c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(page.Completeness.ActiveHarvest))
+		}
+		sendBenchmarkExportCSV(c, page.Body)
+		return
+	}
+
+	csv, completeness, err := svc.ExportBenchmarkDocumentsCSV(c.Request.Context(), level, yearFrom, yearTo)
+	if err != nil {
+		if errors.Is(err, services.ErrBenchmarkExportEmpty) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "ไม่พบเอกสารของระดับนี้ในช่วงปีที่เลือก"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	// Completeness metadata rides in headers so the CSV keeps exactly 36 columns; the
+	// FE reads them to show the exported row count and warn when a level/year is still
+	// short of its snapshot (R4). These headers are exposed via CORS.
+	missing := make([]string, len(completeness.MissingYears))
+	for i, y := range completeness.MissingYears {
+		missing[i] = strconv.Itoa(y)
+	}
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("X-Total-Count", strconv.Itoa(completeness.ExportedRows))
+	c.Header("X-Benchmark-Expected", strconv.Itoa(completeness.ExpectedDocs))
+	c.Header("X-Benchmark-Incomplete", strconv.FormatBool(completeness.Incomplete))
+	c.Header("X-Benchmark-Missing-Years", strings.Join(missing, ","))
+	c.Header("X-Benchmark-Active-Harvest", strconv.FormatBool(completeness.ActiveHarvest))
+	sendBenchmarkExportCSV(c, csv)
+}
+
+// sendBenchmarkExportCSV writes a CSV body with the proxy-friendly transfer headers:
+// X-Accel-Buffering (ask nginx not to buffer), gzip on the wire when the client accepts
+// it (CSV compresses ~4x; the browser's fetch transparently decompresses to the SAME
+// bytes), and an explicit Content-Length so the response is fully length-delimited
+// rather than chunked/close-delimited. Falls back to plain bytes if gzip fails.
+func sendBenchmarkExportCSV(c *gin.Context, csv []byte) {
+	c.Header("X-Accel-Buffering", "no")
+	body := csv
+	if strings.Contains(strings.ToLower(c.GetHeader("Accept-Encoding")), "gzip") {
+		var compressed bytes.Buffer
+		zw := gzip.NewWriter(&compressed)
+		_, writeErr := zw.Write(csv)
+		closeErr := zw.Close()
+		if writeErr == nil && closeErr == nil {
+			body = compressed.Bytes()
+			c.Header("Content-Encoding", "gzip")
+			c.Header("Vary", "Accept-Encoding")
+		}
+	}
+	c.Header("Content-Length", strconv.Itoa(len(body)))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", body)
+}
+
+// GET /api/v1/admin/scopus/benchmark/top-journals?limit=8
+func AdminGetBenchmarkTopJournals(c *gin.Context) {
+	limit := 8
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "limit must be between 1 and 50"})
+			return
+		}
+		limit = parsed
+	}
+
+	data, err := services.NewScopusBenchmarkService(nil, nil).BenchmarkTopJournals(c.Request.Context(), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }

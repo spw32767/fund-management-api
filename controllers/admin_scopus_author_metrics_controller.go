@@ -21,7 +21,7 @@ import (
 const authorMetricsRunTimeout = 1 * time.Hour
 
 // POST /api/v1/admin/scopus/author-metrics/refresh?user_ids=1,2&limit=10
-// ดึง h-index ของอาจารย์ทุกคน (อิง users.scopus_id) แล้วเก็บ snapshot รายวัน แบบ async
+// ดึง H-index ของอาจารย์ทุกคน (อิง users.scopus_id) แล้วเก็บ snapshot รายวัน แบบ async
 func AdminRefreshAuthorMetrics(c *gin.Context) {
 	var userIDs []uint
 	if csv := strings.TrimSpace(c.Query("user_ids")); csv != "" {
@@ -211,7 +211,7 @@ func AdminExportScopusFacultyHIndex(c *gin.Context) {
 		}
 		_ = f.AutoFilter(dataSheet, fmt.Sprintf("A1:%s%d", dataLastCol, len(rows)+1), []excelize.AutoFilterOptions{})
 	}
-	// Highlight the h-core rows (Order4Index ≤ h-index) — บทความที่ประกอบกันเป็น h-index
+	// Highlight the h-core rows (Order4Index ≤ H-index) — บทความที่ประกอบกันเป็น H-index
 	if summary.HIndex > 0 {
 		if hlStyle, err := f.NewStyle(&excelize.Style{Fill: excelize.Fill{Type: "pattern", Color: []string{"FEF9C3"}, Pattern: 1}}); err == nil {
 			last := summary.HIndex + 1
@@ -255,13 +255,13 @@ func AdminExportScopusFacultyHIndex(c *gin.Context) {
 	}
 
 	sumRows := [][]interface{}{
-		{"สรุป h-index ระดับคณะ (Scopus)"},
+		{"สรุป H-index ระดับคณะ (Scopus)"},
 		{"หมายเหตุ", "นับเฉพาะผลงานที่สังกัด KKU และนับบทความที่อาจารย์ร่วมมือกันหลายคนเพียงครั้งเดียว (dedupe)"},
 		{"ช่วงปีที่กรอง", filterLabel},
 		{"ออกรายงานเมื่อ", time.Now().Format("2006-01-02 15:04")},
 		{},
 		{"ตัวชี้วัด", "ค่า"},
-		{"h-index", summary.HIndex},
+		{"H-index", summary.HIndex},
 		{"จำนวนเอกสาร (ไม่ซ้ำ)", summary.DocumentCount},
 		{"การอ้างอิงรวม", summary.CitationTotal},
 		{"การอ้างอิงเฉลี่ย/เอกสาร", summary.AvgCitation},
@@ -304,7 +304,7 @@ func AdminExportScopusFacultyHIndex(c *gin.Context) {
 
 	// Bold the title, section headers, and total rows.
 	boldLabels := map[string]bool{
-		"สรุป h-index ระดับคณะ (Scopus)": true, "ตัวชี้วัด": true,
+		"สรุป H-index ระดับคณะ (Scopus)": true, "ตัวชี้วัด": true,
 		"คุณภาพวารสาร (tier)": true, "ประเภทผลงาน": true, "ผลงานรายปี (พ.ศ.)": true, "รวม": true,
 	}
 	if bStyle, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}}); err == nil {
@@ -325,6 +325,6 @@ func AdminExportScopusFacultyHIndex(c *gin.Context) {
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	if err := f.Write(c.Writer); err != nil {
-		log.Printf("faculty h-index export write failed: %v", err)
+		log.Printf("faculty H-index export write failed: %v", err)
 	}
 }

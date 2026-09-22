@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// ScopusAuthorMetric stores author-level metrics (h-index, citation/document counts)
+// ScopusAuthorMetric stores author-level metrics (H-index, citation/document counts)
 // fetched from the Scopus Author Retrieval API. Rows are stored as daily snapshots so
 // the current value is the latest row and historical values can be plotted over time.
 type ScopusAuthorMetric struct {

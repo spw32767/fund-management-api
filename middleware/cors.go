@@ -52,6 +52,13 @@ func CORSMiddleware() gin.HandlerFunc {
 
 		c.Header("Access-Control-Allow-Methods", allowedMethods)
 		c.Header("Access-Control-Allow-Headers", allowedHeaders)
+		// Expose the benchmark export metadata headers so browser JS can read the
+		// exported row count and completeness on a cross-origin download.
+		exposeHeaders := os.Getenv("EXPOSE_HEADERS")
+		if exposeHeaders == "" {
+			exposeHeaders = "Content-Disposition,X-Total-Count,X-Benchmark-Expected,X-Benchmark-Incomplete,X-Benchmark-Missing-Years,X-Benchmark-Active-Harvest,X-Next-Cursor"
+		}
+		c.Header("Access-Control-Expose-Headers", exposeHeaders)
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Max-Age", "86400") // 24 hours
 

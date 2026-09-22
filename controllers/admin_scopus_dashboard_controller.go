@@ -1210,6 +1210,68 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 				UserScopusID    string
 				YearDocCounts   map[int]int
 			}
+			// รายชื่ออาจารย์ในคณะทั้งหมด (นิยามเดียวกับ total_teachers_in_faculty ด้านบน)
+			// ใช้เป็น "ฐานรายชื่อคงที่" ของทั้งการ์ดสรุปรายบุคคล (Person Summary) และเมทริกซ์รายปี
+			// (Person Year Matrix) เพื่อให้จำนวนคนในตารางตรงกับจำนวนอาจารย์จริงเสมอ ไม่ผูกกับปี
+			// คนที่ไม่มีผลงานในช่วงที่กรองจะโชว์ 0 / คนที่ไม่มี scopus_id จะโชว์ "-" ในช่อง Scopus ID
+			// จำกัดผลกระทบไว้เฉพาะสองการ์ดนี้ (อยู่ใน block scope=individual) ไม่แตะการ์ดอื่น
+			type facultyRosterRow struct {
+				UserID       int    `gorm:"column:user_id"`
+				UserName     string `gorm:"column:user_name"`
+				UserEmail    string `gorm:"column:user_email"`
+				UserScopusID string `gorm:"column:user_scopus_id"`
+			}
+			facultyRoster := make([]facultyRosterRow, 0)
+			_ = config.DB.Table("users AS u").
+				Select(`
+					u.user_id,
+					TRIM(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''))) AS user_name,
+					COALESCE(NULLIF(TRIM(u.email), ''), '-') AS user_email,
+					COALESCE(NULLIF(TRIM(u.scopus_id), ''), '-') AS user_scopus_id
+				`).
+				Where("u.delete_at IS NULL AND u.is_test = ? AND u.role_id IN ?", 0, []int{1, 4, 5}).
+				Order("user_name").
+				Scan(&facultyRoster).Error
+
+			// H-index ทางการจาก Author API — snapshot ล่าสุดต่อ scopus_author_id
+			// ใช้ร่วมทั้งตารางสรุปรายบุคคล (Person Summary) และเมทริกซ์รายปี (Person Year Matrix)
+			// เป็นค่าสะสมค่าเดียวต่อคน ไม่ขึ้นกับตัวกรองปี; คนที่ยังไม่เคยดึงจะไม่มีคีย์ = โชว์ "-" ฝั่งหน้าบ้าน
+			// ดึงตาม scopus_id ของอาจารย์ทั้งคณะ เพื่อให้แถวที่ไม่มีผลงานในช่วงปีก็ยังมี H-index
+			officialHIndexByScopus := map[string]int{}
+			{
+				scopusIDs := make([]string, 0, len(facultyRoster))
+				for _, r := range facultyRoster {
+					if id := strings.TrimSpace(r.UserScopusID); id != "" && id != "-" {
+						scopusIDs = append(scopusIDs, id)
+					}
+				}
+				if len(scopusIDs) > 0 {
+					type officialMetricRow struct {
+						ScopusAuthorID string `gorm:"column:scopus_author_id"`
+						HIndex         int    `gorm:"column:h_index"`
+					}
+					officialMetrics := make([]officialMetricRow, 0)
+					_ = config.DB.Raw(`
+						SELECT m.scopus_author_id, m.h_index
+						FROM scopus_author_metrics m
+						JOIN (
+							SELECT scopus_author_id, MAX(snapshot_date) AS md
+							FROM scopus_author_metrics
+							GROUP BY scopus_author_id
+						) x ON x.scopus_author_id = m.scopus_author_id AND x.md = m.snapshot_date
+						WHERE m.scopus_author_id IN ?`, scopusIDs).Scan(&officialMetrics).Error
+					for _, m := range officialMetrics {
+						officialHIndexByScopus[m.ScopusAuthorID] = m.HIndex
+					}
+				}
+			}
+			officialHIndexOrNil := func(scopusID string) interface{} {
+				if h, ok := officialHIndexByScopus[strings.TrimSpace(scopusID)]; ok {
+					return h
+				}
+				return nil
+			}
+
 			sortableRows := make([]personSortable, 0, len(aggByUser))
 			allYearsSet := map[int]struct{}{}
 			for _, agg := range aggByUser {
@@ -1231,6 +1293,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"user_name":        agg.UserName,
 					"user_email":       agg.UserEmail,
 					"user_scopus_id":   agg.UserScopusID,
+					"h_index":          officialHIndexOrNil(agg.UserScopusID),
 					"publication_rows": agg.PublicationRows,
 					"unique_documents": agg.UniqueDocuments,
 					"cited_by_total":   agg.CitedByTotal,
@@ -1314,6 +1377,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"user_name":        r.UserName,
 					"user_email":       r.UserEmail,
 					"user_scopus_id":   r.UserScopusID,
+					"h_index":          officialHIndexOrNil(r.UserScopusID),
 					"publication_rows": 0,
 					"unique_documents": 0,
 					"cited_by_total":   0,
@@ -1331,6 +1395,46 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					"first_year":       firstYearBE,
 					"latest_year":      latestYearBE,
 					"active_years":     activeYears,
+				})
+			}
+
+			// ต่อท้ายอาจารย์ในคณะที่เหลือ ซึ่งไม่มีทั้งผลงาน Scopus และ TCI ในช่วงที่กรอง
+			// ให้แสดงชื่อพร้อมค่า 0 ทุกช่อง (H-index ยังโชว์ถ้ามีค่าใน scopus_author_metrics)
+			// รายชื่อ facultyRoster เรียงตามชื่อมาแล้ว จึงต่อท้ายตามลำดับได้เลย
+			includedUserIDs := make(map[int]struct{}, len(aggByUser)+len(tciOnlyUsers))
+			for _, agg := range aggByUser {
+				includedUserIDs[agg.UserID] = struct{}{}
+			}
+			for _, r := range tciOnlyUsers {
+				includedUserIDs[r.UserID] = struct{}{}
+			}
+			for _, fr := range facultyRoster {
+				if _, ok := includedUserIDs[fr.UserID]; ok {
+					continue
+				}
+				personSummaryRows = append(personSummaryRows, map[string]interface{}{
+					"user_id":          fr.UserID,
+					"user_name":        fr.UserName,
+					"user_email":       fr.UserEmail,
+					"user_scopus_id":   fr.UserScopusID,
+					"h_index":          officialHIndexOrNil(fr.UserScopusID),
+					"publication_rows": 0,
+					"unique_documents": 0,
+					"cited_by_total":   0,
+					"avg_cited_by":     0.0,
+					"t1_count":         0,
+					"q1_count":         0,
+					"q2_count":         0,
+					"q3_count":         0,
+					"q4_count":         0,
+					"quartile_na":      0,
+					"tci_count":        0,
+					"journal_count":    0,
+					"book_count":       0,
+					"conference_count": 0,
+					"first_year":       0,
+					"latest_year":      0,
+					"active_years":     0,
 				})
 			}
 
@@ -1355,27 +1459,42 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 					LatestYearCE  int
 					YearDocCounts map[int]int
 				}
-				matrixRows := make([]matrixSortable, 0, len(sortableRows))
-				for _, row := range sortableRows {
-					matrixRows = append(matrixRows, matrixSortable{
-						UserID:        row.UserID,
-						UserName:      row.UserName,
-						UserEmail:     row.UserEmail,
-						UserScopus:    row.UserScopusID,
-						FirstYearCE:   row.FirstYearCE,
-						LatestYearCE:  row.LatestYearCE,
-						YearDocCounts: row.YearDocCounts,
-					})
+				// สร้างแถวเมทริกซ์จากรายชื่ออาจารย์ทั้งคณะ (facultyRoster) เพื่อให้จำนวนคนตรงกับคณะ
+				// คนที่มีผลงาน Scopus ในช่วงที่กรองจะดึง year_counts/first-last year จาก aggByUser
+				// คนที่ไม่มีจะได้ year_counts ว่าง (โชว์ 0 ทุกปี) และ Scopus ID เป็น "-" ถ้าไม่มี
+				matrixRows := make([]matrixSortable, 0, len(facultyRoster))
+				for _, fr := range facultyRoster {
+					ms := matrixSortable{
+						UserID:     fr.UserID,
+						UserName:   fr.UserName,
+						UserEmail:  fr.UserEmail,
+						UserScopus: fr.UserScopusID,
+					}
+					if agg, ok := aggByUser[fr.UserID]; ok {
+						ms.FirstYearCE = agg.FirstYearCE
+						ms.LatestYearCE = agg.LatestYearCE
+						ms.YearDocCounts = agg.yearDocCounts
+					}
+					matrixRows = append(matrixRows, ms)
 				}
 
+				// อาจารย์ที่ไม่มีผลงาน (FirstYearCE == 0) ให้ไปอยู่ท้ายตารางเสมอ
+				sortFirstYear := func(y int) int {
+					if y == 0 {
+						return 1<<31 - 1
+					}
+					return y
+				}
 				sort.Slice(matrixRows, func(i, j int) bool {
-					if matrixRows[i].FirstYearCE == matrixRows[j].FirstYearCE {
+					fyi := sortFirstYear(matrixRows[i].FirstYearCE)
+					fyj := sortFirstYear(matrixRows[j].FirstYearCE)
+					if fyi == fyj {
 						if matrixRows[i].LatestYearCE == matrixRows[j].LatestYearCE {
 							return matrixRows[i].UserName < matrixRows[j].UserName
 						}
 						return matrixRows[i].LatestYearCE > matrixRows[j].LatestYearCE
 					}
-					return matrixRows[i].FirstYearCE < matrixRows[j].FirstYearCE
+					return fyi < fyj
 				})
 
 				matrixPayloadRows := make([]map[string]interface{}, 0, len(matrixRows))
@@ -1389,6 +1508,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 						"user_name":      row.UserName,
 						"user_email":     row.UserEmail,
 						"user_scopus_id": row.UserScopus,
+						"h_index":        officialHIndexOrNil(row.UserScopus),
 						"year_counts":    yearCounts,
 					})
 				}
@@ -1472,7 +1592,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	payload := map[string]interface{}{
 		"kpi": map[string]interface{}{
 			"total_documents":            totalDocuments,
-			"total_teachers_with_scopus": totalTeachersInFaculty,
+			"total_teachers_in_faculty": totalTeachersInFaculty,
 			"total_citations":            totalCitations,
 			"avg_citations_per_document": avgCitations,
 			"open_access_documents":      openAccessDocuments,

@@ -33,6 +33,12 @@ var ErrScopusBenchmarkHarvestRunning = errors.New("scopus benchmark harvest alre
 // from "running" (e.g. cancelled by an admin) so the harvest loop stops gracefully.
 var errBenchmarkCancelled = errors.New("scopus benchmark harvest cancelled")
 
+// errBenchmarkEntryMissingEID marks a Scopus result entry that carries no EID.
+// The most common case is the single {"error":"Result set was empty"} stub that
+// Scopus returns for a zero-result year-slice (len 1, not an empty array). The
+// harvest skips such entries instead of failing the whole run.
+var errBenchmarkEntryMissingEID = errors.New("entry missing eid")
+
 // ScopusBenchmarkHarvestSummary reports the result of a harvest run.
 type ScopusBenchmarkHarvestSummary struct {
 	TotalResultsReported int `json:"total_results_reported"`
@@ -191,7 +197,10 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		if total > summary.TotalResultsReported {
 			summary.TotalResultsReported = total
 		}
-		if len(entries) == 0 {
+		// A year-slice with zero results returns a single {"error":"Result set was
+		// empty"} stub (len 1, no eid) rather than an empty array, so guard on the
+		// reported total as well to avoid treating the stub as a document.
+		if total == 0 || len(entries) == 0 {
 			break
 		}
 		summary.PagesFetched++
@@ -199,6 +208,13 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		for _, raw := range entries {
 			eid, err := s.upsertBenchmarkEntry(ctx, raw, scope.ID, facultySet, summary)
 			if err != nil {
+				// Defensively skip a stub/malformed entry that carries no eid
+				// instead of aborting the whole run, mirroring the faculty
+				// ingest's tolerance (scopus_ingest_service.go).
+				if errors.Is(err, errBenchmarkEntryMissingEID) {
+					log.Printf("scopus benchmark: skipping entry without eid (empty/stub result)")
+					continue
+				}
 				return fmt.Errorf("upsert benchmark entry: %w", err)
 			}
 			seenEIDs[eid] = struct{}{}
@@ -271,7 +287,7 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 		return "", err
 	}
 	if strings.TrimSpace(entry.EID) == "" {
-		return "", errors.New("entry missing eid")
+		return "", errBenchmarkEntryMissingEID
 	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
