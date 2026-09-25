@@ -143,6 +143,15 @@ type ScopusPublicationService struct {
 	db *gorm.DB
 }
 
+// ScopusPublicationFilters are applied before counting and paginating admin results.
+type ScopusPublicationFilters struct {
+	Quartile     string
+	MinCitedBy   *int
+	DocumentType string
+	YearFrom     *int
+	YearTo       *int
+}
+
 type scopusPublicationRow struct {
 	ID                  uint
 	Title               *string
@@ -382,6 +391,10 @@ func (s *ScopusPublicationService) ListByUser(userID uint, limit, offset int, so
 
 // ListAll returns paginated Scopus publications across all users.
 func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDirection, search string) ([]ScopusPublication, int64, error) {
+	return s.ListAllFiltered(limit, offset, sortField, sortDirection, search, ScopusPublicationFilters{})
+}
+
+func (s *ScopusPublicationService) ListAllFiltered(limit, offset int, sortField, sortDirection, search string, filters ScopusPublicationFilters) ([]ScopusPublication, int64, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -401,11 +414,12 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 	// affiliated with KKU on that document. Same rule as db/export_scopus_person_summary.sql.
 	base = base.Where("EXISTS (?)", s.kkuDocumentAffiliationFilter())
 
+	base = applyScopusPublicationFilters(base, filters, "metrics")
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		base = base.Where(
-			"sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.scopus_id LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ?",
-			like, like, like, like, like, like,
+			"(sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.scopus_id LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ? OR EXISTS (SELECT 1 FROM scopus_document_authors AS sda_search INNER JOIN scopus_authors AS sa_search ON sa_search.id = sda_search.author_id WHERE sda_search.document_id = sd.id AND (sa_search.full_name LIKE ? OR sa_search.given_name LIKE ? OR sa_search.surname LIKE ? OR CONCAT(COALESCE(sa_search.given_name, ''), ' ', COALESCE(sa_search.surname, '')) LIKE ?)))",
+			like, like, like, like, like, like, like, like, like, like,
 		)
 	}
 
@@ -442,6 +456,10 @@ func (s *ScopusPublicationService) ListAll(limit, offset int, sortField, sortDir
 
 // ListByUserOwnership returns paginated Scopus publications mapped to users in this system.
 func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortField, sortDirection, search string) ([]ScopusPublicationByUser, int64, error) {
+	return s.ListByUserOwnershipFiltered(limit, offset, sortField, sortDirection, search, ScopusPublicationFilters{})
+}
+
+func (s *ScopusPublicationService) ListByUserOwnershipFiltered(limit, offset int, sortField, sortDirection, search string, filters ScopusPublicationFilters) ([]ScopusPublicationByUser, int64, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -462,12 +480,16 @@ func (s *ScopusPublicationService) ListByUserOwnership(limit, offset int, sortFi
 		// Khon Kaen University only: keep a (user, document) pair only when the user authored
 		// the document under a KKU affiliation. Same rule as db/export_scopus_person_summary.sql.
 		Where("LOWER(TRIM(own_aff.name)) IN ?", kkuAffiliationNames)
+	if filters.Quartile != "" {
+		pairQuery = pairQuery.Joins("LEFT JOIN scopus_source_metrics AS metrics_filter ON metrics_filter.source_id = sd.source_id AND metrics_filter.doc_type = 'all' AND metrics_filter.metric_year = " + metricYearForDocumentExpression(s.db))
+	}
+	pairQuery = applyScopusPublicationFilters(pairQuery, filters, "metrics_filter")
 
 	if search = strings.TrimSpace(search); search != "" {
 		like := fmt.Sprintf("%%%s%%", search)
 		pairQuery = pairQuery.Where(
-			"u.user_fname LIKE ? OR u.user_lname LIKE ? OR u.email LIKE ? OR u.Scopus_id LIKE ? OR sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ?",
-			like, like, like, like, like, like, like, like, like,
+			"(u.user_fname LIKE ? OR u.user_lname LIKE ? OR u.email LIKE ? OR u.Scopus_id LIKE ? OR sd.title LIKE ? OR sd.doi LIKE ? OR sd.eid LIKE ? OR sd.publication_name LIKE ? OR sd.conference_location LIKE ? OR EXISTS (SELECT 1 FROM scopus_document_authors AS sda_search INNER JOIN scopus_authors AS sa_search ON sa_search.id = sda_search.author_id WHERE sda_search.document_id = sd.id AND (sa_search.full_name LIKE ? OR sa_search.given_name LIKE ? OR sa_search.surname LIKE ? OR CONCAT(COALESCE(sa_search.given_name, ''), ' ', COALESCE(sa_search.surname, '')) LIKE ?)))",
+			like, like, like, like, like, like, like, like, like, like, like, like, like,
 		)
 	}
 
@@ -1173,6 +1195,38 @@ func (s *ScopusPublicationService) StatsByUser(userID uint) (ScopusPublicationSt
 	return stats, meta, nil
 }
 
+func applyScopusPublicationFilters(query *gorm.DB, filters ScopusPublicationFilters, metricsAlias string) *gorm.DB {
+	if filters.YearFrom != nil {
+		query = query.Where(yearExpression(query)+" >= ?", *filters.YearFrom)
+	}
+	if filters.YearTo != nil {
+		query = query.Where(yearExpression(query)+" <= ?", *filters.YearTo)
+	}
+	if filters.MinCitedBy != nil {
+		query = query.Where("COALESCE(sd.citedby_count, 0) >= ?", *filters.MinCitedBy)
+	}
+	if filters.DocumentType != "" {
+		query = query.Where("LOWER(TRIM(sd.aggregation_type)) = ?", strings.ToLower(filters.DocumentType))
+	}
+	percentile := metricsAlias + ".cite_score_percentile"
+	if filters.Quartile != "" {
+		query = query.Where("LOWER(TRIM(sd.subtype_description)) = ?", "article")
+	}
+	switch strings.ToUpper(filters.Quartile) {
+	case "T1":
+		query = query.Where(percentile+" >= ?", 90)
+	case "Q1":
+		query = query.Where(percentile+" >= ? AND "+percentile+" < ?", 75, 90)
+	case "Q2":
+		query = query.Where(percentile+" >= ? AND "+percentile+" < ?", 50, 75)
+	case "Q3":
+		query = query.Where(percentile+" >= ? AND "+percentile+" < ?", 25, 50)
+	case "Q4":
+		query = query.Where(percentile+" > ? AND "+percentile+" < ?", 0, 25)
+	}
+	return query
+}
+
 func orderForScopus(field, direction string) string {
 	dir := strings.ToUpper(direction)
 	if dir != "ASC" {
@@ -1180,11 +1234,15 @@ func orderForScopus(field, direction string) string {
 	}
 	switch strings.ToLower(field) {
 	case "title":
-		return fmt.Sprintf("sd.title %s", dir)
+		return fmt.Sprintf("sd.title %s, sd.id ASC", dir)
 	case "cited_by":
-		return fmt.Sprintf("sd.citedby_count %s", dir)
+		return fmt.Sprintf("sd.citedby_count %s, sd.id ASC", dir)
+	case "percentile":
+		return fmt.Sprintf("(COALESCE(LOWER(TRIM(sd.subtype_description)), '') <> 'article' OR metrics.cite_score_percentile IS NULL) ASC, metrics.cite_score_percentile %s, sd.id ASC", dir)
+	case "quartile":
+		return fmt.Sprintf("(COALESCE(LOWER(TRIM(sd.subtype_description)), '') <> 'article' OR metrics.cite_score_quartile IS NULL) ASC, CASE UPPER(metrics.cite_score_quartile) WHEN 'Q1' THEN 4 WHEN 'Q2' THEN 3 WHEN 'Q3' THEN 2 WHEN 'Q4' THEN 1 ELSE 0 END %s, metrics.cite_score_percentile %s, sd.id ASC", dir, dir)
 	default:
-		return fmt.Sprintf("sd.cover_date %s", dir)
+		return fmt.Sprintf("sd.cover_date %s, sd.id ASC", dir)
 	}
 }
 
@@ -1201,6 +1259,10 @@ func orderForScopusByUser(field, direction string) string {
 		return fmt.Sprintf("sd.title %s, user_name ASC", dir)
 	case "cited_by":
 		return fmt.Sprintf("sd.citedby_count %s, user_name ASC", dir)
+	case "percentile":
+		return fmt.Sprintf("(COALESCE(LOWER(TRIM(sd.subtype_description)), '') <> 'article' OR metrics.cite_score_percentile IS NULL) ASC, metrics.cite_score_percentile %s, user_name ASC", dir)
+	case "quartile":
+		return fmt.Sprintf("(COALESCE(LOWER(TRIM(sd.subtype_description)), '') <> 'article' OR metrics.cite_score_quartile IS NULL) ASC, CASE UPPER(metrics.cite_score_quartile) WHEN 'Q1' THEN 4 WHEN 'Q2' THEN 3 WHEN 'Q3' THEN 2 WHEN 'Q4' THEN 1 ELSE 0 END %s, metrics.cite_score_percentile %s, user_name ASC", dir, dir)
 	default:
 		return fmt.Sprintf("sd.cover_date %s, user_name ASC, pairs.user_id ASC", dir)
 	}

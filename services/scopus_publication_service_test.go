@@ -3,8 +3,42 @@ package services
 import (
 	"database/sql/driver"
 	"regexp"
+	"strings"
 	"testing"
+
+	"gorm.io/gorm"
 )
+
+func TestScopusAdminFiltersAndSortUseDatabaseFields(t *testing.T) {
+	db, _, cleanup := newScriptedGormDB(t, nil)
+	defer cleanup()
+	minCitedBy := 12
+	yearFrom, yearTo := 2020, 2025
+	query := applyScopusPublicationFilters(
+		db.Session(&gorm.Session{DryRun: true}).Table("scopus_documents AS sd"),
+		ScopusPublicationFilters{Quartile: "Q1", MinCitedBy: &minCitedBy, DocumentType: "Journal", YearFrom: &yearFrom, YearTo: &yearTo},
+		"metrics",
+	).Order(orderForScopus("quartile", "desc")).Find(&[]scopusPublicationRow{})
+	sql := query.Statement.SQL.String()
+	for _, fragment := range []string{
+		"COALESCE(sd.citedby_count, 0) >= ?",
+		"LOWER(TRIM(sd.aggregation_type)) = ?",
+		"metrics.cite_score_percentile >= ? AND metrics.cite_score_percentile < ?",
+		"CASE UPPER(metrics.cite_score_quartile)",
+		"COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED)) >= ?",
+		"COALESCE(YEAR(sd.cover_date), CAST(RIGHT(sd.cover_display_date, 4) AS UNSIGNED)) <= ?",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("query missing %q: %s", fragment, sql)
+		}
+	}
+	if got := len(query.Statement.Vars); got != 7 {
+		t.Fatalf("expected seven bound filter values, got %d: %#v", got, query.Statement.Vars)
+	}
+	if !strings.Contains(orderForScopus("percentile", "asc"), "metrics.cite_score_percentile ASC") {
+		t.Fatal("percentile sort must use the metric value")
+	}
+}
 
 func TestResolveScopusAuthorNameFallbacks(t *testing.T) {
 	fullName := "Full Name"

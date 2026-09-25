@@ -127,9 +127,13 @@ func AdminListScopusPublications(c *gin.Context) {
 	sortField := c.DefaultQuery("sort", "year")
 	sortDirection := strings.ToLower(c.DefaultQuery("direction", "desc"))
 	search := c.Query("q")
+	filters, ok := scopusPublicationFiltersFromQuery(c)
+	if !ok {
+		return
+	}
 
 	svc := services.NewScopusPublicationService(nil)
-	items, total, err := svc.ListAll(limit, offset, sortField, sortDirection, search)
+	items, total, err := svc.ListAllFiltered(limit, offset, sortField, sortDirection, search, filters)
 	if err != nil {
 		InternalError(c, "user_publication", err)
 		return
@@ -153,9 +157,13 @@ func AdminListScopusPublicationsByUser(c *gin.Context) {
 	sortField := c.DefaultQuery("sort", "year")
 	sortDirection := strings.ToLower(c.DefaultQuery("direction", "desc"))
 	search := c.Query("q")
+	filters, ok := scopusPublicationFiltersFromQuery(c)
+	if !ok {
+		return
+	}
 
 	svc := services.NewScopusPublicationService(nil)
-	items, total, err := svc.ListByUserOwnership(limit, offset, sortField, sortDirection, search)
+	items, total, err := svc.ListByUserOwnershipFiltered(limit, offset, sortField, sortDirection, search, filters)
 	if err != nil {
 		InternalError(c, "user_publication", err)
 		return
@@ -170,6 +178,50 @@ func AdminListScopusPublicationsByUser(c *gin.Context) {
 			"offset": offset,
 		},
 	})
+}
+
+func scopusPublicationFiltersFromQuery(c *gin.Context) (services.ScopusPublicationFilters, bool) {
+	filters := services.ScopusPublicationFilters{
+		Quartile:     strings.ToUpper(strings.TrimSpace(c.Query("quartile"))),
+		DocumentType: strings.TrimSpace(c.Query("document_type")),
+	}
+	if filters.Quartile != "" && filters.Quartile != "T1" && filters.Quartile != "Q1" && filters.Quartile != "Q2" && filters.Quartile != "Q3" && filters.Quartile != "Q4" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid quartile"})
+		return filters, false
+	}
+	if len(filters.DocumentType) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "document_type is too long"})
+		return filters, false
+	}
+	if raw, exists := c.GetQuery("min_cited_by"); exists && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid min_cited_by"})
+			return filters, false
+		}
+		filters.MinCitedBy = &value
+	}
+	for _, bound := range []struct {
+		name   string
+		target **int
+	}{
+		{name: "year_from", target: &filters.YearFrom},
+		{name: "year_to", target: &filters.YearTo},
+	} {
+		if raw := strings.TrimSpace(c.Query(bound.name)); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1900 || value > 2100 {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid " + bound.name})
+				return filters, false
+			}
+			*bound.target = &value
+		}
+	}
+	if filters.YearFrom != nil && filters.YearTo != nil && *filters.YearFrom > *filters.YearTo {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "year_from must not exceed year_to"})
+		return filters, false
+	}
+	return filters, true
 }
 
 // POST /api/v1/teacher/user-publications/upsert
