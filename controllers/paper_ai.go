@@ -182,6 +182,15 @@ func ExtractPaper(c *gin.Context) {
 	if jobID != "" {
 		c.Header("X-Paper-AI-Job-ID", jobID)
 	}
+	if callErr == nil && status == http.StatusUnprocessableEntity {
+		var readerError struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(body, &readerError) == nil && readerError.Detail != "" {
+			c.JSON(status, gin.H{"error": readerError.Detail})
+			return
+		}
+	}
 	relayPaperAIResponse(c, status, body, callErr)
 }
 
@@ -321,8 +330,9 @@ func ClassifyBenchmarkPaper(c *gin.Context) {
 
 func MatchPaper(c *gin.Context) {
 	var request struct {
-		DOI   string `json:"doi"`
-		Title string `json:"title"`
+		DOI           string `json:"doi"`
+		Title         string `json:"title"`
+		BenchmarkOnly bool   `json:"benchmark_only"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil || (strings.TrimSpace(request.DOI) == "" && strings.TrimSpace(request.Title) == "") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "doi or title is required"})
@@ -363,17 +373,19 @@ func MatchPaper(c *gin.Context) {
 		for _, item := range benchmark {
 			candidates = append(candidates, candidate{"scopus_benchmark_documents", item.ID, item.Title, item.DOI, "doi_exact", 1})
 		}
-		var rewards []struct {
-			ID         uint64
-			Title, DOI string
-		}
-		config.DB.Table("publication_reward_details").Select("detail_id AS id, paper_title AS title, doi").
-			Where("LOWER(TRIM(doi)) IN ?", doiVariants).Limit(10).Scan(&rewards)
-		for _, item := range rewards {
-			candidates = append(candidates, candidate{"publication_reward_details", item.ID, item.Title, item.DOI, "doi_exact", 1})
+		if !request.BenchmarkOnly {
+			var rewards []struct {
+				ID         uint64
+				Title, DOI string
+			}
+			config.DB.Table("publication_reward_details").Select("detail_id AS id, paper_title AS title, doi").
+				Where("LOWER(TRIM(doi)) IN ?", doiVariants).Limit(10).Scan(&rewards)
+			for _, item := range rewards {
+				candidates = append(candidates, candidate{"publication_reward_details", item.ID, item.Title, item.DOI, "doi_exact", 1})
+			}
 		}
 	}
-	if len(candidates) == 0 && normalizedTitle != "" && titleToken != "" {
+	if !request.BenchmarkOnly && len(candidates) == 0 && normalizedTitle != "" && titleToken != "" {
 		var benchmark []struct {
 			ID         uint64
 			Title, DOI string

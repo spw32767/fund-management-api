@@ -12,7 +12,7 @@ Both services use `PAPER_AI_API_KEY` as the `X-API-Key` value. They may run on d
 - `POST /api/v1/paper-ai/extract` — multipart PDF (`file`)
 - `POST /api/v1/paper-ai/summarize`
 - `POST /api/v1/paper-ai/classify`
-- `POST /api/v1/paper-ai/match`
+- `POST /api/v1/paper-ai/match` — send `{"doi":"10.x/...","benchmark_only":true}` for an exact DOI check against `scopus_benchmark_documents` only
 - `GET /api/v1/paper-ai/categories`
 - `GET /api/v1/paper-ai/jobs/:id` — read the authenticated user's audit record
 - `POST /api/v1/admin/paper-ai/benchmark/:id/classify` — classify and persist one existing benchmark document
@@ -34,7 +34,7 @@ These confidence labels are reported by the local model; they are not calibrated
 
 In `scopus_benchmark_documents`, the `category` column is a nullable foreign key to `paper_categories.category_id`. The API exposes that value as `paper_category_id` so it remains explicit to clients. `publication_reward_details` uses the explicit `paper_category_id` column name for the same relationship.
 
-For a PDF upload, fund-management first uses the DOI detected inside the PDF to match existing benchmark/submission data. Title similarity is used only when no DOI match exists. DOI remains a normal editable form field; there is no external DOI-reference lookup endpoint or button.
+On the publication reward form, the Reader API extracts PDF metadata and uses OCR when the PDF has no usable text layer. It rejects files without research-paper structure using a conservative document check. When explicitly present, the PDF can supply publication month, volume/issue, and page numbers; a validated DOI supplies the article URL. The form checks an extracted (or already entered) DOI only against `scopus_benchmark_documents` with `benchmark_only: true`. It links a benchmark document only when exactly one DOI match exists and displays whether the DOI was found. If the DOI is absent, missing from the benchmark, duplicated, or the check fails, the form still fills fields from the PDF and allows the applicant to continue to review. The original abstract and AI-generated Thai summary appear together. While a PDF is processing, the form disables its controls and shows a blocking loading dialog. This form does not call the Classification API or infer quartile or official database indexing from PDF text. DOI remains an editable field; there is no external DOI-reference lookup endpoint or button. Other callers may still use the general match endpoint's title and submission checks.
 
 Calls currently complete in the initiating HTTP request. Each AI call is also recorded in `paper_ai_jobs`; extracted full text is deliberately omitted from the job log.
 
