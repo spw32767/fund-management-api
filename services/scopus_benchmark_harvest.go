@@ -14,6 +14,7 @@ import (
 	"fund-management-api/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -296,7 +297,7 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 		docModel.LastSeenAt = &now
 
 		var existing models.ScopusBenchmarkDocument
-		found := tx.Where("eid = ?", docModel.EID).Limit(1).Find(&existing)
+		found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("eid = ?", docModel.EID).Limit(1).Find(&existing)
 		if found.Error != nil {
 			return found.Error
 		}

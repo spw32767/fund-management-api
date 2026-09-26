@@ -43,6 +43,7 @@ func main() {
 
 	// Initialize database
 	config.InitDB()
+	controllers.RecoverPaperClassificationRuns()
 
 	// Set Gin mode
 	ginMode := os.Getenv("GIN_MODE")

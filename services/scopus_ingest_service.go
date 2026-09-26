@@ -17,6 +17,7 @@ import (
 	"fund-management-api/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -309,7 +310,7 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 		docModel.RawJSON = cloneJSON(raw)
 
 		var doc models.ScopusDocument
-		if err := tx.Where("eid = ?", docModel.EID).First(&doc).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("eid = ?", docModel.EID).First(&doc).Error; err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
@@ -325,6 +326,12 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			// not set CreatedAt, so a plain Save() would overwrite created_at with
 			// the zero time (0001-01-01), which MariaDB stores as 0000-00-00.
 			docModel.CreatedAt = doc.CreatedAt
+			// Ingest refreshes Scopus metadata, but must not clear AI classification.
+			docModel.PaperCategoryID = doc.PaperCategoryID
+			docModel.ClassificationConfidence = doc.ClassificationConfidence
+			docModel.ClassificationModel = doc.ClassificationModel
+			docModel.ClassificationTaxonomyVersion = doc.ClassificationTaxonomyVersion
+			docModel.ClassifiedAt = doc.ClassifiedAt
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}
