@@ -120,31 +120,34 @@ func main() {
 		log.Printf("Warning: Failed to create upload directory: %v", err)
 	}
 
+	// Keep local integration tests from sending MOU emails to real recipients.
 	// MOU: background scheduler ส่งอีเมลแจ้งเตือน MOU ใกล้หมดอายุ ทำงานทุก NOTIFICATION_INTERVAL_MINUTES (default 1440)
-	go func() {
-		interval := 1440
-		if v := os.Getenv("NOTIFICATION_INTERVAL_MINUTES"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				interval = n
+	if os.Getenv("DISABLE_MOU_NOTIFICATION_SCHEDULER") != "true" {
+		go func() {
+			interval := 1440
+			if v := os.Getenv("NOTIFICATION_INTERVAL_MINUTES"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					interval = n
+				}
 			}
-		}
-		ticker := time.NewTicker(time.Duration(interval) * time.Minute)
-		defer ticker.Stop()
+			ticker := time.NewTicker(time.Duration(interval) * time.Minute)
+			defer ticker.Stop()
 
-		// Run once on startup
-		log.Printf("[Scheduler] Starting MOU notification sender (interval: %d min)", interval)
-		sent, failed, msg := controllers.SendPendingMouNotifications()
-		if sent > 0 || failed > 0 {
-			log.Printf("[Scheduler] %s", msg)
-		}
-
-		for range ticker.C {
+			// Run once on startup
+			log.Printf("[Scheduler] Starting MOU notification sender (interval: %d min)", interval)
 			sent, failed, msg := controllers.SendPendingMouNotifications()
 			if sent > 0 || failed > 0 {
 				log.Printf("[Scheduler] %s", msg)
 			}
-		}
-	}()
+
+			for range ticker.C {
+				sent, failed, msg := controllers.SendPendingMouNotifications()
+				if sent > 0 || failed > 0 {
+					log.Printf("[Scheduler] %s", msg)
+				}
+			}
+		}()
+	}
 
 	// Start server
 	port := os.Getenv("SERVER_PORT")
