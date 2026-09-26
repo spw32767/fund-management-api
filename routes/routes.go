@@ -578,6 +578,7 @@ func SetupRoutes(router *gin.Engine) {
 			{
 				admin.POST("/paper-ai/benchmark/:id/classify", controllers.ClassifyBenchmarkPaper)
 				admin.GET("/paper-ai/classification/preview", controllers.PreviewPaperClassification)
+				admin.GET("/paper-ai/classification/years", controllers.ListPaperClassificationYears)
 				admin.GET("/paper-ai/classification/runs", controllers.ListPaperClassificationRuns)
 				admin.POST("/paper-ai/classification/runs", controllers.StartPaperClassificationRun)
 				admin.GET("/paper-ai/classification/runs/:id", controllers.GetPaperClassificationRun)

@@ -12,10 +12,11 @@ Backend ต้องตั้ง `PAPER_CLASSIFICATION_API_URL` และ `PAPER
 
 API สำหรับ Postman (ใช้ bearer token ของผู้ดูแล):
 
-1. `GET /api/v1/admin/paper-ai/classification/preview?source=benchmark&scope=unprocessed&year=2025` (ละ `year` ได้)
-2. `POST /api/v1/admin/paper-ai/classification/runs` ส่ง JSON `{"source":"benchmark","scope":"unprocessed","year":2025}` (`year: null` หมายถึงทุกปี)
-3. `GET /api/v1/admin/paper-ai/classification/runs` และ `GET /api/v1/admin/paper-ai/classification/runs/{run_id}`
-4. `GET /api/v1/admin/paper-ai/classification/runs/{run_id}/items?page=1` ดูผลรายบทความ
-5. `POST /api/v1/admin/paper-ai/classification/runs/{run_id}/stop`, `/resume`, หรือ `/retry-failed` ตามสถานะงาน
+1. `GET /api/v1/admin/paper-ai/classification/years?source=benchmark` ดูปีที่มีบทความและจำนวนทั้งหมดของแต่ละปี
+2. `GET /api/v1/admin/paper-ai/classification/preview?source=benchmark&scope=unprocessed&year=2025&page=1` (ละ `year` ได้) คืนจำนวนและรายชื่อบทความหน้าละ 20 รายการ
+3. `POST /api/v1/admin/paper-ai/classification/runs` ส่ง JSON `{"source":"benchmark","scope":"unprocessed","year":2025}` (`year: null` หมายถึงทุกปี)
+4. `GET /api/v1/admin/paper-ai/classification/runs` และ `GET /api/v1/admin/paper-ai/classification/runs/{run_id}`
+5. `GET /api/v1/admin/paper-ai/classification/runs/{run_id}/items?page=1` ดูผลรายบทความ
+6. `POST /api/v1/admin/paper-ai/classification/runs/{run_id}/stop`, `/resume`, หรือ `/retry-failed` ตามสถานะงาน
 
 ก่อนใช้งานจริง ควรทดลองหนึ่งปีที่มีข้อมูลไม่มาก ตรวจผล `Preface` และ `failed` ในหน้าประวัติ แล้วค่อยเลือกทุกปี Migration เปลี่ยน schema และยังไม่ได้ถูกรันโดยโค้ดนี้

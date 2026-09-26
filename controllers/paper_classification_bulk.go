@@ -97,6 +97,30 @@ func classificationCategories() ([]models.PaperCategory, string, error) {
 	return categories, paperTaxonomyVersion(categories), err
 }
 
+func ListPaperClassificationYears(c *gin.Context) {
+	table, ok := classificationTable(c.Query("source"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source must be benchmark or faculty"})
+		return
+	}
+	yearExpr := "YEAR(cover_date)"
+	if table == "scopus_benchmark_documents" {
+		yearExpr = "COALESCE(pub_year, YEAR(cover_date))"
+	}
+	var years []struct {
+		Year  int   `gorm:"column:year" json:"year"`
+		Count int64 `gorm:"column:count" json:"count"`
+	}
+	if err := config.DB.Table(table).
+		Select(yearExpr+" AS year, COUNT(*) AS count").
+		Where(yearExpr+" BETWEEN ? AND ?", 1900, time.Now().Year()+1).
+		Group(yearExpr).Order("year DESC").Scan(&years).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list publication years"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"source": c.Query("source"), "years": years})
+}
+
 func PreviewPaperClassification(c *gin.Context) {
 	table, scope, year, err := classificationScope(c)
 	if err != nil {
@@ -108,7 +132,25 @@ func PreviewPaperClassification(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to count documents"})
 		return
 	}
-	c.JSON(200, gin.H{"source": c.Query("source"), "scope": scope, "year": year, "count": count})
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 || page > 100000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
+		return
+	}
+	const pageSize = 20
+	var documents []struct {
+		ID    uint64  `gorm:"column:id" json:"id"`
+		Title *string `gorm:"column:title" json:"title"`
+		DOI   *string `gorm:"column:doi" json:"doi"`
+	}
+	if err := scopedClassificationQuery(config.DB, table, scope, year).
+		Select("id, title, doi").
+		Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&documents).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list documents"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"source": c.Query("source"), "scope": scope, "year": year, "count": count, "page": page, "page_size": pageSize, "documents": documents})
 }
 
 func ListPaperClassificationRuns(c *gin.Context) {
