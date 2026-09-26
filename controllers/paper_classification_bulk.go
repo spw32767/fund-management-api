@@ -443,7 +443,7 @@ func classifyRunItem(run models.PaperClassificationRun, item models.PaperClassif
 		if d.Abstract != nil {
 			abstract = *d.Abstract
 		}
-		payload, _ := json.Marshal(gin.H{"paper_id": fmt.Sprintf("%s:%d", run.Source, d.ID), "title": *d.Title, "abstract": abstract, "authkeywords": string(d.AuthKeywords), "categories": taxonomy, "taxonomy_version": version, "model": model, "verification_mode": "fewshot_candidate", "confidence_policy": "conservative_cap"})
+		payload, _ := json.Marshal(gin.H{"paper_id": fmt.Sprintf("%s:%d", run.Source, d.ID), "title": *d.Title, "abstract": abstract, "authkeywords": string(d.AuthKeywords), "categories": taxonomy, "taxonomy_version": version, "model": model, "verification_mode": "fewshot_candidate", "confidence_policy": "model_reported"})
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		status, body, callErr := services.NewPaperAIClient().Classify(ctx, payload)
