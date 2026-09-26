@@ -2549,24 +2549,17 @@ func AddPublicationDetails(c *gin.Context) {
 
 	type PublicationDetailsRequest struct {
 		// === ข้อมูลพื้นฐาน ===
-		PaperTitle                    string  `json:"article_title"`
-		JournalName                   string  `json:"journal_name"`
-		PublicationDate               string  `json:"publication_date"` // "YYYY-MM-DD"
-		PublicationType               string  `json:"publication_type"`
-		Quartile                      string  `json:"journal_quartile"`
-		ImpactFactor                  float64 `json:"impact_factor"`
-		DOI                           string  `json:"doi"`
-		URL                           string  `json:"url"`
-		PageNumbers                   string  `json:"page_numbers"`
-		VolumeIssue                   string  `json:"volume_issue"`
-		Indexing                      string  `json:"indexing"`
-		ScopusBenchmarkDocumentID     *uint64 `json:"scopus_benchmark_document_id"`
-		Abstract                      *string `json:"abstract"`
-		AbstractSummaryTH             *string `json:"abstract_summary_th"`
-		PaperCategoryID               *uint64 `json:"paper_category_id"`
-		ClassificationConfidence      *string `json:"classification_confidence"`
-		ClassificationModel           *string `json:"classification_model"`
-		ClassificationTaxonomyVersion *string `json:"classification_taxonomy_version"`
+		PaperTitle      string  `json:"article_title"`
+		JournalName     string  `json:"journal_name"`
+		PublicationDate string  `json:"publication_date"` // "YYYY-MM-DD"
+		PublicationType string  `json:"publication_type"`
+		Quartile        string  `json:"journal_quartile"`
+		ImpactFactor    float64 `json:"impact_factor"`
+		DOI             string  `json:"doi"`
+		URL             string  `json:"url"`
+		PageNumbers     string  `json:"page_numbers"`
+		VolumeIssue     string  `json:"volume_issue"`
+		Indexing        string  `json:"indexing"`
 
 		// === เงินรางวัลและการคำนวณ ===
 		RewardAmount                float64 `json:"publication_reward"`
@@ -2798,24 +2791,6 @@ func AddPublicationDetails(c *gin.Context) {
 	detail.PageNumbers = req.PageNumbers
 	detail.VolumeIssue = req.VolumeIssue
 	detail.Indexing = req.Indexing
-	detail.ScopusBenchmarkDocumentID = req.ScopusBenchmarkDocumentID
-	detail.Abstract = req.Abstract
-	detail.AbstractSummaryTH = req.AbstractSummaryTH
-	detail.PaperCategoryID = req.PaperCategoryID
-	detail.ClassificationConfidence = req.ClassificationConfidence
-	detail.ClassificationModel = req.ClassificationModel
-	detail.ClassificationTaxonomyVersion = req.ClassificationTaxonomyVersion
-	if req.ClassificationConfidence != nil {
-		confidence := *req.ClassificationConfidence
-		if !isValidClassificationConfidence(confidence) || (confidence == "Preface" && req.PaperCategoryID != nil) || (confidence != "Preface" && req.PaperCategoryID == nil) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "confidence must be High, Medium, Low with a category, or Preface without a category"})
-			return
-		}
-		classifiedAt := now
-		detail.ClassifiedAt = &classifiedAt
-	} else if req.PaperCategoryID == nil {
-		detail.ClassifiedAt = nil
-	}
 
 	detail.RewardAmount = req.RewardAmount
 	detail.HasReceivedReward = req.HasReceivedReward
