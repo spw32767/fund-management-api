@@ -449,8 +449,12 @@ func UpdateSubmission(c *gin.Context) {
 		}
 	}
 
-	if phone := normalizeOptionalString(req.ContactPhone); phone != nil {
-		updates["contact_phone"] = *phone
+	if req.ContactPhone != nil {
+		if phone := normalizeOptionalString(req.ContactPhone); phone != nil {
+			updates["contact_phone"] = *phone
+		} else {
+			updates["contact_phone"] = nil
+		}
 	}
 	if req.BankAccount != nil {
 		if bankAccount := normalizeOptionalString(req.BankAccount); bankAccount != nil {
