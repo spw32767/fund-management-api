@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
+func TestUpsertAuthorsAndLinks_PreservesExistingORCIDAndRoles(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    kindQuery,
@@ -34,7 +34,7 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 		{
 			kind:    kindExec,
 			pattern: regexp.MustCompile(`INSERT INTO ` + "`scopus_document_authors`"),
-			args:    []driver.Value{int64(1), int64(1), int64(1), nil},
+			args:    []driver.Value{int64(1), int64(1), int64(1), nil, nil, nil},
 			result:  scriptedResult{lastInsertID: 1, rowsAffected: 1},
 		},
 		{
@@ -56,15 +56,15 @@ func TestUpsertAuthorsAndLinks_PreservesExistingORCID(t *testing.T) {
 			kind:    kindQuery,
 			pattern: regexp.MustCompile(`SELECT .* FROM ` + "`scopus_document_authors`"),
 			args:    []driver.Value{int64(1), int64(1), int64(1)},
-			columns: []string{"id", "document_id", "author_id", "author_seq", "affiliation_id"},
+			columns: []string{"id", "document_id", "author_id", "author_seq", "affiliation_id", "is_first_author", "is_corresponding_author"},
 			rows: [][]driver.Value{{
-				int64(1), int64(1), int64(1), int64(1), nil,
+				int64(1), int64(1), int64(1), int64(1), nil, int64(1), int64(0),
 			}},
 		},
 		{
 			kind:    kindExec,
 			pattern: regexp.MustCompile(`UPDATE ` + "`scopus_document_authors`"),
-			args:    []driver.Value{int64(1), int64(1), int64(1), nil, int64(1)},
+			args:    []driver.Value{int64(1), int64(1), int64(1), nil, true, false, int64(1)},
 			result:  scriptedResult{rowsAffected: 1},
 		},
 	}

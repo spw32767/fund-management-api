@@ -61,6 +61,9 @@ done
 | 042 | 20260903_clear_benchmark_raw_json | ล้าง payload raw_json หลัง affiliation coverage ผ่าน แล้ว optimize ตารางโดยยังเก็บคอลัมน์ไว้ |
 | 043 | 20260908_add_scopus_conference_indexes | เพิ่ม index ให้คอลัมน์ conference_country และ conference_city ของ scopus_documents |
 | 044 | 20260902_add_user_management_permissions | เพิ่มสิทธิ์ `users.view` / `users.manage` และกำหนดค่าเริ่มต้นให้ Admin |
+| 045 | 20260920_add_paper_ai_fields | เพิ่มข้อมูล AI ของ paper |
+| 046 | 20260922_allow_paper_classification_preface | ปรับการจำแนก paper |
+| 047 | 20260929_add_scopus_author_roles | เพิ่มสถานะการตรวจ XML และบทบาท first/corresponding ของผู้เขียน Scopus |
 
 ## ✅ ครบแล้ว — schema + seed
 

@@ -267,7 +267,10 @@ func (s *ScopusIngestService) recordAPIRequest(ctx context.Context, jobID uint64
 	}
 
 	paramsJSON, _ := json.Marshal(req.URL.Query())
-	headersJSON, _ := json.Marshal(req.Header)
+	// Never persist the API key with request diagnostics.
+	safeHeaders := req.Header.Clone()
+	safeHeaders.Del(scopusAPIKeyField)
+	headersJSON, _ := json.Marshal(safeHeaders)
 	responseMs := int(duration / time.Millisecond)
 
 	request := &models.ScopusAPIRequest{
@@ -302,6 +305,7 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 	}
 
 	var created bool
+	var rosterChanged bool
 	var persisted models.ScopusDocument
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -320,11 +324,20 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			doc = *docModel
 			created = true
 		} else {
+			if len(doc.RawJSON) > 0 {
+				if previous, err := parseScopusEntry(doc.RawJSON); err == nil {
+					rosterChanged = scopusAuthorRoster(previous) != scopusAuthorRoster(entry)
+				}
+			}
 			docModel.ID = doc.ID
 			// Preserve the original creation timestamp. buildScopusDocument does
 			// not set CreatedAt, so a plain Save() would overwrite created_at with
 			// the zero time (0001-01-01), which MariaDB stores as 0000-00-00.
 			docModel.CreatedAt = doc.CreatedAt
+			if !rosterChanged {
+				docModel.AuthorRoleStatus = doc.AuthorRoleStatus
+				docModel.AuthorRoleCheckedAt = doc.AuthorRoleCheckedAt
+			}
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}
@@ -339,7 +352,22 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 			return err
 		}
 
-		return s.upsertAuthorsAndLinks(tx, entry, doc.ID, affiliationMap, result)
+		linksInsertedBefore := result.DocumentAuthorsInserted
+		if err := s.upsertAuthorsAndLinks(tx, entry, doc.ID, affiliationMap, result); err != nil {
+			return err
+		}
+		if !created && result.DocumentAuthorsInserted > linksInsertedBefore {
+			rosterChanged = true
+		}
+		if rosterChanged {
+			if err := tx.Model(&models.ScopusDocument{}).Where("id = ?", doc.ID).
+				Updates(map[string]interface{}{"author_role_status": nil, "author_role_checked_at": nil}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.ScopusDocumentAuthor{}).Where("document_id = ?", doc.ID).
+				Updates(map[string]interface{}{"is_first_author": nil, "is_corresponding_author": nil}).Error
+		}
+		return nil
 	})
 
 	if err != nil {
@@ -500,6 +528,8 @@ func (s *ScopusIngestService) upsertAuthorsAndLinks(tx *gorm.DB, entry *scopusEn
 			result.DocumentAuthorsInserted++
 		} else {
 			docAuthor.ID = existingLink.ID
+			docAuthor.IsFirstAuthor = existingLink.IsFirstAuthor
+			docAuthor.IsCorrespondingAuthor = existingLink.IsCorrespondingAuthor
 			if err := tx.Save(docAuthor).Error; err != nil {
 				return err
 			}
@@ -507,6 +537,21 @@ func (s *ScopusIngestService) upsertAuthorsAndLinks(tx *gorm.DB, entry *scopusEn
 		}
 	}
 	return nil
+}
+
+// The Search API author array is the existing source for local author links.
+// A changed ID/order invalidates XML roles so the repeatable role job can refill
+// them using the new roster.
+func scopusAuthorRoster(entry *scopusEntry) string {
+	if entry == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, author := range entry.Author {
+		b.WriteString(strings.TrimSpace(author.AuthID))
+		b.WriteByte('|')
+	}
+	return b.String()
 }
 
 type scopusEntry struct {
