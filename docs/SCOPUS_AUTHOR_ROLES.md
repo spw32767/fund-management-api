@@ -60,3 +60,19 @@ First author มาจาก XML `author seq="1"` และตรวจทาน
 ตรวจการเก็บบทบาทคนนอกคณะด้วย Scopus ID `85126809240`: ผู้เขียนในคณะเป็น co-author ส่วน first (`56562406000`) และ corresponding (`7801622743`) เป็นผู้เขียนนอกคณะและมี flags อยู่ใน DB
 
 รุ่นนี้ยังไม่ยืนยัน co-first จาก XML และไม่แยก co-corresponding เป็นป้ายเฉพาะ การกรองผลงานตาม affiliation, ปีจ้าง หรือเกณฑ์รายงานผู้บริหาร เป็นหน้าที่ของ query รายงานในอนาคต
+
+## หน้าจัดการการนำเข้า
+
+หน้า `/research-fund-system/admin/academic-imports` แท็บ Scopus มีการ์ด **บทบาทผู้เขียนในผลงานอาจารย์** อยู่เหนือการ์ด Conference ตั้งแต่ migration `048_20260929_create_scopus_author_role_runs.sql` การ์ดนี้แสดงจำนวนผลงานที่เข้าเกณฑ์และสถานะจาก `scopus_documents` โดยตรง จึงรวมผล 949 ผลงานที่เติมด้วย CLI ก่อนมีหน้าเว็บด้วย ส่วนตารางประวัติแสดงเฉพาะรอบที่เริ่มจากหน้าเว็บหลัง migration 048
+
+API ภายใต้สิทธิ์ `ui.page.admin.academic_imports.view`:
+
+- `GET /api/v1/admin/scopus/author-roles/status` คืนจำนวนผลงานตามสถานะ, จำนวนคำขอโดยประมาณของแต่ละคำสั่ง และรอบที่กำลังรัน
+- `POST /api/v1/admin/scopus/author-roles/runs` รับ `run_type` เป็น `backfill`, `retry_review` หรือ `refresh`; `refresh` ต้องส่ง `confirm_refresh: true` ด้วย เริ่มงานเบื้องหลังและคืน HTTP 202; หากมีงานอยู่แล้วคืน HTTP 409
+- `GET /api/v1/admin/scopus/author-roles/runs?page=1&per_page=5` คืนประวัติและความคืบหน้า การ์ด poll ระหว่างมีงานที่กำลังรัน
+
+`backfill` เลือกผลงานที่ `author_role_checked_at IS NULL` รวมรายการ `fetch_error`; `retry_review` เลือกเฉพาะ `needs_review`; `refresh` เลือกผลงานทั้งหมดในขอบเขตอาจารย์และจะแสดงจำนวนคำขอก่อนยืนยัน การทำงานยังใช้ Scopus XML เดิมหนึ่งคำขอต่อผลงาน ไม่เรียก Search และไม่รวมคลัง Benchmark หาก API หยุดกลางทาง รายการที่ยังไม่สำเร็จยังรันซ้ำได้ รอบที่เริ่มจากเว็บบันทึกจำนวน XML ที่ได้รับและผลการจัดบทบาทระหว่างรัน
+
+ก่อนเปิดใช้ UI ในสภาพแวดล้อมใหม่ ต้องลง migration 047 และ 048 ตามลำดับ และให้ backend ติดต่อ Scopus ผ่าน VPN/เครือข่ายที่มีสิทธิ์ งานนำเข้า Scopus ปกติไม่ได้เริ่ม XML โดยอัตโนมัติ จึงต้องกดเติมข้อมูลใหม่หลัง ingest รอบใหม่
+
+ลง migration 048 ในฐานข้อมูลที่โปรเจ็กต์ตั้งค่าไว้วันที่ 29 กันยายน 2026 แล้ว ตรวจผ่าน API service โดยไม่เรียก Scopus เพิ่ม: `eligible=949`, `complete=671`, `no_correspondence=278`, `needs_review=0`, `fetch_error=0`, `pending=0`, `next_backfill_requests=0`

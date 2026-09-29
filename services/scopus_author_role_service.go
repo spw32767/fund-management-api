@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -74,6 +75,12 @@ func facultyDocumentQuery(db *gorm.DB) *gorm.DB {
 // selected documents. Ordinary runs skip checked documents; reviewOnly selects
 // only ambiguous records; refresh re-fetches all eligible documents.
 func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refresh, reviewOnly bool) (*ScopusAuthorRoleSummary, error) {
+	return s.BackfillWithProgress(ctx, limit, refresh, reviewOnly, nil)
+}
+
+// BackfillWithProgress publishes counts after selection and after each document.
+// The callback must return promptly; an admin job uses it to persist progress.
+func (s *ScopusAuthorRoleService) BackfillWithProgress(ctx context.Context, limit int, refresh, reviewOnly bool, progress func(ScopusAuthorRoleSummary)) (*ScopusAuthorRoleSummary, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("scopus author role service has no database")
 	}
@@ -84,15 +91,27 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 		return nil, errors.New("refresh and review-only cannot be combined")
 	}
 	lockCtx := persistentContext(ctx)
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return nil, err
+	}
+	// MySQL named locks belong to a connection. Keep the same connection until
+	// release so a pool rotation cannot silently drop the run guard.
+	conn, err := sqlDB.Conn(lockCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
 	var lockAcquired int
-	if err := s.db.WithContext(lockCtx).Raw("SELECT GET_LOCK(?, 0)", authorRoleRunLockName).Scan(&lockAcquired).Error; err != nil {
+	if err := conn.QueryRowContext(lockCtx, "SELECT GET_LOCK(?, 0)", authorRoleRunLockName).Scan(&lockAcquired); err != nil {
 		return nil, err
 	}
 	if lockAcquired != 1 {
 		return nil, ErrScopusAuthorRoleRunActive
 	}
 	defer func() {
-		if err := releaseNamedLock(lockCtx, s.db, authorRoleRunLockName); err != nil {
+		var released sql.NullInt64
+		if err := conn.QueryRowContext(lockCtx, "SELECT RELEASE_LOCK(?)", authorRoleRunLockName).Scan(&released); err != nil {
 			log.Printf("scopus author roles: release lock failed: %v", err)
 		}
 	}()
@@ -127,6 +146,12 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 		return nil, err
 	}
 	summary.Selected = len(docs)
+	notify := func() {
+		if progress != nil {
+			progress(*summary)
+		}
+	}
+	notify()
 	for i := range docs {
 		if err := ctx.Err(); err != nil {
 			return summary, err
@@ -137,6 +162,7 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 			summary.Failed++
 			_ = s.recordFetchError(ctx, doc.ID)
 			log.Printf("scopus author roles: document %d has no numeric Scopus ID", doc.ID)
+			notify()
 			continue
 		}
 		body, statusCode, err := s.fetchXML(ctx, key, numericID)
@@ -144,6 +170,7 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 			summary.Failed++
 			_ = s.recordFetchError(ctx, doc.ID)
 			log.Printf("scopus author roles: document %d fetch failed: %v", doc.ID, err)
+			notify()
 			if statusCode == http.StatusTooManyRequests || statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
 				return summary, fmt.Errorf("stop author role backfill after HTTP %d; rerun later", statusCode)
 			}
@@ -154,6 +181,7 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 		if err != nil {
 			summary.Failed++
 			log.Printf("scopus author roles: document %d processing failed: %v", doc.ID, err)
+			notify()
 			continue
 		}
 		switch status {
@@ -164,6 +192,7 @@ func (s *ScopusAuthorRoleService) Backfill(ctx context.Context, limit int, refre
 		case authorRoleNeedsReview:
 			summary.NeedsReview++
 		}
+		notify()
 		// A modest pace avoids turning an initial backfill into a burst of API calls.
 		if i+1 < len(docs) {
 			select {
