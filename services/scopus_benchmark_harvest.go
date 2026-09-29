@@ -309,6 +309,8 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 		} else {
 			docModel.ID = existing.ID
 			docModel.FirstSeenAt = existing.FirstSeenAt
+			preserveBenchmarkClassification(docModel, &existing)
+			docModel.AffiliationsComplete = existing.AffiliationsComplete
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}
@@ -321,6 +323,9 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 			return err
 		}
 		if err := s.upsertBenchmarkAuthors(tx, entry, existing.ID, affiliationMap, facultySet, summary); err != nil {
+			return err
+		}
+		if err := replaceBenchmarkAffiliationMetadata(tx, existing.ID, entry, "benchmark_payload", true); err != nil {
 			return err
 		}
 
