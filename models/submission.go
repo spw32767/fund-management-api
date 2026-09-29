@@ -111,27 +111,19 @@ type FundApplicationDetail struct {
 
 // PublicationRewardDetail represents publication reward specific details
 type PublicationRewardDetail struct {
-	DetailID                      int        `gorm:"primaryKey;column:detail_id" json:"detail_id"`
-	SubmissionID                  int        `gorm:"column:submission_id" json:"submission_id"`
-	PaperTitle                    string     `gorm:"column:paper_title" json:"paper_title"`
-	JournalName                   string     `gorm:"column:journal_name" json:"journal_name"`
-	PublicationDate               time.Time  `gorm:"column:publication_date" json:"publication_date"`
-	PublicationType               string     `gorm:"column:publication_type;type:enum('journal','conference','book_chapter','other')" json:"publication_type"`
-	Quartile                      string     `gorm:"column:quartile;type:enum('Q1','Q2','Q3','Q4','N/A')" json:"quartile"`
-	ImpactFactor                  float64    `gorm:"column:impact_factor" json:"impact_factor"`
-	DOI                           string     `gorm:"column:doi" json:"doi"`
-	URL                           string     `gorm:"column:url" json:"url"`
-	PageNumbers                   string     `gorm:"column:page_numbers" json:"page_numbers"`
-	VolumeIssue                   string     `gorm:"column:volume_issue" json:"volume_issue"`
-	Indexing                      string     `gorm:"column:indexing" json:"indexing"`
-	ScopusBenchmarkDocumentID     *uint64    `gorm:"column:scopus_benchmark_document_id" json:"scopus_benchmark_document_id,omitempty"`
-	Abstract                      *string    `gorm:"column:abstract" json:"abstract,omitempty"`
-	AbstractSummaryTH             *string    `gorm:"column:abstract_summary_th" json:"abstract_summary_th,omitempty"`
-	PaperCategoryID               *uint64    `gorm:"column:paper_category_id" json:"paper_category_id,omitempty"`
-	ClassificationConfidence      *string    `gorm:"column:classification_confidence" json:"classification_confidence,omitempty"`
-	ClassificationModel           *string    `gorm:"column:classification_model" json:"classification_model,omitempty"`
-	ClassificationTaxonomyVersion *string    `gorm:"column:classification_taxonomy_version" json:"classification_taxonomy_version,omitempty"`
-	ClassifiedAt                  *time.Time `gorm:"column:classified_at" json:"classified_at,omitempty"`
+	DetailID        int       `gorm:"primaryKey;column:detail_id" json:"detail_id"`
+	SubmissionID    int       `gorm:"column:submission_id" json:"submission_id"`
+	PaperTitle      string    `gorm:"column:paper_title" json:"paper_title"`
+	JournalName     string    `gorm:"column:journal_name" json:"journal_name"`
+	PublicationDate time.Time `gorm:"column:publication_date" json:"publication_date"`
+	PublicationType string    `gorm:"column:publication_type;type:enum('journal','conference','book_chapter','other')" json:"publication_type"`
+	Quartile        string    `gorm:"column:quartile;type:enum('Q1','Q2','Q3','Q4','N/A')" json:"quartile"`
+	ImpactFactor    float64   `gorm:"column:impact_factor" json:"impact_factor"`
+	DOI             string    `gorm:"column:doi" json:"doi"`
+	URL             string    `gorm:"column:url" json:"url"`
+	PageNumbers     string    `gorm:"column:page_numbers" json:"page_numbers"`
+	VolumeIssue     string    `gorm:"column:volume_issue" json:"volume_issue"`
+	Indexing        string    `gorm:"column:indexing" json:"indexing"`
 
 	// === เงินรางวัลและการคำนวณ ===
 	RewardAmount                float64 `gorm:"column:reward_amount" json:"reward_amount"`                 // เงินรางวัลฐาน (อ้างอิงจาก Author และ Quartile)

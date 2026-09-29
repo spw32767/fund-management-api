@@ -309,13 +309,6 @@ func (s *ScopusBenchmarkService) upsertBenchmarkEntry(ctx context.Context, raw j
 		} else {
 			docModel.ID = existing.ID
 			docModel.FirstSeenAt = existing.FirstSeenAt
-			// Harvest refreshes Scopus metadata only. Preserve AI classification,
-			// which is produced by an independent service and may be newer.
-			docModel.PaperCategoryID = existing.PaperCategoryID
-			docModel.ClassificationConfidence = existing.ClassificationConfidence
-			docModel.ClassificationModel = existing.ClassificationModel
-			docModel.ClassificationTaxonomyVersion = existing.ClassificationTaxonomyVersion
-			docModel.ClassifiedAt = existing.ClassifiedAt
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}
