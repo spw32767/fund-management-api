@@ -389,6 +389,7 @@ func SetupRoutes(router *gin.Engine) {
 				paperAI.GET("/categories", controllers.ListPaperCategories)
 				paperAI.POST("/extract", controllers.ExtractPaper)
 				paperAI.POST("/summarize", controllers.SummarizePaper)
+				paperAI.POST("/suggest-sdg", controllers.SuggestPaperSDG)
 				paperAI.POST("/classify", controllers.ClassifyPaper)
 				paperAI.POST("/match", controllers.MatchPaper)
 				paperAI.GET("/jobs/:id", controllers.GetPaperAIJob)

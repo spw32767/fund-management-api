@@ -2,7 +2,7 @@
 
 The fund-management backend is the only browser-facing gateway for the two independent AI services:
 
-- Paper Reader API (`PAPER_READER_API_URL`): PDF text extraction, Thai/English OCR, DOI detection inside the PDF, and Thai summaries.
+- Paper Reader API (`PAPER_READER_API_URL`): PDF text extraction, Thai/English OCR, DOI detection inside the PDF, Thai summaries, and one primary SDG suggestion.
 - Paper Classification API (`PAPER_CLASSIFICATION_API_URL`): taxonomy-driven paper classification.
 
 Both services use `PAPER_AI_API_KEY` as the `X-API-Key` value. They may run on different hosts and use different Ollama models.
@@ -11,6 +11,7 @@ Both services use `PAPER_AI_API_KEY` as the `X-API-Key` value. They may run on d
 
 - `POST /api/v1/paper-ai/extract` — multipart PDF (`file`)
 - `POST /api/v1/paper-ai/summarize`
+- `POST /api/v1/paper-ai/suggest-sdg` — JSON `title` and `abstract` or `content`; returns an active `sdg_id`, SDG number, short Thai reason, and whether the link is direct or the closest available
 - `POST /api/v1/paper-ai/classify`
 - `POST /api/v1/paper-ai/match` — send `{"doi":"10.x/...","benchmark_only":true}` for an exact DOI check against `scopus_benchmark_documents` only
 - `GET /api/v1/paper-ai/categories`
@@ -35,6 +36,8 @@ These confidence labels are reported by the local model; they are not calibrated
 In `scopus_benchmark_documents`, the `category` column is a nullable foreign key to `paper_categories.category_id`. The API exposes that value as `paper_category_id` so it remains explicit to clients. `publication_reward_details` uses the explicit `paper_category_id` column name for the same relationship.
 
 On the publication reward form, the Reader API extracts PDF metadata and uses OCR when the PDF has no usable text layer. It rejects files without research-paper structure using a conservative document check. When explicitly present, the PDF can supply publication month, volume/issue, and page numbers; a validated DOI supplies the article URL. The form checks an extracted (or already entered) DOI only against `scopus_benchmark_documents` with `benchmark_only: true`. It links a benchmark document only when exactly one DOI match exists and displays whether the DOI was found. If the DOI is absent, missing from the benchmark, duplicated, or the check fails, the form still fills fields from the PDF and allows the applicant to continue to review. The original abstract and AI-generated Thai summary appear together. While a PDF is processing, the form disables its controls and shows a blocking loading dialog. This form does not call the Classification API or infer quartile or official database indexing from PDF text. DOI remains an editable field; there is no external DOI-reference lookup endpoint or button. Other callers may still use the general match endpoint's title and submission checks.
+
+After extraction, the form asks the Reader API to suggest one SDG from active `sdgs` rows. The backend maps the returned SDG number to its database `sdg_id`; the form selects it and displays the AI reason for applicant review. If the paper only loosely relates to the goals, the suggestion is labeled as the closest available goal. A failed suggestion leaves the existing selection intact and does not block the PDF metadata import. The applicant can change the selection before saving; the existing `submission_sdgs` flow persists it.
 
 Calls currently complete in the initiating HTTP request. Each AI call is also recorded in `paper_ai_jobs`; extracted full text is deliberately omitted from the job log.
 

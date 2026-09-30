@@ -103,6 +103,10 @@ func (c *PaperAIClient) Summarize(ctx context.Context, payload []byte) (int, jso
 	return c.postJSON(ctx, c.readerBaseURL, "/v1/papers/summarize", payload)
 }
 
+func (c *PaperAIClient) SuggestSDG(ctx context.Context, payload []byte) (int, json.RawMessage, error) {
+	return c.postJSON(ctx, c.readerBaseURL, "/v1/papers/suggest-sdg", payload)
+}
+
 func (c *PaperAIClient) Classify(ctx context.Context, payload []byte) (int, json.RawMessage, error) {
 	return c.postJSON(ctx, c.classificationBaseURL, "/v1/papers/classify", payload)
 }
