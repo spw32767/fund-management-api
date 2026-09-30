@@ -1,0 +1,558 @@
+{
+  "database": "drnadech_fund_cpkku_intern",
+  "source_file": "classified_scopus-benchmark-documents-thailand-2025-2026_FINAL.xlsx",
+  "source_sha256": "2a49a44a815f81a28d03e84961dea1a26757bed1872a67cd8c42ca1d6e1f3138",
+  "generated_at": "2026-09-29T23:15:03.1214807Z",
+  "apply": false,
+  "source_rows": 8853,
+  "unclassified_needs_review": 2493,
+  "eligible_classified_rows": 6360,
+  "matched_documents": 6321,
+  "already_same": 6321,
+  "preserved_existing_conflicts": [],
+  "unmatched_eids": [
+    "2-s2.0-105030563370",
+    "2-s2.0-105027400155",
+    "2-s2.0-105028477413",
+    "2-s2.0-105028884620",
+    "2-s2.0-105040835421",
+    "2-s2.0-105045516953",
+    "2-s2.0-105049712190",
+    "2-s2.0-105041153156",
+    "2-s2.0-105041250073",
+    "2-s2.0-105044480943",
+    "2-s2.0-105034621120",
+    "2-s2.0-105044280212",
+    "2-s2.0-105048726223",
+    "2-s2.0-105022061952",
+    "2-s2.0-105025414902",
+    "2-s2.0-105032459678",
+    "2-s2.0-105034653036",
+    "2-s2.0-105022279155",
+    "2-s2.0-105045377462",
+    "2-s2.0-105042984671",
+    "2-s2.0-105045733844",
+    "2-s2.0-105047980052",
+    "2-s2.0-105020970611",
+    "2-s2.0-105025738454",
+    "2-s2.0-105005539655",
+    "2-s2.0-105010150627",
+    "2-s2.0-105009533675",
+    "2-s2.0-105022821410",
+    "2-s2.0-105006882689",
+    "2-s2.0-105021012419",
+    "2-s2.0-105012534028",
+    "2-s2.0-105002129843",
+    "2-s2.0-105010082692",
+    "2-s2.0-105007365706",
+    "2-s2.0-105003836617",
+    "2-s2.0-105001073130",
+    "2-s2.0-105033664816",
+    "2-s2.0-105009501511",
+    "2-s2.0-85202583443"
+  ],
+  "publication_year_mismatches": [
+    "2-s2.0-105024787304",
+    "2-s2.0-105008465302"
+  ],
+  "current_year_outside_2025_2026": null,
+  "updated": 0,
+  "core_roles_unchanged": true,
+  "run_id": 18,
+  "harvest": {
+    "status": "success",
+    "documents_upserted": 9296,
+    "pages": 373,
+    "requests": 375,
+    "year_2025": 5628,
+    "year_2026": 3668,
+    "count_refresh_requests": 3
+  },
+  "verified_imported_total": 6321,
+  "unmatched_details": [
+    {
+      "eid": "2-s2.0-105030563370",
+      "source_year": 2026,
+      "title": "Hybrid quantum–chaotic key expansion enhances QKD rates using the Lorenz system",
+      "aggregation_type": "Journal",
+      "category": "Quantum Information Science",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105027400155",
+      "source_year": 2026,
+      "title": "Software belief reliability growth model incorporating change point and imperfect debugging based on uncertain differential equation approach",
+      "aggregation_type": "Journal",
+      "category": "Theoretical Computer Science",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105028477413",
+      "source_year": 2026,
+      "title": "Hybrid wavelet transform, K-means singular value decomposition and Spatial memory guided cat swarm optimization technique for watermark embedding",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105028884620",
+      "source_year": 2026,
+      "title": "XcepFusion for brain tumor detection using a hybrid transfer learning framework with layer pruning and freezing",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105040835421",
+      "source_year": 2026,
+      "title": "Heuristic optimization of multiplierless decimation filter for multi-standard wireless applications",
+      "aggregation_type": "Journal",
+      "category": "Computer Engineering, IoT, and Embedded Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105045516953",
+      "source_year": 2026,
+      "title": "Optimizing hepatitis C diagnosis through reinforcement learning feature selection and multi-model machine learning evaluation",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105049712190",
+      "source_year": 2026,
+      "title": "RUL-DBRS: A Novel Energy Efficient and Robust Protocol for Enhanced Communication in Underwater Wireless Sensor Networks",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105041153156",
+      "source_year": 2026,
+      "title": "BlockTransit-AI: a decentralized artificial intelligence framework for adaptive energy-efficient public transportation in Indian metropolitan cities during geopolitical fuel crises",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105041250073",
+      "source_year": 2026,
+      "title": "A cloud enabled hybrid CNN transformer framework with attentionmechanisms for scalable Alzheimer's disease staging from structural MRI",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105044480943",
+      "source_year": 2026,
+      "title": "Intelligent graph-blockchain healthcare storage with AI-Driven anomaly detection and distributed threshold security",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105034621120",
+      "source_year": 2026,
+      "title": "LLM-guided population-based reinforcement learning: A scalable methodology for adaptive hyperparameter optimization",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105044280212",
+      "source_year": 2026,
+      "title": "Blockchain-driven autonomous internet of auto in smart cities in India: A secure and intelligent framework for next-generation urban mobility",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105048726223",
+      "source_year": 2026,
+      "title": "AgriX-SENet: Squeeze-and-Excitation-based deep learning framework for explainable plant disease detection in sustainable agriculture",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105022061952",
+      "source_year": 2026,
+      "title": "Deep Learning for Diagnosis of Tinea Corporis and Tinea Cruris",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105025414902",
+      "source_year": 2026,
+      "title": "Lightweight Multimedia Anomaly and Integrity Detection for Consumer IoT Using Knowledge Distillation",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105032459678",
+      "source_year": 2026,
+      "title": "Seagrass species classification using random forest and U-Net models on multiple satellite images taken at various times and places",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105034653036",
+      "source_year": 2026,
+      "title": "Optimizing K-Nearest Neighbor Using Grey Wolf Optimizer for Breast Cancer Classification",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105022279155",
+      "source_year": 2026,
+      "title": "Clustering and Forecasting Vertical Ground Deformation of Sinabung Volcano Based on Deformation Dataset and Holt-Winters Exponential Smoothing Method",
+      "aggregation_type": "Book Series",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105045377462",
+      "source_year": 2026,
+      "title": "LANDSLIDE SUSCEPTIBILITY PREDICTION ON MOUNT MARAPI USING INTERFEROMETRIC SYNTHETIC APERTURE RADAR (INSAR) INTEGRATED WITH MULTI-MODEL MACHINE LEARNING APPROACHES",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105042984671",
+      "source_year": 2026,
+      "title": "Proactive Threat Hunting and Anomaly Detection in Intelligent Green Transportation: A Federated Edge-AI Framework for In-Vehicle Consumer Networks",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105045733844",
+      "source_year": 2026,
+      "title": "Bayesian Framework for Confidence-Calibrated Phishing Email Detection in Consumer Communication Systems",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105047980052",
+      "source_year": 2026,
+      "title": "PDBFS: A novel active routing protocol for prioritized delivery of safety messages in VANETs",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105020970611",
+      "source_year": 2025,
+      "title": "BIASNN: a biologically inspired attention mechanism in spiking neural networks for image classification",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105025738454",
+      "source_year": 2025,
+      "title": "Prognostic factors identification using machine learning in temporomandibular disorder treatment responders",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105005539655",
+      "source_year": 2025,
+      "title": "Intelligent health model for medical imaging to guide laymen using neural cellular automata",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105010150627",
+      "source_year": 2025,
+      "title": "Decentralized trust framework for smart cities: a blockchain-enabled cybersecurity and data integrity model",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105009533675",
+      "source_year": 2025,
+      "title": "An integrating RAG-LLM and deep Q-network framework for intelligent fish control systems",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105022821410",
+      "source_year": 2025,
+      "title": "Assessing Peatland Fire Susceptibility Using GIS and Machine Learning in Riau Province, Indonesia",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105006882689",
+      "source_year": 2025,
+      "title": "Secure task offloading and optimization for UAV-assisted NOMA-MEC system with friendly jamming",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105021012419",
+      "source_year": 2025,
+      "title": "Enhanced U-Net with Attention Mechanisms for Improved Feature Representation in Lung Nodule Segmentation",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105012534028",
+      "source_year": 2025,
+      "title": "SmartForest: Optimizing anemia diagnosis with enhanced random forest and XGBoost integration",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105002129843",
+      "source_year": 2025,
+      "title": "Blockchain-Based Federated Learning Methodologies in Smart Environments for Drone Technology",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105010082692",
+      "source_year": 2025,
+      "title": "Depression Classification with Imbalanced Data Problems: Literature Survey",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-105007365706",
+      "source_year": 2025,
+      "title": "Skin cancer segmentation and classification by implementing a hybrid FrCN-(U-NeT) technique with machine learning",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105003836617",
+      "source_year": 2025,
+      "title": "N-Beats architecture for explainable forecasting of multi-dimensional poultry data",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105001073130",
+      "source_year": 2025,
+      "title": "Highly Accurate and Robust Early Stage Detection of Cholangiocarcinoma Using Near-Lossless SERS Signal Processing with Machine Learning and 2D CNN for Point-of-care Mobile Application",
+      "aggregation_type": "Journal",
+      "category": "Applied AI, GeoAI and Agentic Applications",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105033664816",
+      "source_year": 2025,
+      "title": "BTO: A BARREL THEORY-BASED OPTIMIZER FOR ENGINEERING DESIGN PROBLEMS",
+      "aggregation_type": "Journal",
+      "category": "AI Algorithms and Intelligent Systems",
+      "confidence": "High"
+    },
+    {
+      "eid": "2-s2.0-105009501511",
+      "source_year": 2025,
+      "title": "Fed-IoMT-Block: A Privacy-Preserving Framework for Secure Federated Learning in Consumer-Centric Internet of Medical Things",
+      "aggregation_type": "Journal",
+      "category": "Networks, Security, and Distributed Systems",
+      "confidence": "Medium"
+    },
+    {
+      "eid": "2-s2.0-85202583443",
+      "source_year": 2025,
+      "title": "On the same origin of quantum physics and general relativity from Riemannian geometry and Planck scale formalism",
+      "aggregation_type": "Journal",
+      "category": "Quantum Information Science",
+      "confidence": "Medium"
+    }
+  ],
+  "report_audits": [
+    {
+      "coverage": {
+        "base_documents": 9296,
+        "classified": 6321,
+        "selected": 1835,
+        "affiliation_incomplete": 1,
+        "faculty_affiliation_incomplete": 0,
+        "role_unknown_pairs": 2,
+        "metric_fallback": 910,
+        "missing_quartile": 350,
+        "faculty_without_id": 4
+      },
+      "faculty_roles": {
+        "total": 48,
+        "first": 4,
+        "corresponding": 26,
+        "lead": 27,
+        "co": 19,
+        "unknown": 2
+      },
+      "filters": {
+        "year_from": 2025,
+        "year_to": 2026,
+        "types": [
+          "Journal"
+        ],
+        "category": "classified",
+        "confidence": [
+          "High",
+          "Medium",
+          "Preface",
+          "unknown"
+        ],
+        "quartile_mode": "t1"
+      },
+      "revision": "18a2a4a3a3c2b7bafc6f30185ddcc7787f674f7eaf2aca70278eab40020c41ae",
+      "total": {
+        "label": "รวมจากปีที่มีข้อมูล",
+        "thailand": 1835,
+        "kku": 155,
+        "coc": 48,
+        "kku_pct": 8.446866485013624,
+        "coc_pct": 30.967741935483872
+      },
+      "yearly": [
+        {
+          "year": 2025,
+          "label": "2025",
+          "thailand": 1046,
+          "kku": 85,
+          "coc": 24,
+          "kku_pct": 8.126195028680689,
+          "coc_pct": 28.235294117647058
+        },
+        {
+          "year": 2026,
+          "label": "2026",
+          "thailand": 789,
+          "kku": 70,
+          "coc": 24,
+          "kku_pct": 8.871989860583016,
+          "coc_pct": 34.285714285714285
+        }
+      ],
+      "years": [
+        {
+          "year": 2025,
+          "status": "available",
+          "observed": 5628,
+          "expected": 5628,
+          "last_harvest": "2026-09-30T06:14:24+07:00",
+          "subject_area": "COMP",
+          "extra_query": null
+        },
+        {
+          "year": 2026,
+          "status": "available",
+          "observed": 3668,
+          "expected": 3668,
+          "last_harvest": "2026-09-30T06:14:24+07:00",
+          "subject_area": "COMP",
+          "extra_query": null
+        }
+      ]
+    },
+    {
+      "coverage": {
+        "base_documents": 9296,
+        "classified": 6321,
+        "selected": 3806,
+        "affiliation_incomplete": 2,
+        "faculty_affiliation_incomplete": 0,
+        "role_unknown_pairs": 6,
+        "metric_fallback": 1760,
+        "missing_quartile": 973,
+        "faculty_without_id": 4
+      },
+      "faculty_roles": {
+        "total": 60,
+        "first": 6,
+        "corresponding": 30,
+        "lead": 31,
+        "co": 24,
+        "unknown": 5
+      },
+      "filters": {
+        "year_from": 2025,
+        "year_to": 2026,
+        "types": [
+          "Journal"
+        ],
+        "category": "all",
+        "confidence": [
+          "High",
+          "Medium",
+          "Preface",
+          "unknown"
+        ],
+        "quartile_mode": "t1"
+      },
+      "revision": "9875daa8e878c3b10d6aa871a0792968895a65215ff7bd3abcd3b08837c1eb31",
+      "total": {
+        "label": "รวมจากปีที่มีข้อมูล",
+        "thailand": 3806,
+        "kku": 305,
+        "coc": 60,
+        "kku_pct": 8.013662637940094,
+        "coc_pct": 19.672131147540984
+      },
+      "yearly": [
+        {
+          "year": 2025,
+          "label": "2025",
+          "thailand": 2053,
+          "kku": 167,
+          "coc": 28,
+          "kku_pct": 8.13443740867024,
+          "coc_pct": 16.766467065868262
+        },
+        {
+          "year": 2026,
+          "label": "2026",
+          "thailand": 1753,
+          "kku": 138,
+          "coc": 32,
+          "kku_pct": 7.872219053051911,
+          "coc_pct": 23.18840579710145
+        }
+      ],
+      "years": [
+        {
+          "year": 2025,
+          "status": "available",
+          "observed": 5628,
+          "expected": 5628,
+          "last_harvest": "2026-09-30T06:14:24+07:00",
+          "subject_area": "COMP",
+          "extra_query": null
+        },
+        {
+          "year": 2026,
+          "status": "available",
+          "observed": 3668,
+          "expected": 3668,
+          "last_harvest": "2026-09-30T06:14:24+07:00",
+          "subject_area": "COMP",
+          "extra_query": null
+        }
+      ]
+    }
+  ]
+}

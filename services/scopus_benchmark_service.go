@@ -54,6 +54,11 @@ func NewScopusBenchmarkService(db *gorm.DB, client *http.Client) *ScopusBenchmar
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
+	// A pinned Connection returns an initialized GORM handle. Keep its physical
+	// connection/context, but make each query start with a fresh statement.
+	if db != nil {
+		db = db.Session(&gorm.Session{NewDB: true})
+	}
 	return &ScopusBenchmarkService{db: db, client: client}
 }
 

@@ -29,7 +29,7 @@ type BenchmarkSummaryFilter struct {
 }
 
 func ParseBenchmarkSummaryFilter(q url.Values, now time.Time) (BenchmarkSummaryFilter, error) {
-	f := BenchmarkSummaryFilter{YearFrom: now.Year() - 1, YearTo: now.Year(), Types: []string{"Journal"}, Category: "classified", Confidence: []string{"High", "Medium", "Preface", "unknown"}, QuartileMode: "t1"}
+	f := BenchmarkSummaryFilter{YearFrom: now.Year() - 1, YearTo: now.Year(), Types: []string{"Journal"}, Category: "classified", Confidence: []string{"High", "Medium", "unknown"}, QuartileMode: "t1"}
 	for key, dst := range map[string]*int{"year_from": &f.YearFrom, "year_to": &f.YearTo} {
 		if q.Has(key) {
 			n, e := strconv.Atoi(q.Get(key))
@@ -664,7 +664,7 @@ func (s *ScopusBenchmarkService) BenchmarkSummaryOptions(ctx context.Context) (m
 		out["categories"] = cats
 		out["years"] = years
 		out["types"] = types
-		out["confidence"] = []string{"High", "Medium", "Low", "Preface", "unknown"}
+		out["confidence"] = []string{"High", "Medium", "Low", "unknown"}
 		return nil
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	return out, err

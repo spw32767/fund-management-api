@@ -33,6 +33,17 @@ func summaryFilter() BenchmarkSummaryFilter {
 	f, _ := ParseBenchmarkSummaryFilter(url.Values{}, time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
 	return f
 }
+func TestSummaryDefaultExcludesPreface(t *testing.T) {
+	f := summaryFilter()
+	if summaryContains(f.Confidence, "Preface") || !summaryContains(f.Confidence, "unknown") {
+		t.Fatalf("unexpected default confidence: %v", f.Confidence)
+	}
+	in := summaryFixture()
+	in.Documents[0].Confidence = "Preface"
+	if r := aggregateBenchmarkSummary(in, f); *r.Total.Thailand != 3 {
+		t.Fatalf("Preface included in default report: %+v", r.Total)
+	}
+}
 func TestSummaryNestedCohortAndRoleUnits(t *testing.T) {
 	r := aggregateBenchmarkSummary(summaryFixture(), summaryFilter())
 	if *r.Total.Thailand != 4 || *r.Total.KKU != 3 || *r.Total.COC != 2 {

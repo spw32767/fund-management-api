@@ -205,18 +205,11 @@ func (s *ScopusBenchmarkService) harvestQuery(ctx context.Context, apiKey string
 		}
 		summary.PagesFetched++
 
-		for _, raw := range entries {
-			eid, err := s.upsertBenchmarkEntry(ctx, raw, scope.ID, facultySet, summary)
-			if err != nil {
-				// Defensively skip a stub/malformed entry that carries no eid
-				// instead of aborting the whole run, mirroring the faculty
-				// ingest's tolerance (scopus_ingest_service.go).
-				if errors.Is(err, errBenchmarkEntryMissingEID) {
-					log.Printf("scopus benchmark: skipping entry without eid (empty/stub result)")
-					continue
-				}
-				return fmt.Errorf("upsert benchmark entry: %w", err)
-			}
+		eids, err := s.upsertBenchmarkPage(ctx, entries, scope.ID, facultySet, summary)
+		if err != nil {
+			return fmt.Errorf("upsert benchmark page: %w", err)
+		}
+		for _, eid := range eids {
 			seenEIDs[eid] = struct{}{}
 		}
 

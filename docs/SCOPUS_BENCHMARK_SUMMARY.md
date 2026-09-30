@@ -16,7 +16,7 @@
 
 COC คือ College of Computing สังกัดของผู้เขียนคนอื่นไม่ทำให้อาจารย์เข้าเกณฑ์ ทะเบียนใช้ `users.delete_at IS NULL`, `is_test=0`, `role_id IN (1,4,5)` จับคู่ Scopus Author ID ปัจจุบัน ไม่ใช้ `is_faculty` เก่าหรือวันเริ่มงาน
 
-Category/confidence อ่านจาก benchmark; ชื่อหมวดจาก `paper_categories` ไม่คัดลอก classification จาก core ค่าเริ่มต้นปีปัจจุบัน/ปีก่อนหน้า (ค.ศ.), Journal, มี Category, confidence High/Medium/Preface/unknown (ตัดเฉพาะ Low) และแยก T1
+Category/confidence อ่านจาก benchmark; ชื่อหมวดจาก `paper_categories` ไม่คัดลอก classification จาก core ค่าเริ่มต้นปีปัจจุบัน/ปีก่อนหน้า (ค.ศ.), Journal, มี Category, confidence High/Medium/unknown (ตัด Low และ Preface) และแยก T1
 
 ## สูตรและสถานะ
 
@@ -108,7 +108,7 @@ Setup writes/harvest ทำเครื่องหมาย cache เก่า 
 
 แท็บวิเคราะห์ยังใช้ scopes/snapshots/ความพร้อมและ employment refinement เดิม ยอดอาจต่างจากรายงานใหม่ฐาน Thailand/AF-ID 5/2/ไม่กรองวันเริ่มงาน ห้ามเติม core ที่อยู่นอกฐานเพื่อทำยอดให้เท่ารายงานเก่า
 
-## ผลตรวจ dev 2026-09-30
+## ผลตรวจ dev 2026-09-30 ก่อน harvest และนำเข้า Excel
 
 - Migration บน dev เดิม/รันซ้ำและ fresh fixture ผ่าน Classification/taxonomy ที่แก้เองยังอยู่
 - Backfill ตรวจ 5,172 papers: benchmark payload 0, core payload ใช้ในรอบแรก 224, legacy-only 4,948, invalid 0 ตัวเลข payload เป็นจำนวนใช้ในรอบนั้น ไม่ใช่ metadata สะสม
@@ -125,3 +125,82 @@ Backend `go test ./...`: cohort AF-ID 5/2, second affiliation/other-author KKU, 
 Frontend node tests+production build และ development harness `/dev/scopus-benchmark-summary` ตรวจ API calls ตามแท็บ/cache, tooltip/toggle/search/sort/hide/details ผู้เขียนภายนอก/pagination/filters/reset/refresh/revision error ข้อมูล harness สมมติและ route 404 ใน production
 
 ผลตรวจ UI จริงผ่าน harness: เปลี่ยนแท็บไม่เพิ่ม request ที่ cache แล้ว, draft/apply/reset/refresh, tooltip/toggle, faculty search/hide, details pagination และผู้เขียนนอกคณะ, missing year, API error, Excel revision error, รวมทั้ง stale หลัง setup write คงอยู่จนกด refresh จริง Frontend tests 67 ข้อผ่าน; backend go test ./... ผ่าน
+
+## Harvest แบบชุดและการนำเข้า Category จาก Excel
+
+คำสั่ง harvest บันทึก search page ทั้งหน้า (25 ผลงาน) ภายใน transaction เดียว โดย batch catalogue ผู้เขียน/affiliation และความสัมพันธ์ เพื่อเลี่ยง round trip ทีละผู้เขียน ไม่ใส่ classification columns ใน INSERT/UPDATE จึงรักษา Category/confidence/model/taxonomy/classified_at แม้มีการนำเข้า Excel พร้อมกัน เลือก ID จริงกลับด้วย EID/Author ID/AF-ID หลัง upsert เพราะ auto-increment ของ mixed insert/update batch ใช้จับคู่ไม่ได้ ตรวจ author-count ก่อนตัดผู้เขียนเก่า และคงหลักฐาน affiliation ที่ payload ยังตรวจไม่ครบ CLI pin physical connection สำหรับ named lock
+
+คำสั่งสำหรับ dev (years-back 2 ณ ปี 2026 คือ 2025–2026):
+
+```powershell
+go run ./cmd/scopus-benchmark -scope country_thailand -years-back 2 -expect-database <DEV_DATABASE> -quiet-sql
+# Counts ใช้ scope ที่ระบุเท่านั้น: all-years และสองปีล่าสุด รวม 3 requests
+go run ./cmd/scopus-benchmark -counts-only -scope country_thailand -years-back 2 -expect-database <DEV_DATABASE> -quiet-sql
+# ขอหยุดรอบที่ระบุอย่างมีสถานะ รอจบ page ปัจจุบันก่อนเริ่มรอบใหม่
+go run ./cmd/scopus-benchmark -cancel-run <RUN_ID> -expect-database <DEV_DATABASE> -quiet-sql
+```
+
+`cmd/scopus-benchmark-import-classification` อ่านไฟล์โดยไม่แก้ workbook:
+
+- ใช้ `classified_scopus-benchmark-doc` เป็น classification ของฐาน Thailand; `combined_thailand-2025-2026` ตรวจแล้วตรงกันทั้งหมด ไม่เอาค่า confidence ของชีต COC มาทับฐาน Thailand (หลังเทียบภาษาไทย/อังกฤษ confidence ต่างกัน 12 รายการ แต่ Category ไม่ต่าง)
+- ใช้ `raw_data` จับคู่ Scopus ID → EID ที่ระบุจริง แล้วจับคู่ benchmark ด้วย EID ตรวจ duplicate/ambiguous/missing keys และชื่อ Category ที่ไม่รู้จักก่อนเขียน ไม่ยึด category_id ของ production
+- Excel มี 8,853 ผลงาน: 6,360 มี Category + High/Medium/Low; 2,493 ไม่มี Category และเป็น Needs Review จึงไม่แปลงเป็น Medium/Low/Preface และคงไม่จัดหมวด
+- เติมเฉพาะผลงานปัจจุบันปี 2025–2026 ซึ่ง Category และ confidence ยัง NULL ทั้งคู่ ไม่สร้างเอกสารจาก Excel ไม่เปลี่ยนปี affiliation metrics หรือ core XML roles ไม่เขียนทับ classification ที่ขัดกัน
+- ปีใน Excel ต่างจาก Scopus ปัจจุบันแต่ยังอยู่ในช่วง 2025–2026 ใช้ Category ของ EID เดิมได้ โดยเก็บปีปัจจุบันของ DB และบันทึก EID ที่ปีต่างใน audit ถ้าปัจจุบันอยู่นอกช่วงไม่เติม
+- provenance: `classification_model=excel_import`, `classification_taxonomy_version=excel_final_2025_2026`, `classified_at=เวลา import UTC`; เป็นชื่อแหล่งนำเข้า ไม่ใช่การอ้างว่าได้ยิง AI model ใหม่ หรือรู้วัน/model ของการจัดหมวดครั้งดั้งเดิม audit JSON ระบุชื่อไฟล์ SHA-256 และ EID ทุกแถวที่เติม/ไม่พบ/ขัดกัน
+- ใช้ atomic batch UPDATE และตรวจ NULL ซ้ำใน SQL ป้องกัน concurrent classifier ถูกทับ รันซ้ำจะข้ามค่าเดียวกัน ตรวจ fingerprint core XML roles ก่อนและหลัง import
+
+```powershell
+# Dry run ก่อน: ไม่มี -apply จะไม่เขียนข้อมูล
+go run ./cmd/scopus-benchmark-import-classification -file ../classified_scopus-benchmark-documents-thailand-2025-2026_FINAL.xlsx -expect-database <DEV_DATABASE> -report ../tmp/scopus-excel-import-dry-run.json
+# เติมช่องว่าง (รันระหว่าง harvest แบบชุดได้ และรันอีกครั้งหลัง harvest จบ)
+go run ./cmd/scopus-benchmark-import-classification -file ../classified_scopus-benchmark-documents-thailand-2025-2026_FINAL.xlsx -expect-database <DEV_DATABASE> -apply -report ../tmp/scopus-excel-import-final.json
+# Dry run ซ้ำ: pending=0 และ conflicts=0 สำหรับข้อมูลที่เติมสำเร็จ
+go run ./cmd/scopus-benchmark-summary -audit -year-from 2025 -year-to 2026
+```
+
+ไม่ทำให้ยอด dev เท่ากับ Excel โดยเพิ่มผลงานที่ไม่ได้อยู่ในผล harvest ปัจจุบัน หลังเติมข้อมูล ให้กดอัปเดตรายงานบน UI เพราะผลที่โหลดไว้ก่อน import ยังเป็น cache เดิม
+
+### การกู้รอบที่หยุดก่อน finalize
+
+ระหว่างตรวจ dev พบว่า GORM handle จาก `Connection` เป็น initialized statement: subquery ที่ใช้ reconcile EID ปลายปีแรกอาจค้างบน handle แล้วปนกับ query ของปีถัดไป แก้ให้ `NewScopusBenchmarkService` ใช้ `Session(NewDB:true)` ซึ่งยังเก็บ physical connection/context แต่ทุก builder เริ่ม statement ใหม่ เพิ่ม regression test สำหรับเงื่อนไข EID ไม่ปนกับ run finalization และ rerun ทั้งช่วงหลังแก้
+
+หาก process หยุดไปแล้วจริงแต่ run ค้าง running ให้ตรวจว่าไม่มี process/harvest lock ของรอบนั้น ก่อนใช้:
+
+```powershell
+go run ./cmd/scopus-benchmark -recover-failed-run <RUN_ID> -expect-database <DEV_DATABASE> -quiet-sql
+```
+
+คำสั่งนี้เปลี่ยน orphaned running เป็น failed เพื่อให้ประวัติสะท้อนปัญหาจริง ไม่เปลี่ยนผลงานที่ commit แล้ว จากนั้น harvest ซ้ำได้อย่างปลอดภัย ห้ามใช้กับ process ที่ยังทำงาน
+
+## ผล harvest และนำเข้า Excel ใน dev 2026-09-30
+
+- Target ตรวจด้วย `SELECT DATABASE()` ว่าเป็น `drnadech_fund_cpkku_intern` ทุกครั้ง ไม่แก้ production
+- Scope `country_thailand`: 2025 = **5,628**, 2026 = **3,668**, รวม EID ไม่ซ้ำ **9,296**; run **18 success**, 373 pages / 375 successful Search requests; เวลา 06:00:29–06:14:24 +07:00
+- Refresh count snapshot ของ Thailand เพิ่ม 3 requests (all-years/2026/2025): 55,236 / 3,668 / 5,628 รายงานทั้งสองปีเป็น available และ observed = expected
+- นำเข้า Category/confidence จาก source ได้ **6,321** รายการ รันซ้ำ `already_same=6321`, `pending=0`, `conflicts=0`, `updated=0`; core XML roles fingerprint ก่อน/หลังไม่เปลี่ยน
+- Source 6,360 classified: จับคู่ไม่ได้ **39** EID ซึ่งทั้งหมดพบในชีต COC ของ source แต่ไม่อยู่ใน benchmark dev หลัง harvest ครบ ไม่เพิ่มเป็นฐาน Thailand เอง ยังไม่ได้สรุปสาเหตุว่าเกิดจาก scope/ปี/subject area/metadata; เก็บชื่อและรายละเอียดให้ตรวจต่อ
+- 38 ใน 39 รายการผ่าน Journal + มี Category + non-Low จึงอธิบาย Thailand default 1,873 ใน Excel → **1,835** ในรายงาน dev หลังใช้ฐานล่าสุด ไม่ปรับตัวเลขให้เท่า source
+- ปีใน source ต่างจากปี DB ปัจจุบัน **2** รายการ: `2-s2.0-105024787304`, `2-s2.0-105008465302`; ทั้งคู่ยังอยู่ในช่วง 2025–2026 จึงเติม Category ตาม EID และรักษาปีของ DB
+- Source **2,493** Needs Review/ไม่มี Category คงไม่จัดหมวดตามเดิม ไม่ยิง AI ใหม่ ไม่คัดลอก Quartile/percentile จาก Excel
+
+Default report (Journal, classified, non-Low, แยก T1):
+
+| ปี | Thailand | KKU | COC |
+| --- | ---: | ---: | ---: |
+| 2025 | 1,046 | 85 | 24 |
+| 2026 | 789 | 70 | 24 |
+| รวม | 1,835 | 155 | 48 |
+
+Coverage ของ default report: selected 1,835; document affiliation incomplete 1, faculty-author affiliation incomplete 0, unknown role 2 คู่, metric fallback 910, missing Quartile 350, faculty without Scopus ID 4 ภาพรวมบทบาท COC: First 4, Corresponding 26, Lead 27, co-only 19, unknown 2 (First/Corresponding นับซ้อนกันได้)
+
+ประวัติการลองรัน: run 16 บันทึก 200 รายการ/8 requests ก่อนขอหยุดเพื่อเปลี่ยนเป็น batch; run 17 บันทึกปี 2026 ครบ 3,668 แต่ process หยุดจากปัญหา initialized GORM statement ที่ปลายปี และถูกกู้เป็น failed; run 18 หลังแก้สำเร็จครบทั้งช่วง จำนวน request ที่บันทึกใน run 17 ไม่รวม request ของ page ที่ rollback/หยุดก่อน persist progress จึงไม่ใช่ยอด physical HTTP attempts ทั้งหมด
+
+Regression สำหรับ statement ไม่ปนกัน, workbook EID/duplicate/ambiguous/unsupported confidence และ `go test ./...` ผ่าน รวมทั้งตรวจ report ผ่าน service จริงบน DB dev ผลตรวจรันซ้ำครอบคลุม classification ที่ถูก harvest ซ้ำและ import ระหว่าง harvest
+
+ผลตรวจแบบอ่านได้ด้วยโปรแกรม พร้อม SHA-256 source, run, filters, coverage และรายละเอียด 39 EID: [scopus-benchmark-dev-2025-2026-import-audit.json](scopus-benchmark-dev-2025-2026-import-audit.json) (ไม่มี credential หรือ API key) รายงานนี้เป็น snapshot ของ dev ณ เวลาตรวจ ไม่ใช่สถานะ production
+
+
+### ปรับ Confidence filter ในรายงาน
+
+UI และ GET options ไม่เสนอ Preface และ default parser ใช้ High/Medium/unknown ตรงกับ frontend เพราะ Preface เป็นสถานะจัดหมวดหมู่ไม่ได้ ไม่ใช่ระดับความมั่นใจ เก็บ ENUM และ validation ของคำขอ Preface เดิมไว้เพื่อรองรับ clients เก่า ไม่เปลี่ยนข้อมูลที่บันทึกหรือประวัติ audit/ผล Excel ที่เคยนำเข้า
