@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func AdminBenchmarkSummaryOptions(c *gin.Context) {
@@ -51,6 +53,25 @@ func AdminBenchmarkSummaryFaculty(c *gin.Context) {
 }
 func AdminBenchmarkSummaryDocuments(c *gin.Context) {
 	q := c.Request.URL.Query()
+	search := strings.TrimSpace(q.Get("search"))
+	if utf8.RuneCountInString(search) > 200 {
+		c.JSON(400, gin.H{"error": "search must be 200 characters or fewer"})
+		return
+	}
+	var filterCategory *uint64
+	if v := q.Get("filter_category"); v != "" {
+		n, e := strconv.ParseUint(v, 10, 64)
+		if e != nil {
+			c.JSON(400, gin.H{"error": "invalid filter_category"})
+			return
+		}
+		filterCategory = &n
+	}
+	filterQuartile := q.Get("filter_quartile")
+	if !map[string]bool{"": true, "T1": true, "Q1": true, "Q2": true, "Q3": true, "Q4": true, "missing": true, "not_applicable": true}[filterQuartile] {
+		c.JSON(400, gin.H{"error": "invalid filter_quartile"})
+		return
+	}
 	page := 1
 	var err error
 	if q.Has("page") {
@@ -150,6 +171,7 @@ func AdminBenchmarkSummaryDocuments(c *gin.Context) {
 		}
 		matches = append(matches, d)
 	}
+	matches = services.FilterSummaryDocumentList(matches, search, filterCategory, filterQuartile)
 	start := (page - 1) * 50
 	if start > len(matches) {
 		start = len(matches)
@@ -158,7 +180,7 @@ func AdminBenchmarkSummaryDocuments(c *gin.Context) {
 	if end > len(matches) {
 		end = len(matches)
 	}
-	c.JSON(200, gin.H{"success": true, "data": gin.H{"applied_filters": r.Filters, "revision": r.Revision, "generated_at": r.GeneratedAt, "year_states": r.Years, "coverage": r.Coverage, "documents": matches[start:end], "total": len(matches), "page": page, "page_size": 50}})
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"applied_filters": r.Filters, "document_filters": gin.H{"search": search, "category": filterCategory, "quartile": filterQuartile}, "revision": r.Revision, "generated_at": r.GeneratedAt, "year_states": r.Years, "coverage": r.Coverage, "documents": matches[start:end], "total": len(matches), "page": page, "page_size": 50}})
 }
 func AdminBenchmarkSummaryExport(c *gin.Context) {
 	view := c.DefaultQuery("view", "overview")

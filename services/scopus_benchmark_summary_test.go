@@ -2,9 +2,14 @@ package services
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fund-management-api/models"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm/schema"
 	"net/url"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -32,6 +37,37 @@ func summaryFixture() summaryInput {
 func summaryFilter() BenchmarkSummaryFilter {
 	f, _ := ParseBenchmarkSummaryFilter(url.Values{}, time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
 	return f
+}
+func TestSummaryDocumentSQLColumnAndJSONIdentity(t *testing.T) {
+	s, err := schema.Parse(&SummaryDocument{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := s.LookUpField("eid")
+	if field == nil || field.Name != "EID" {
+		t.Fatal("SQL eid column does not map to SummaryDocument.EID")
+	}
+	doc := SummaryDocument{ID: 42, Authors: []SummaryAuthor{{AuthorID: 7}, {AuthorID: 8}}}
+	if err := field.Set(context.Background(), reflect.ValueOf(&doc).Elem(), "2-s2.0-105041153156"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		ID      uint   `json:"id"`
+		EID     string `json:"eid"`
+		Authors []struct {
+			AuthorID uint `json:"author_id"`
+		} `json:"authors"`
+	}
+	if err := json.Unmarshal(b, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ID != 42 || response.EID != "2-s2.0-105041153156" || len(response.Authors) != 2 || response.Authors[0].AuthorID != 7 || response.Authors[1].AuthorID != 8 {
+		t.Fatalf("drilldown response lost document/author identity: %s", b)
+	}
 }
 func TestSummaryDefaultExcludesPreface(t *testing.T) {
 	f := summaryFilter()

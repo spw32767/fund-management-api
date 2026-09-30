@@ -101,6 +101,37 @@ func summaryContains(a []string, v string) bool {
 	return false
 }
 
+// Narrow the complete drilldown cohort before the controller paginates it.
+// Additional filters never broaden the table cell/year/role that was selected.
+func FilterSummaryDocumentList(documents []SummaryDocument, search string, category *uint64, quartile string) []SummaryDocument {
+	terms := strings.Fields(strings.ToLower(search))
+	matches := make([]SummaryDocument, 0, len(documents))
+	for _, d := range documents {
+		if category != nil && d.CategoryID != *category || quartile != "" && d.Quartile != quartile {
+			continue
+		}
+		if len(terms) > 0 {
+			parts := []string{d.Title, d.EID, d.DOI, d.PublicationName}
+			for _, a := range d.Authors {
+				parts = append(parts, a.Name, a.ScopusAuthorID)
+			}
+			haystack := strings.ToLower(strings.Join(parts, " "))
+			matched := true
+			for _, term := range terms {
+				if !strings.Contains(haystack, term) {
+					matched = false
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		matches = append(matches, d)
+	}
+	return matches
+}
+
 type SummaryCategory struct {
 	ID           uint64 `gorm:"column:category_id" json:"id"`
 	Name         string `json:"name"`
@@ -128,7 +159,7 @@ type SummaryFaculty struct {
 	UnknownPct       *float64 `json:"unknown_pct"`
 }
 type SummaryAuthor struct {
-	AuthorID             uint     `json:"-"`
+	AuthorID             uint     `json:"author_id"`
 	ScopusAuthorID       string   `json:"scopus_author_id"`
 	Name                 string   `json:"name"`
 	Seq                  int      `json:"seq"`
@@ -140,8 +171,8 @@ type SummaryAuthor struct {
 	EligibleUserIDs      []int    `json:"eligible_user_ids"`
 }
 type SummaryDocument struct {
-	ID                   uint              `json:"-"`
-	EID                  string            `json:"eid"`
+	ID                   uint              `json:"id"`
+	EID                  string            `gorm:"column:eid" json:"eid"`
 	Title                string            `json:"title"`
 	Year                 int               `json:"year"`
 	Type                 string            `json:"type"`

@@ -204,3 +204,23 @@ Regression สำหรับ statement ไม่ปนกัน, workbook EID/d
 ### ปรับ Confidence filter ในรายงาน
 
 UI และ GET options ไม่เสนอ Preface และ default parser ใช้ High/Medium/unknown ตรงกับ frontend เพราะ Preface เป็นสถานะจัดหมวดหมู่ไม่ได้ ไม่ใช่ระดับความมั่นใจ เก็บ ENUM และ validation ของคำขอ Preface เดิมไว้เพื่อรองรับ clients เก่า ไม่เปลี่ยนข้อมูลที่บันทึกหรือประวัติ audit/ผล Excel ที่เคยนำเข้า
+
+### Drilldown identity / EID mapping (2026-09-30)
+
+`SummaryDocument.EID` ต้องมี `gorm:"column:eid"`: naming strategy ของ GORM ตี EID เป็น e_id ทำให้ SELECT d.eid ไม่เติมฟิลด์ แม้แถว DB มี EID ส่งผลให้ JSON eid ว่างและ React key ซ้ำ ข้อแก้เป็น read mapping เท่านั้น ไม่แก้ EID ใน DB
+
+Documents response เพิ่ม id (benchmark document PK) และ authors[].author_id (benchmark author PK) สำหรับ identity ของแถว UI โดย Scopus EID/Author ID ยังคงใช้เชื่อมผลงาน/บทบาทตามเดิม Regression test ตรวจ column lookup/set และ JSON identity รวมผู้เขียนที่ไม่มี Scopus ID
+
+### ค้นหาและกรองรายการ drilldown (2026-09-30)
+
+`GET /summary/documents` รองรับ query เพิ่มเติม:
+
+| Query | ความหมาย |
+| --- | --- |
+| `search` | ไม่เกิน 200 Unicode characters ค้นหา title, EID, DOI, แหล่งตีพิมพ์, ชื่อผู้เขียน และ Scopus Author ID แบบไม่แยกตัวพิมพ์เล็กใหญ่; คำที่คั่นด้วยช่องว่างต้องพบครบทุกคำ |
+| `filter_category` | Category ID สำหรับกรองย่อย; `0` คือไม่มี Category, ค่าว่างไม่กรองเพิ่ม |
+| `filter_quartile` | `T1`, `Q1`–`Q4`, `missing`, `not_applicable`; ค่าว่างไม่กรองเพิ่ม |
+
+ใช้ filter กลางของรายงาน → context ของเซลล์ที่คลิก (`level`, `year`, `document_category`, `quartile`, `user_id`, `role`) → ตัวกรองย่อยและคำค้น → นับ total และแบ่งหน้า 50 รายการ ตัวกรองย่อยไม่ขยาย cohort เดิม Response เพิ่ม `document_filters` เพื่อระบุค่าที่ใช้ และรักษารูปแบบเดิมเมื่อไม่ส่ง query ใหม่ ไม่มีการเรียก Scopus หรือแก้ DB ในเส้นทางนี้
+
+`FilterSummaryDocumentList` มี regression tests ตรวจผลค้นหาที่อยู่นอก 50 รายการแรก, ภาษาไทย/Author ID/EID/DOI, ตัวกรอง Category + Quartile, ไม่มี Category และการรักษาขอบเขต cohort เดิม ใช้ผลรายงานเดิมเป็นฐานและเก็บ revision/coverage เดิม
