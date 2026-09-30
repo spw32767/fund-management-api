@@ -184,8 +184,12 @@ func AdminBenchmarkSummaryDocuments(c *gin.Context) {
 }
 func AdminBenchmarkSummaryExport(c *gin.Context) {
 	view := c.DefaultQuery("view", "overview")
-	if view != "overview" && view != "faculty" {
+	if view != "overview" && view != "faculty" && view != "presentation" {
 		c.JSON(400, gin.H{"error": "invalid view"})
+		return
+	}
+	if view == "presentation" && c.Query("report_view") != "presentation" {
+		c.JSON(400, gin.H{"error": "presentation export requires report_view=presentation"})
 		return
 	}
 	if c.Query("revision") == "" {

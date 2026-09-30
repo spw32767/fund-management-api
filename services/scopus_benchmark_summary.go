@@ -26,6 +26,7 @@ type BenchmarkSummaryFilter struct {
 	Category     string   `json:"category"`
 	Confidence   []string `json:"confidence"`
 	QuartileMode string   `json:"quartile_mode"`
+	ReportView   string   `json:"report_view,omitempty"`
 }
 
 func ParseBenchmarkSummaryFilter(q url.Values, now time.Time) (BenchmarkSummaryFilter, error) {
@@ -73,6 +74,12 @@ func ParseBenchmarkSummaryFilter(q url.Values, now time.Time) (BenchmarkSummaryF
 	}
 	if f.QuartileMode != "t1" && f.QuartileMode != "q" {
 		return f, fmt.Errorf("invalid quartile mode")
+	}
+	if v := q.Get("report_view"); v != "" {
+		if v != "presentation" {
+			return f, fmt.Errorf("invalid report_view")
+		}
+		f.ReportView = v
 	}
 	for _, v := range f.Types {
 		if len(v) > 80 {
@@ -237,6 +244,7 @@ type BenchmarkSummaryReport struct {
 	Coverage     SummaryCoverage        `json:"coverage"`
 	Faculty      []SummaryFaculty       `json:"faculty,omitempty"`
 	Documents    []SummaryDocument      `json:"-"`
+	Presentation *SummaryPresentation   `json:"presentation,omitempty"`
 }
 type summaryInput struct {
 	Documents  []SummaryDocument
@@ -276,7 +284,7 @@ func loadSummaryInput(tx *gorm.DB, f BenchmarkSummaryFilter, in *summaryInput) e
 	}
 	base := `SELECT DISTINCT d.id FROM scopus_benchmark_documents d JOIN scopus_benchmark_document_scopes m ON m.document_id=d.id WHERE m.scope_id=? AND m.pub_year BETWEEN ? AND ?`
 	args := []interface{}{scope.ID, f.YearFrom, f.YearTo}
-	query := tx.Table("scopus_benchmark_documents d").Select(`d.id,d.eid,COALESCE(d.title,'') AS title,m.pub_year AS year,COALESCE(d.aggregation_type,'unknown') AS type,COALESCE(d.category,0) AS category_id,COALESCE(d.classification_confidence,'unknown') AS confidence,COALESCE(d.source_id,'') AS source_id,COALESCE(d.publication_name,'') AS publication_name,COALESCE(d.doi,'') AS doi,COALESCE(d.scopus_link,'') AS scopus_link,d.affiliations_complete`).Joins("JOIN scopus_benchmark_document_scopes m ON m.document_id=d.id AND m.scope_id=?", scope.ID).Where("d.id IN ("+base+")", args...).Order("d.eid")
+	query := tx.Table("scopus_benchmark_documents d").Select(`d.id,d.eid,COALESCE(d.title,'') AS title,m.pub_year AS year,COALESCE(d.aggregation_type,'unknown') AS type,COALESCE(d.category,0) AS category_id,COALESCE(d.classification_confidence,'unknown') AS confidence,COALESCE(d.source_id,'') AS source_id,COALESCE(d.publication_name,'') AS publication_name,COALESCE(d.doi,'') AS doi,COALESCE(d.scopus_link,'') AS scopus_link,d.affiliations_complete`).Joins("JOIN scopus_benchmark_document_scopes m ON m.document_id=d.id AND m.scope_id=?", scope.ID).Where("d.id IN ("+base+")", args...).Where("m.pub_year BETWEEN ? AND ?", f.YearFrom, f.YearTo).Order("d.eid,m.pub_year")
 	if err := query.Scan(&in.Documents).Error; err != nil {
 		return err
 	}
@@ -455,10 +463,14 @@ func summaryRow(label string, docs []SummaryDocument, available bool) SummaryCou
 	r.COCPct = summaryPct(c, k)
 	return r
 }
+func summaryPassesCategory(d SummaryDocument, category string) bool {
+	return category == "all" || category == "classified" && d.CategoryID != 0 || category == "unknown" && d.CategoryID == 0 || category == strconv.FormatUint(d.CategoryID, 10)
+}
 func summaryPasses(d SummaryDocument, f BenchmarkSummaryFilter) bool {
-	return (summaryContains(f.Types, "all") || summaryContains(f.Types, d.Type)) && summaryContains(f.Confidence, d.Confidence) && (f.Category == "all" || f.Category == "classified" && d.CategoryID != 0 || f.Category == "unknown" && d.CategoryID == 0 || f.Category == strconv.FormatUint(d.CategoryID, 10))
+	return (summaryContains(f.Types, "all") || summaryContains(f.Types, d.Type)) && summaryContains(f.Confidence, d.Confidence) && summaryPassesCategory(d, f.Category)
 }
 func aggregateBenchmarkSummary(in summaryInput, f BenchmarkSummaryFilter) *BenchmarkSummaryReport {
+	in.Documents = uniqueSummaryDocuments(in.Documents, f)
 	r := &BenchmarkSummaryReport{Filters: f, GeneratedAt: time.Now().UTC(), Years: in.Years, Yearly: []SummaryCountRow{}, Categories: []SummaryCountRow{}, Quartiles: []SummaryCountRow{}, Documents: []SummaryDocument{}, Faculty: append([]SummaryFaculty{}, in.Faculty...)}
 	r.Coverage.BaseDocuments = len(in.Documents)
 	cats := map[uint64]string{0: "ไม่มี Category"}
@@ -482,9 +494,12 @@ func aggregateBenchmarkSummary(in summaryInput, f BenchmarkSummaryFilter) *Bench
 	for _, m := range in.Metrics {
 		metricMap[m.SourceID] = append(metricMap[m.SourceID], m)
 	}
+	baseDocuments := make([]SummaryDocument, 0, len(in.Documents))
 	for _, doc := range in.Documents {
 		d := doc
 		d.Authors = append([]SummaryAuthor{}, doc.Authors...)
+		d.KKU, d.COC = summaryCohortMembership(d, facultyIDs)
+		baseDocuments = append(baseDocuments, d)
 		if d.CategoryID != 0 {
 			r.Coverage.Classified++
 		}
@@ -661,14 +676,18 @@ func aggregateBenchmarkSummary(in summaryInput, f BenchmarkSummaryFilter) *Bench
 	// Revision binds all visible values, drilldown metadata and filters. GeneratedAt
 	// is intentionally excluded; changes to users, XML roles, metrics or affiliations
 	// therefore invalidate export even without a benchmark updated_at change.
+	if f.ReportView == "presentation" {
+		r.Presentation = buildSummaryPresentation(baseDocuments, r, in.Categories, anyAvailable)
+	}
 	b, _ := json.Marshal(struct {
-		Filter   BenchmarkSummaryFilter
-		Years    []SummaryYearState
-		Docs     []SummaryDocument
-		Faculty  []SummaryFaculty
-		Cats     []SummaryCategory
-		Coverage SummaryCoverage
-	}{f, r.Years, r.Documents, r.Faculty, in.Categories, r.Coverage})
+		Filter       BenchmarkSummaryFilter
+		Years        []SummaryYearState
+		Docs         []SummaryDocument
+		Faculty      []SummaryFaculty
+		Cats         []SummaryCategory
+		Coverage     SummaryCoverage
+		Presentation *SummaryPresentation
+	}{f, r.Years, r.Documents, r.Faculty, in.Categories, r.Coverage, r.Presentation})
 	h := sha256.Sum256(b)
 	r.Revision = hex.EncodeToString(h[:])
 	return r

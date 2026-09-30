@@ -72,7 +72,50 @@ func BuildBenchmarkSummaryExcel(r *BenchmarkSummaryReport, view string) ([]byte,
 		}
 		return rows
 	}
-	if view == "faculty" {
+	if view == "presentation" {
+		if r.Presentation == nil {
+			return nil, fmt.Errorf("presentation aggregates are required")
+		}
+		presentationRows := func(data []SummaryCountRow, group string) [][]interface{} {
+			rows := [][]interface{}{{group, "Thailand", "KKU", "COC", "KKU / Thailand", "COC / Thailand", "COC / KKU"}}
+			for _, row := range data {
+				var cocThailand *float64
+				if row.COC != nil && row.Thailand != nil {
+					cocThailand = summaryPct(*row.COC, *row.Thailand)
+				}
+				rows = append(rows, []interface{}{row.Label, countValue(row.Thailand), countValue(row.KKU), countValue(row.COC), pctValue(row.KKUPct), pctValue(cocThailand), pctValue(row.COCPct)})
+			}
+			return rows
+		}
+		steps := [][]interface{}{{"ขั้นตอน", "Thailand", "KKU", "COC", "Thailand คงเหลือ", "KKU คงเหลือ", "COC คงเหลือ"}}
+		for _, step := range r.Presentation.Steps {
+			steps = append(steps, []interface{}{step.Label, countValue(step.Thailand), countValue(step.KKU), countValue(step.COC), pctValue(step.ThailandRetained), pctValue(step.KKURetained), pctValue(step.COCRetained)})
+		}
+		if err = write("ผลกระทบการกรอง", steps, []int{5, 6, 7}); err != nil {
+			return nil, err
+		}
+		years := append(append([]SummaryCountRow{}, r.Yearly...), r.Total)
+		categories := append(append([]SummaryCountRow{}, r.Presentation.Categories...), r.Total)
+		quartiles := append([]SummaryCountRow{}, r.Presentation.Quartiles...)
+		for i := range quartiles {
+			switch quartiles[i].Quartile {
+			case "missing":
+				quartiles[i].Label = "ไม่มีข้อมูล Quartile"
+			case "not_applicable":
+				quartiles[i].Label = "ไม่ถูกนำมาจัดอันดับ"
+			}
+		}
+		quartiles = append(quartiles, r.Total)
+		for _, table := range []struct {
+			name  string
+			rows  []SummaryCountRow
+			label string
+		}{{"รายปี", years, "ปี ค.ศ."}, {"Category รวมช่วงปี", categories, "Category"}, {"Quartile รวมช่วงปี", quartiles, "Quartile"}} {
+			if err = write(table.name, presentationRows(table.rows, table.label), []int{5, 6, 7}); err != nil {
+				return nil, err
+			}
+		}
+	} else if view == "faculty" {
 		rows := [][]interface{}{{"อาจารย์", "Scopus ID", "เชื่อมได้", "ทั้งหมด", "First", "Corresponding", "First หรือ Corresponding", "Co-author", "ยังระบุไม่ได้", "% First", "% Corresponding", "% First หรือ Corresponding", "% Co-author", "% ยังระบุไม่ได้"}}
 		for _, u := range r.Faculty {
 			roleCells := []interface{}{u.Total, u.First, u.Corresponding, u.Lead, u.Co, u.Unknown}
@@ -114,6 +157,8 @@ func BuildBenchmarkSummaryExcel(r *BenchmarkSummaryReport, view string) ([]byte,
 		{"KKU AF-ID", "60017165, 60280609, 60026046, 60277695, 109899034"},
 		{"COC", "ผู้เขียนตรงกับทะเบียน users role 1/4/5 ไม่ถูกลบ ไม่ใช่บัญชีทดสอบ และผู้เขียนนั้นมี AF-ID 60017165 หรือ 60280609 ไม่กรองวันเริ่มงาน"},
 		{"เปอร์เซ็นต์", "%KKU=KKU/Thailand; %COC=COC/KKU; ตัวหาร 0 แสดงขีด; ยอดรวมไม่เฉลี่ยเปอร์เซ็นต์"},
+		{"สรุปเปรียบเทียบ", "KKU/Thailand, COC/Thailand และ COC/KKU แสดงตัวหารชัดเจน; %คงเหลือ = ยอดแต่ละขั้น / ยอดก่อนกรองของระดับนั้น; ก่อนกรองยังจำกัดช่วงปีที่เลือก"},
+		{"ลำดับการกรอง", "ประเภทผลงาน → Category → Confidence ตาม applied filters; ยอดขั้นสุดท้ายตรงกับรายปี/Category/Quartile ไม่ใช้เกณฑ์ตายตัวจาก Excel เดิม"},
 		{"Quartile", "Complete ปีตีพิมพ์ หรือ Complete ล่าสุดก่อนปีตีพิมพ์; doc_type=all; T1 percentile 90–100; non-Journal ไม่ใช้ Quartile"},
 		{"บทบาท", "อ่าน XML จากตารางหลักด้วย EID และ Author ID; first/corresponding ซ้อนกันได้; co เมื่อสอง flags false บน complete/no_correspondence; อื่นๆ ยังระบุไม่ได้"},
 		{"ข้อจำกัด", "บทบาทไม่ใช่คะแนนปริมาณงาน; ไม่แยก co-first/co-corresponding; no_correspondence ใช้กติกาที่ตกลงไว้ มิใช่หลักฐานว่าไม่มี corresponding"},

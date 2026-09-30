@@ -102,6 +102,20 @@ Export บังคับ view+revision สร้าง snapshot ใหม่แ
 
 ## Lazy loading และรายงานเดิม
 
+### สรุปเปรียบเทียบ Thailand / KKU / COC
+
+แท็บหลักใหม่อยู่ขวาของสรุปผลงานและบทบาทอาจารย์ ใช้ filters เดิมที่แยก state ใน frontend ขอ `GET summary?report_view=presentation` เพื่อเพิ่ม `presentation.steps/categories/quartiles` จาก snapshot เดียว ไม่เปลี่ยน API เดิมที่ไม่ส่ง report_view ไม่เพิ่ม schema/Scopus requests
+
+`scopus_benchmark_presentation.go` เตรียม membership KKU/COC ก่อนกรองด้วย AF-ID และทะเบียนเดียวกับรายงานเดิม EID ซ้ำไม่นับเพิ่ม จำกัด membership ให้อยู่ในช่วงปีที่ขอ ขั้นตอนสะสม: ฐานก่อนกรอง → ประเภท → Category → Confidence ตาม filters ที่ผู้ใช้ใช้จริง; %คงเหลือ = ยอดขั้นนั้น / ยอดก่อนกรองของระดับนั้น ×100; nil/ตัวหาร 0 คืน nil ยอดท้ายเท่ากับ total/รายปี/Category/Quartile ขั้นที่เลือกทั้งหมดอาจไม่เปลี่ยนจำนวน
+
+แต่ละ step มี filters ที่ใช้สร้าง step นั้นสำหรับ drilldown ผ่าน documents endpoint ตามเดิม โดยใช้ types=all/category=all/confidence ทุกค่าที่ระบบรองรับในขั้นก่อนการกรองส่วนนั้น ไม่ผูก step drilldown กับผลหลังกรองสุดท้าย
+
+Category/Quartile ใน presentation รวมช่วงปี; KKU/Thailand, COC/Thailand, COC/KKU ใช้จำนวนรวมเป็นตัวตั้ง/ตัวหาร T1 และ non-Journal แยกกลุ่มตาม metric rules เดิม คง missing/partial year states ไม่แสดงปี missing เป็น 0
+
+ส่งออก `view=presentation&report_view=presentation&revision=...` สร้างชีตผลกระทบการกรอง รายปี Category รวมช่วงปี Quartile รวมช่วงปี และคำอธิบาย ค่าเปอร์เซ็นต์เป็น numeric fractions ใช้ percent format รวม presentation aggregates ใน revision เพื่อให้ผลงานที่เปลี่ยนในฐานก่อนกรอง (แม้ไม่ผ่าน filters สุดท้าย) ทำให้ export ต้อง refresh
+
+ข้อแตกต่างจากชีต summary ของ Excel อ้างอิง: ทุกระดับใช้ฐาน Thailand เดียว, ประเภทตาม filters ไม่ใช่การตัด Book/Book Series/Conference แบบตายตัว, ใช้ metric จาก DB ไม่อ่านเลข cache/formula จาก workbook เดิม
+
 เปิดหน้าเรียก options/summary เท่านั้น; faculty เมื่อเปิด subview; details เมื่อกดจำนวน แท็บวิเคราะห์ mount เมื่อเคยเปิด หยุด comparison/insights เมื่อ inactive ใช้ cache เมื่อกลับ Setup เริ่ม scopes/runs/comparison เมื่อเปิด setup; งานที่เริ่มไว้ polling runs เบาๆ เพื่อแจ้ง stale หลังจบ
 
 Setup writes/harvest ทำเครื่องหมาย cache เก่า แสดง refresh ไม่ reload รายงานทุกแท็บ มี AbortController และ generation กัน response เก่าทับ filters ใหม่
@@ -224,3 +238,10 @@ Documents response เพิ่ม id (benchmark document PK) และ authors[
 ใช้ filter กลางของรายงาน → context ของเซลล์ที่คลิก (`level`, `year`, `document_category`, `quartile`, `user_id`, `role`) → ตัวกรองย่อยและคำค้น → นับ total และแบ่งหน้า 50 รายการ ตัวกรองย่อยไม่ขยาย cohort เดิม Response เพิ่ม `document_filters` เพื่อระบุค่าที่ใช้ และรักษารูปแบบเดิมเมื่อไม่ส่ง query ใหม่ ไม่มีการเรียก Scopus หรือแก้ DB ในเส้นทางนี้
 
 `FilterSummaryDocumentList` มี regression tests ตรวจผลค้นหาที่อยู่นอก 50 รายการแรก, ภาษาไทย/Author ID/EID/DOI, ตัวกรอง Category + Quartile, ไม่มี Category และการรักษาขอบเขต cohort เดิม ใช้ผลรายงานเดิมเป็นฐานและเก็บ revision/coverage เดิม
+### ผลตรวจ presentation report บน dev (2026-09-30)
+
+`go test ./services ./controllers -count=1` ผ่าน รวม fixtures ขั้นการกรองที่สะสม, EID ไม่ซ้ำและขอบเขตปี, nested cohort, stage filters ที่เปิดรายการได้ตรงยอด, missing year/ศูนย์จริง, metric buckets และ T1 toggle, revision ที่เปลี่ยนเมื่อผลงานก่อนกรองเปลี่ยน และ Excel readback ที่เก็บ counts/ratios เป็นตัวเลข
+
+บน DB dev ปี 2025–2026 ได้ baseline Thailand 9,296 / KKU 559 / COC 126; หลังประเภท Journal 5,333 / 400 / 74; หลังมี Category 3,362 / 250 / 62; หลัง Confidence High/Medium/unknown 1,835 / 155 / 48 ตัวเลขสุดท้ายตรงกับรายงานปกติ รายปี Category และ Quartile และรักษา COC ≤ KKU ≤ Thailand สัดส่วนคงเหลือใช้ baseline ของระดับเดียวกัน ตัวอย่าง Thailand หลังกรอง 19.7% ไม่ใช่สัดส่วนเทียบขั้น Category
+
+Browser ตรวจ stage drilldown ของ COC baseline ได้ 126 รายการและ export พร้อม revision ได้ HTTP 200; Blob download event ไม่ถูกส่งกลับจาก in-app browser จึงตรวจความถูกต้องของไฟล์ด้วย service XLSX readback tests ชุดนี้ ไม่มี Scopus request, migration หรือ DB write ในงานแท็บใหม่นี้ ผล dev ไม่ใช่ตัวเลข production หรือยอดใน workbook เก่า
