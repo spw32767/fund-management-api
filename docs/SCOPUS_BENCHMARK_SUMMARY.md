@@ -4,7 +4,7 @@
 
 ## แหล่งข้อมูล
 
-หน้า `/admin/scopus-benchmark` เพิ่มแท็บแรก “สรุปผลงานและบทบาทอาจารย์” ตามด้วย “ผลเปรียบเทียบเชิงวิเคราะห์” เดิม และ “ตั้งค่า & ดึงข้อมูล” ใช้ผล AI/XML ที่มีแล้ว ไม่มี Scopus request, AI หรือ backfill ระหว่างเปิดรายงาน
+หน้า `/admin/scopus-benchmark` เรียง “สรุปผลงานและบทบาทอาจารย์” → “สรุปเปรียบเทียบ Thailand / KKU / COC” → “ผลเปรียบเทียบเชิงวิเคราะห์” เดิม → “ตั้งค่า & ดึงข้อมูล” ใช้ผล AI/XML ที่มีแล้ว ไม่มี Scopus request, AI หรือ backfill ระหว่างเปิดรายงาน ขั้นตอน release อยู่ใน [SCOPUS_BENCHMARK_DEPLOY.md](SCOPUS_BENCHMARK_DEPLOY.md)
 
 ฐานเดียวคือ benchmark documents ที่มี membership ปีรายงานใน scope `country_thailand` (country/Thailand) ทุกระดับใช้ตัวกรองเดียวกัน นับ EID ไม่ซ้ำ ไม่เติม core documents ที่อยู่นอกฐาน:
 

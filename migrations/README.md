@@ -64,6 +64,10 @@ done
 | 045 | 20260920_add_paper_ai_fields | เพิ่มข้อมูล AI ของ paper |
 | 046 | 20260922_allow_paper_classification_preface | ปรับการจำแนก paper |
 | 047 | 20260929_add_scopus_author_roles | เพิ่มสถานะการตรวจ XML และบทบาท first/corresponding ของผู้เขียน Scopus |
+| 048 | 20260929_create_scopus_author_role_runs | ประวัติงาน XML จากหน้า academic-imports |
+| 049 | 20260930_scopus_benchmark_summary | schema รายงาน benchmark และหลาย affiliation; รันซ้ำได้ ต้องลงก่อน backend ใหม่ |
+
+Production ให้ลงเฉพาะ migration ที่ยังขาด ไม่รันทั้งโฟลเดอร์ซ้ำ โดยเฉพาะ 047 ซึ่งเพิ่มคอลัมน์แบบไม่ตรวจการมีอยู่ ดู [checklist deploy](../docs/SCOPUS_BENCHMARK_DEPLOY.md) เลข 045/046 ในตารางเป็นประวัติ migration ที่ไม่มีไฟล์ใน main ปัจจุบัน; release นี้ใช้ 049 เติม benchmark classification/taxonomy ที่ขาด
 
 ## ✅ ครบแล้ว — schema + seed
 
