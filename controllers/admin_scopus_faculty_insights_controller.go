@@ -160,8 +160,7 @@ func facultyInsightRole(status *string, authors []facultyInsightAuthor) string {
 // snapshot. Relations are batched to avoid parameter limits and query-per-document.
 func loadFacultyInsightSnapshot(db *gorm.DB, filters scopusDashboardFilters) (facultyInsightSnapshot, error) {
 	snapshot := facultyInsightSnapshot{Documents: []facultyInsightDocument{}}
-	year := facultyInsightYearExpr(db)
-	projection := "sd.id, sd.eid, sd.scopus_id, sd.title, sd.doi, sd.scopus_link, sd.publication_name, sd.aggregation_type, " + year + " AS year_ce, COALESCE(sd.citedby_count,0) AS citations, COALESCE(sd.openaccess_flag,0) AS open_access_flag, COALESCE(sd.openaccess,0) AS open_access, metrics.metric_year, metrics.cite_score_quartile AS quartile, metrics.cite_score_percentile, metrics.cite_score_status, sd.author_role_status, sd.author_role_checked_at, sd.updated_at"
+	projection := facultyInsightProjection(db)
 	var rows []facultyInsightDocument
 	if err := facultyInsightBaseQuery(db, filters).Select(projection).Order("sd.id ASC").Scan(&rows).Error; err != nil {
 		return snapshot, err
@@ -257,6 +256,10 @@ func loadFacultyInsightSnapshot(db *gorm.DB, filters scopusDashboardFilters) (fa
 	hash := sha256.Sum256(encoded)
 	snapshot.Revision = hex.EncodeToString(hash[:])
 	return snapshot, nil
+}
+
+func facultyInsightProjection(db *gorm.DB) string {
+	return "sd.id, sd.eid, sd.scopus_id, sd.title, sd.doi, sd.scopus_link, sd.publication_name, sd.aggregation_type, " + facultyInsightYearExpr(db) + " AS year_ce, COALESCE(sd.citedby_count,0) AS citations, COALESCE(sd.openaccess_flag,0) AS open_access_flag, COALESCE(sd.openaccess,0) AS open_access, metrics.metric_year, metrics.cite_score_quartile AS quartile, metrics.cite_score_percentile, metrics.cite_score_status, sd.author_role_status, sd.author_role_checked_at, sd.updated_at"
 }
 
 func insightSortedUnique(values []string) []string {

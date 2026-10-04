@@ -1,5 +1,7 @@
 # Phase 2 native validation revision
 
+**Historical gate update:** [Phase 5 integrated verification](SCOPUS_FACULTY_INSIGHTS_PHASE5.md) subsequently passed this harness on approved isolated MariaDB 10.11.16. NOT RUN statements below describe Phase 2; shared migration/backfill remains unapplied.
+
 **READY FOR MANAGER REVIEW. Native MariaDB validation remains NOT RUN.** This revision completes the explicitly authorized fallback: runtime discovery, production fixes, and a runnable guarded native integration harness. No system software was installed, no databases were created on the configured remote server, no shared DB writes were issued, and no commits/branch switches/API/UI work were performed.
 
 ## Runtime evidence

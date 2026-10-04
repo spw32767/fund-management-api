@@ -1,5 +1,7 @@
 # Faculty research insights — Phase 3 API review
 
+**Historical gate update:** [Phase 5 integrated verification](SCOPUS_FACULTY_INSIGHTS_PHASE5.md) subsequently passed native foundation/API and authenticated frontend checks on approved isolated MariaDB 10.11.16. Pending native statements below describe Phase 3; shared rollout remains unapplied.
+
 **READY FOR MANAGER REVIEW.** Phase 3 API implementation is complete on `codex/faculty-research-insights`, based on accepted Phase 2 commit `3345550`. Validation completed **5 October 2026, 04:29 Asia/Bangkok** (4 October 2026, 21:29 UTC). Changes remain uncommitted for manager acceptance/commit. Frontend is clean and unchanged on the same branch. No shared database writes, migration/backfill application, Scopus requests, branch changes, pushes, subagents, manager messages, or automations were performed.
 
 ## Result

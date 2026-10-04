@@ -1,4 +1,4 @@
-//go:build insight_integration
+//go:build insight_integration || insight_mariadb
 
 package controllers
 
@@ -123,7 +123,11 @@ func seedFacultyAPIFixture(t *testing.T, db *gorm.DB) {
 		if n == 10 {
 			status = insightString("no_correspondence")
 		}
-		doc := models.ScopusDocument{ID: id, EID: fmt.Sprintf("eid-%d", n), ScopusID: insightString(fmt.Sprintf("sid-%d", n)), Title: &title, DOI: insightString(fmt.Sprintf("doi-%d", n)), PublicationName: &journal, AggregationType: &agg, SourceID: &source, CoverDate: yearDate, CoverDisplayDate: display, CitedByCount: &cite, OpenAccessFlag: &oa, AuthKeywords: []byte(fmt.Sprintf("keyword-%d", n)), AuthorRoleStatus: status, RawJSON: []byte("this deliberately cannot be parsed as JSON")}
+		raw := []byte("this deliberately cannot be parsed as JSON")
+		if db.Dialector.Name() == "mysql" {
+			raw = []byte(`{}`)
+		}
+		doc := models.ScopusDocument{ID: id, EID: fmt.Sprintf("eid-%d", n), ScopusID: insightString(fmt.Sprintf("sid-%d", n)), Title: &title, DOI: insightString(fmt.Sprintf("doi-%d", n)), PublicationName: &journal, AggregationType: &agg, SourceID: &source, CoverDate: yearDate, CoverDisplayDate: display, CitedByCount: &cite, OpenAccessFlag: &oa, AuthKeywords: []byte(fmt.Sprintf("keyword-%d", n)), AuthorRoleStatus: status, RawJSON: raw}
 		check(db.Create(&doc).Error)
 		first, corr := insightBool(false), insightBool(false)
 		if n == 1 || n == 4 || n == 6 || n == 10 {
