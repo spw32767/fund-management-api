@@ -291,7 +291,10 @@ func scopusPublicationYearExpr() string {
 }
 
 func scopusMetricYearExpr() string {
-	publicationYearExpr := scopusPublicationYearExpr()
+	return scopusMetricYearForPublicationExpr(scopusPublicationYearExpr())
+}
+
+func scopusMetricYearForPublicationExpr(publicationYearExpr string) string {
 	sameYearCompleteExpr := fmt.Sprintf(
 		"(SELECT ssm_complete.metric_year FROM scopus_source_metrics AS ssm_complete WHERE ssm_complete.source_id = sd.source_id AND ssm_complete.doc_type = 'all' AND ssm_complete.metric_year = %s AND LOWER(ssm_complete.cite_score_status) = 'complete' LIMIT 1)",
 		publicationYearExpr,
@@ -334,8 +337,11 @@ func scopusNotConferenceExpr() string {
 }
 
 func applyScopusDashboardFilters(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool) *gorm.DB {
+	return applyScopusDashboardFiltersWithYear(query, filters, includeQuality, scopusPublicationYearExpr())
+}
+
+func applyScopusDashboardFiltersWithYear(query *gorm.DB, filters scopusDashboardFilters, includeQuality bool, pubYearExpr string) *gorm.DB {
 	q := applyScopusKKUAffiliationConstraint(query)
-	pubYearExpr := scopusPublicationYearExpr()
 
 	if filters.YearStartCE != nil {
 		q = q.Where(pubYearExpr+" >= ?", *filters.YearStartCE)
@@ -1592,7 +1598,7 @@ func AdminGetScopusDashboardSummary(c *gin.Context) {
 	payload := map[string]interface{}{
 		"kpi": map[string]interface{}{
 			"total_documents":            totalDocuments,
-			"total_teachers_in_faculty": totalTeachersInFaculty,
+			"total_teachers_in_faculty":  totalTeachersInFaculty,
 			"total_citations":            totalCitations,
 			"avg_citations_per_document": avgCitations,
 			"open_access_documents":      openAccessDocuments,

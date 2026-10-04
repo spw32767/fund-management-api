@@ -631,6 +631,8 @@ func SetupRoutes(router *gin.Engine) {
 				admin.GET("/scopus/dashboard/filter-options", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), controllers.AdminGetScopusDashboardFilterOptions)
 				admin.GET("/scopus/dashboard/summary", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), controllers.AdminGetScopusDashboardSummary)
 				admin.GET("/scopus/dashboard/drilldown", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), controllers.AdminGetScopusDashboardDrilldown)
+				admin.GET("/scopus/dashboard/faculty-insights", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), controllers.AdminGetScopusFacultyInsights)
+				admin.GET("/scopus/dashboard/faculty-insights/drilldown", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), controllers.AdminGetScopusFacultyInsightsDrilldown)
 				admin.POST("/scopus/metrics/backfill", controllers.AdminBackfillCiteScoreMetrics)
 				admin.POST("/scopus/metrics/benchmark-backfill", controllers.AdminBackfillBenchmarkCiteScoreMetrics)
 				admin.POST("/scopus/metrics/refresh", controllers.AdminRefreshCiteScoreMetrics)

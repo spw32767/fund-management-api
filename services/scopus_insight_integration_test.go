@@ -232,6 +232,11 @@ func TestCoreInsightIngestPreservesRolesAndInvalidatesChangedRoster(t *testing.T
 func TestCoreInsightRawPayloadInvalidationAndRestore(t *testing.T) {
 	db := coreInsightTestDB(t)
 	saveCoreInsight(t, db, 1, insightDomestic)
+	// Use a distinct baseline rather than assuming two fast writes receive
+	// different Windows clock ticks. The repair must still replace this timestamp.
+	if err := db.Model(&models.ScopusDocumentInsight{}).Where("document_id=1").Update("checked_at", "2000-01-01 00:00:00").Error; err != nil {
+		t.Fatal(err)
+	}
 	before := readCoreInsight(t, db, 1)
 	if err := db.Model(&models.ScopusDocument{}).Where("id=1").Update("author_role_status", "complete").Error; err != nil {
 		t.Fatal(err)
