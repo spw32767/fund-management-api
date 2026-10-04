@@ -1,0 +1,3372 @@
+{
+  "audited_at_utc": "2026-10-04T18:05:25.928851+00:00",
+  "config_source": "backend .env with existing process environment taking precedence",
+  "environment_label": "development",
+  "database": "drnadech_fund_cpkku_intern",
+  "endpoint_is_loopback": false,
+  "endpoint_fingerprint": "473f44f70b3c",
+  "queries": {
+    "identity": "SELECT DATABASE() AS database_name, VERSION() AS version, @@session.tx_read_only AS transaction_read_only",
+    "size": "SELECT COUNT(*) AS n FROM scopus_documents",
+    "schema": "SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('scopus_documents','scopus_document_authors','scopus_authors','scopus_affiliations','scopus_source_metrics') ORDER BY TABLE_NAME,ORDINAL_POSITION LIMIT 300",
+    "indexes": "SELECT TABLE_NAME,INDEX_NAME,NON_UNIQUE,SEQ_IN_INDEX,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('users','scopus_documents','scopus_document_authors','scopus_authors','scopus_affiliations','scopus_source_metrics') ORDER BY TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX LIMIT 300",
+    "documents": "SELECT sd.id,sd.eid,sd.scopus_id,sd.raw_json,sd.author_role_status,sd.author_role_checked_at,COALESCE(YEAR(sd.cover_date),CAST(RIGHT(sd.cover_display_date,4) AS UNSIGNED)) AS year_ce,(EXISTS (SELECT 1 FROM scopus_document_authors sda JOIN scopus_authors sa ON sa.id=sda.author_id JOIN users u ON TRIM(u.scopus_id)=sa.scopus_author_id JOIN scopus_affiliations aff ON aff.id=sda.affiliation_id WHERE sda.document_id=sd.id AND u.delete_at IS NULL AND u.is_test=0 AND u.scopus_id IS NOT NULL AND TRIM(u.scopus_id)<>'' AND LOWER(TRIM(COALESCE(aff.name,''))) IN ('khon kaen university','faculty of science, khon kaen university'))) AS faculty FROM scopus_documents sd ORDER BY sd.id LIMIT 100000",
+    "links": "SELECT sda.document_id,sa.scopus_author_id,sda.author_seq,sda.is_first_author,sda.is_corresponding_author,aff.afid,aff.country, (EXISTS(SELECT 1 FROM users u WHERE TRIM(u.scopus_id)=sa.scopus_author_id AND u.delete_at IS NULL AND u.is_test=0 AND TRIM(u.scopus_id)<>'')) AS registered, (LOWER(TRIM(COALESCE(aff.name,''))) IN ('khon kaen university','faculty of science, khon kaen university')) AS kku FROM scopus_document_authors sda JOIN scopus_authors sa ON sa.id=sda.author_id LEFT JOIN scopus_affiliations aff ON aff.id=sda.affiliation_id ORDER BY sda.document_id,sda.author_seq LIMIT 1000000",
+    "catalogue": "SELECT afid,country,name FROM scopus_affiliations ORDER BY afid LIMIT 100000",
+    "cohort_diagnostics": "SELECT COUNT(*) AS users_active_non_test, SUM(role_id IN (1,4,5)) AS faculty_roster_users, SUM(scopus_id IS NOT NULL AND TRIM(scopus_id)<>'') AS users_with_scopus_id, SUM(scopus_id IS NOT NULL AND TRIM(scopus_id)<>'' AND role_id NOT IN (1,4,5)) AS non_roster_users_with_scopus_id FROM users WHERE delete_at IS NULL AND is_test=0",
+    "employment": "SELECT COUNT(DISTINCT sda.document_id) AS cohort_documents,COUNT(DISTINCT CASE WHEN u.date_of_employment IS NOT NULL AND sd.cover_date < DATE(u.date_of_employment) THEN sd.id END) AS documents_with_preemployment_eligible_author,COUNT(DISTINCT CASE WHEN u.role_id NOT IN (1,4,5) THEN sd.id END) AS documents_with_non_roster_eligible_user FROM scopus_documents sd JOIN scopus_document_authors sda ON sda.document_id=sd.id JOIN scopus_authors sa ON sa.id=sda.author_id JOIN users u ON TRIM(u.scopus_id)=sa.scopus_author_id JOIN scopus_affiliations aff ON aff.id=sda.affiliation_id WHERE u.delete_at IS NULL AND u.is_test=0 AND TRIM(u.scopus_id)<>'' AND LOWER(TRIM(COALESCE(aff.name,''))) IN ('khon kaen university','faculty of science, khon kaen university')",
+    "explain_cohort": "EXPLAIN SELECT sd.id FROM scopus_documents sd WHERE EXISTS (SELECT 1 FROM scopus_document_authors sda JOIN scopus_authors sa ON sa.id=sda.author_id JOIN users u ON TRIM(u.scopus_id)=sa.scopus_author_id JOIN scopus_affiliations aff ON aff.id=sda.affiliation_id WHERE sda.document_id=sd.id AND u.delete_at IS NULL AND u.is_test=0 AND u.scopus_id IS NOT NULL AND TRIM(u.scopus_id)<>'' AND LOWER(TRIM(COALESCE(aff.name,''))) IN ('khon kaen university','faculty of science, khon kaen university')) AND COALESCE(YEAR(sd.cover_date),CAST(RIGHT(sd.cover_display_date,4) AS UNSIGNED)) BETWEEN 2024 AND 2026"
+  },
+  "transaction": "REPEATABLE READ; READ ONLY; consistent snapshot; ROLLBACK on exit",
+  "server": [
+    {
+      "database_name": "drnadech_fund_cpkku_intern",
+      "version": "10.11.18-MariaDB-0+deb12u1-log",
+      "transaction_read_only": 1
+    }
+  ],
+  "schema": [
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "afid",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "name",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "city",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "country",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "affiliation_url",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "created_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "COLUMN_NAME": "updated_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "scopus_author_id",
+      "COLUMN_TYPE": "varchar(100)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "full_name",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "given_name",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "surname",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "initials",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "orcid",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "author_url",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "created_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "COLUMN_NAME": "updated_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "eid",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "scopus_id",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "scopus_link",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "title",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "abstract",
+      "COLUMN_TYPE": "longtext",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "aggregation_type",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "subtype",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "subtype_description",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "source_id",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "publication_name",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "issn",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "eissn",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "isbn",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "volume",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "issue",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "page_range",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "article_number",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "cover_date",
+      "COLUMN_TYPE": "date",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "cover_display_date",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "doi",
+      "COLUMN_TYPE": "varchar(255)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "pii",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "citedby_count",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "openaccess",
+      "COLUMN_TYPE": "tinyint(4)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "openaccess_flag",
+      "COLUMN_TYPE": "tinyint(1)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "authkeywords",
+      "COLUMN_TYPE": "longtext",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "fund_acr",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "fund_sponsor",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_name",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_venue",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_city",
+      "COLUMN_TYPE": "varchar(255)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_country",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_location",
+      "COLUMN_TYPE": "text",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_info_json",
+      "COLUMN_TYPE": "longtext",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "conference_info_fetched_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "author_role_status",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "author_role_checked_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "raw_json",
+      "COLUMN_TYPE": "longtext",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "created_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "updated_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "category",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "classification_confidence",
+      "COLUMN_TYPE": "enum('High','Medium','Low','Preface')",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "classification_model",
+      "COLUMN_TYPE": "varchar(128)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "classification_taxonomy_version",
+      "COLUMN_TYPE": "varchar(64)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "COLUMN_NAME": "classified_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "document_id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "author_id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "author_seq",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "affiliation_id",
+      "COLUMN_TYPE": "bigint(20) unsigned",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "is_first_author",
+      "COLUMN_TYPE": "tinyint(1)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "is_corresponding_author",
+      "COLUMN_TYPE": "tinyint(1)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "created_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "COLUMN_NAME": "updated_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "source_metric_id",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "source_id",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "issn",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "eissn",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "metric_year",
+      "COLUMN_TYPE": "int(4)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "doc_type",
+      "COLUMN_TYPE": "varchar(32)",
+      "IS_NULLABLE": "NO"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score",
+      "COLUMN_TYPE": "decimal(8,3)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_status",
+      "COLUMN_TYPE": "enum('Complete','In-Progress')",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_scholarly_output",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_citation_count",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_percent_cited",
+      "COLUMN_TYPE": "decimal(5,2)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_rank",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_percentile",
+      "COLUMN_TYPE": "decimal(5,2)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_quartile",
+      "COLUMN_TYPE": "varchar(4)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_current_metric",
+      "COLUMN_TYPE": "decimal(8,3)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_current_metric_year",
+      "COLUMN_TYPE": "int(4)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_tracker",
+      "COLUMN_TYPE": "decimal(8,3)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_score_tracker_year",
+      "COLUMN_TYPE": "int(4)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "sjr",
+      "COLUMN_TYPE": "decimal(8,3)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "snip",
+      "COLUMN_TYPE": "decimal(8,3)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "publication_count",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "cite_count_sce",
+      "COLUMN_TYPE": "int(11)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "zero_cites_sce",
+      "COLUMN_TYPE": "decimal(5,2)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "rev_percent",
+      "COLUMN_TYPE": "decimal(5,2)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "created_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "updated_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "COLUMN_NAME": "last_fetched_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    }
+  ],
+  "indexes": [
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "id"
+    },
+    {
+      "TABLE_NAME": "scopus_affiliations",
+      "INDEX_NAME": "uq_scopus_affiliations_afid",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "afid"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "id"
+    },
+    {
+      "TABLE_NAME": "scopus_authors",
+      "INDEX_NAME": "uq_scopus_authors_scopus_author_id",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "scopus_author_id"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_author_role_status",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "author_role_status"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_conference_city",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "conference_city"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_conference_country",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "conference_country"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_cover_date",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "cover_date"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_doi",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "doi"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_paper_category",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "category"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "idx_scopus_documents_source_id",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "source_id"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "id"
+    },
+    {
+      "TABLE_NAME": "scopus_documents",
+      "INDEX_NAME": "uq_scopus_documents_eid",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "eid"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "fk_scopus_document_authors_affiliation",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "affiliation_id"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "idx_scopus_document_authors_author",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "author_id"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "idx_scopus_document_authors_document",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "document_id"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "idx_scopus_document_authors_document",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "author_seq"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "id"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "uq_scopus_document_authors_doc_author",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "document_id"
+    },
+    {
+      "TABLE_NAME": "scopus_document_authors",
+      "INDEX_NAME": "uq_scopus_document_authors_doc_author",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "author_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_eissn_year",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "eissn"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_eissn_year",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "metric_year"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_issn_year",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "issn"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_issn_year",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "metric_year"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_metrics_lookup",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "source_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_metrics_lookup",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "doc_type"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_metrics_lookup",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 3,
+      "COLUMN_NAME": "metric_year"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_metrics_lookup",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 4,
+      "COLUMN_NAME": "cite_score_status"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "doc_type"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "source_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 3,
+      "COLUMN_NAME": "metric_year"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 4,
+      "COLUMN_NAME": "source_metric_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "source_metric_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "uq_scopus_source_year_type",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "source_id"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "uq_scopus_source_year_type",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "metric_year"
+    },
+    {
+      "TABLE_NAME": "scopus_source_metrics",
+      "INDEX_NAME": "uq_scopus_source_year_type",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 3,
+      "COLUMN_NAME": "doc_type"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "fk_instructor_course",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "course_id"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "idx_email",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "email"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "idx_fullname",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "user_fname"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "idx_fullname",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 2,
+      "COLUMN_NAME": "user_lname"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "position_id",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "position_id"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "PRIMARY",
+      "NON_UNIQUE": 0,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "user_id"
+    },
+    {
+      "TABLE_NAME": "users",
+      "INDEX_NAME": "role_id",
+      "NON_UNIQUE": 1,
+      "SEQ_IN_INDEX": 1,
+      "COLUMN_NAME": "role_id"
+    }
+  ],
+  "groups": {
+    "all_core": {
+      "documents": 949,
+      "raw_valid_object": 949,
+      "document_affiliation_nonempty": 949,
+      "author_count_matches": 949,
+      "document_afid_rows": 2041,
+      "all_payload_afid_rows": 2041,
+      "all_affiliation_faculty_cohort": 747,
+      "country_no": 610,
+      "affiliation_metadata_complete": 941,
+      "legacy_international": 326,
+      "payload_only_international": 334,
+      "role_status_complete": 671,
+      "all_author_rows": 3734,
+      "all_author_first": 949,
+      "all_author_corresponding": 743,
+      "all_author_both": 285,
+      "all_author_coauthor": 2327,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 983,
+      "eligible_faculty_author_first": 145,
+      "eligible_faculty_author_corresponding": 286,
+      "eligible_faculty_author_both": 64,
+      "eligible_faculty_author_coauthor": 616,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_unknown": 206,
+      "faculty_positive_first": 145,
+      "faculty_positive_corresponding": 285,
+      "faculty_positive_coauthor": 502,
+      "faculty_role_corresponding": 200,
+      "faculty_role_first": 145,
+      "faculty_first_corresponding_overlap": 85,
+      "faculty_first_corresponding_coauthor_overlap": 32,
+      "faculty_same_author_first_corresponding": 64,
+      "role_status_no_correspondence": 278,
+      "faculty_role_coauthor": 398,
+      "country_yes": 334,
+      "multi_afid_author_rows": 165,
+      "dual_domestic_foreign_author_rows": 36,
+      "multi_afid_documents": 108,
+      "dual_domestic_foreign_documents": 34,
+      "international_missed_by_legacy": 8,
+      "additional_all_affiliation_faculty_documents": 4,
+      "afid_catalogue_country_missing_occurrences": 1,
+      "unresolved_country_documents": 1,
+      "country_unknown": 5,
+      "affiliation_metadata_incomplete": 8,
+      "author_rows_missing_afid": 14
+    },
+    "all_core_2567_2569": {
+      "documents": 243,
+      "raw_valid_object": 243,
+      "document_affiliation_nonempty": 243,
+      "author_count_matches": 243,
+      "document_afid_rows": 732,
+      "all_payload_afid_rows": 732,
+      "all_affiliation_faculty_cohort": 226,
+      "country_no": 116,
+      "affiliation_metadata_complete": 243,
+      "legacy_international": 124,
+      "payload_only_international": 127,
+      "role_status_complete": 215,
+      "all_author_rows": 1150,
+      "all_author_first": 243,
+      "all_author_corresponding": 254,
+      "all_author_both": 52,
+      "all_author_coauthor": 705,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 307,
+      "eligible_faculty_author_first": 20,
+      "eligible_faculty_author_corresponding": 94,
+      "eligible_faculty_author_both": 6,
+      "eligible_faculty_author_coauthor": 199,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_unknown": 17,
+      "faculty_positive_first": 20,
+      "faculty_positive_corresponding": 94,
+      "faculty_positive_coauthor": 163,
+      "faculty_role_corresponding": 82,
+      "faculty_role_first": 20,
+      "faculty_first_corresponding_overlap": 12,
+      "faculty_first_corresponding_coauthor_overlap": 8,
+      "faculty_same_author_first_corresponding": 6,
+      "faculty_role_coauthor": 124,
+      "country_yes": 127,
+      "multi_afid_author_rows": 75,
+      "multi_afid_documents": 47,
+      "dual_domestic_foreign_author_rows": 7,
+      "dual_domestic_foreign_documents": 6,
+      "role_status_no_correspondence": 28,
+      "international_missed_by_legacy": 3
+    },
+    "faculty_all_years": {
+      "documents": 743,
+      "raw_valid_object": 743,
+      "document_affiliation_nonempty": 743,
+      "author_count_matches": 743,
+      "document_afid_rows": 1685,
+      "all_payload_afid_rows": 1685,
+      "all_affiliation_faculty_cohort": 743,
+      "country_no": 489,
+      "affiliation_metadata_complete": 740,
+      "legacy_international": 243,
+      "payload_only_international": 251,
+      "role_status_complete": 520,
+      "all_author_rows": 2896,
+      "all_author_first": 743,
+      "all_author_corresponding": 586,
+      "all_author_both": 186,
+      "all_author_coauthor": 1753,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 983,
+      "eligible_faculty_author_first": 145,
+      "eligible_faculty_author_corresponding": 286,
+      "eligible_faculty_author_both": 64,
+      "eligible_faculty_author_coauthor": 616,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 200,
+      "faculty_positive_first": 145,
+      "faculty_positive_corresponding": 285,
+      "faculty_positive_coauthor": 502,
+      "faculty_role_first": 145,
+      "faculty_first_corresponding_overlap": 85,
+      "faculty_first_corresponding_coauthor_overlap": 32,
+      "faculty_same_author_first_corresponding": 64,
+      "role_status_no_correspondence": 223,
+      "faculty_role_coauthor": 398,
+      "country_yes": 251,
+      "multi_afid_author_rows": 142,
+      "dual_domestic_foreign_author_rows": 35,
+      "multi_afid_documents": 95,
+      "dual_domestic_foreign_documents": 33,
+      "international_missed_by_legacy": 8,
+      "author_rows_missing_afid": 3,
+      "country_unknown": 3,
+      "affiliation_metadata_incomplete": 3
+    },
+    "faculty_2567_2569": {
+      "documents": 226,
+      "raw_valid_object": 226,
+      "document_affiliation_nonempty": 226,
+      "author_count_matches": 226,
+      "document_afid_rows": 691,
+      "all_payload_afid_rows": 691,
+      "all_affiliation_faculty_cohort": 226,
+      "country_no": 104,
+      "affiliation_metadata_complete": 226,
+      "legacy_international": 119,
+      "payload_only_international": 122,
+      "role_status_complete": 200,
+      "all_author_rows": 1070,
+      "all_author_first": 226,
+      "all_author_corresponding": 238,
+      "all_author_both": 45,
+      "all_author_coauthor": 651,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 307,
+      "eligible_faculty_author_first": 20,
+      "eligible_faculty_author_corresponding": 94,
+      "eligible_faculty_author_both": 6,
+      "eligible_faculty_author_coauthor": 199,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 82,
+      "faculty_positive_first": 20,
+      "faculty_positive_corresponding": 94,
+      "faculty_positive_coauthor": 163,
+      "faculty_role_first": 20,
+      "faculty_first_corresponding_overlap": 12,
+      "faculty_first_corresponding_coauthor_overlap": 8,
+      "faculty_same_author_first_corresponding": 6,
+      "faculty_role_coauthor": 124,
+      "country_yes": 122,
+      "multi_afid_author_rows": 72,
+      "multi_afid_documents": 44,
+      "dual_domestic_foreign_author_rows": 7,
+      "dual_domestic_foreign_documents": 6,
+      "role_status_no_correspondence": 26,
+      "international_missed_by_legacy": 3
+    }
+  },
+  "faculty_years": {
+    "2002": {
+      "documents": 2,
+      "raw_valid_object": 2,
+      "document_affiliation_nonempty": 2,
+      "author_count_matches": 2,
+      "document_afid_rows": 4,
+      "all_payload_afid_rows": 4,
+      "all_affiliation_faculty_cohort": 2,
+      "country_no": 1,
+      "affiliation_metadata_complete": 2,
+      "legacy_international": 1,
+      "payload_only_international": 1,
+      "role_status_complete": 1,
+      "all_author_rows": 5,
+      "all_author_first": 2,
+      "all_author_corresponding": 1,
+      "all_author_both": 1,
+      "all_author_coauthor": 3,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 2,
+      "eligible_faculty_author_first": 2,
+      "eligible_faculty_author_corresponding": 1,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 0,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 2,
+      "faculty_positive_first": 2,
+      "faculty_positive_corresponding": 1,
+      "faculty_positive_coauthor": 0,
+      "faculty_first_corresponding_overlap": 1,
+      "faculty_same_author_first_corresponding": 1,
+      "multi_afid_author_rows": 1,
+      "dual_domestic_foreign_author_rows": 1,
+      "country_yes": 1,
+      "multi_afid_documents": 1,
+      "dual_domestic_foreign_documents": 1,
+      "role_status_no_correspondence": 1
+    },
+    "2003": {
+      "documents": 1,
+      "raw_valid_object": 1,
+      "document_affiliation_nonempty": 1,
+      "author_count_matches": 1,
+      "document_afid_rows": 1,
+      "all_payload_afid_rows": 1,
+      "all_affiliation_faculty_cohort": 1,
+      "country_no": 1,
+      "affiliation_metadata_complete": 1,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_no_correspondence": 1,
+      "all_author_rows": 2,
+      "all_author_first": 1,
+      "all_author_corresponding": 0,
+      "all_author_both": 0,
+      "all_author_coauthor": 1,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 1,
+      "eligible_faculty_author_first": 1,
+      "eligible_faculty_author_corresponding": 0,
+      "eligible_faculty_author_both": 0,
+      "eligible_faculty_author_coauthor": 0,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 1,
+      "faculty_positive_first": 1,
+      "faculty_positive_corresponding": 0,
+      "faculty_positive_coauthor": 0
+    },
+    "2004": {
+      "documents": 1,
+      "raw_valid_object": 1,
+      "document_affiliation_nonempty": 1,
+      "author_count_matches": 1,
+      "document_afid_rows": 2,
+      "all_payload_afid_rows": 2,
+      "all_affiliation_faculty_cohort": 1,
+      "country_no": 1,
+      "affiliation_metadata_complete": 1,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_complete": 1,
+      "all_author_rows": 2,
+      "all_author_first": 1,
+      "all_author_corresponding": 1,
+      "all_author_both": 1,
+      "all_author_coauthor": 1,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 1,
+      "eligible_faculty_author_first": 1,
+      "eligible_faculty_author_corresponding": 1,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 0,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 1,
+      "faculty_positive_first": 1,
+      "faculty_positive_corresponding": 1,
+      "faculty_positive_coauthor": 0,
+      "faculty_first_corresponding_overlap": 1,
+      "faculty_same_author_first_corresponding": 1
+    },
+    "2005": {
+      "documents": 5,
+      "raw_valid_object": 5,
+      "document_affiliation_nonempty": 5,
+      "author_count_matches": 5,
+      "document_afid_rows": 8,
+      "all_payload_afid_rows": 8,
+      "all_affiliation_faculty_cohort": 5,
+      "country_no": 3,
+      "affiliation_metadata_complete": 4,
+      "legacy_international": 1,
+      "payload_only_international": 1,
+      "role_status_complete": 4,
+      "all_author_rows": 20,
+      "all_author_first": 5,
+      "all_author_corresponding": 4,
+      "all_author_both": 4,
+      "all_author_coauthor": 15,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 5,
+      "eligible_faculty_author_first": 2,
+      "eligible_faculty_author_corresponding": 1,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 3,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 2,
+      "faculty_positive_first": 2,
+      "faculty_positive_corresponding": 1,
+      "faculty_positive_coauthor": 3,
+      "faculty_first_corresponding_overlap": 1,
+      "faculty_same_author_first_corresponding": 1,
+      "country_yes": 1,
+      "role_status_no_correspondence": 1,
+      "faculty_role_coauthor": 3,
+      "author_rows_missing_afid": 1,
+      "country_unknown": 1,
+      "affiliation_metadata_incomplete": 1
+    },
+    "2006": {
+      "documents": 4,
+      "raw_valid_object": 4,
+      "document_affiliation_nonempty": 4,
+      "author_count_matches": 4,
+      "multi_afid_author_rows": 2,
+      "document_afid_rows": 11,
+      "all_payload_afid_rows": 11,
+      "all_affiliation_faculty_cohort": 4,
+      "country_no": 4,
+      "affiliation_metadata_complete": 4,
+      "multi_afid_documents": 2,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_complete": 4,
+      "all_author_rows": 12,
+      "all_author_first": 4,
+      "all_author_corresponding": 4,
+      "all_author_both": 4,
+      "all_author_coauthor": 8,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 4,
+      "eligible_faculty_author_first": 2,
+      "eligible_faculty_author_corresponding": 2,
+      "eligible_faculty_author_both": 2,
+      "eligible_faculty_author_coauthor": 2,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 2,
+      "faculty_positive_first": 2,
+      "faculty_positive_corresponding": 2,
+      "faculty_positive_coauthor": 2,
+      "faculty_role_first": 2,
+      "faculty_first_corresponding_overlap": 2,
+      "faculty_same_author_first_corresponding": 2
+    },
+    "2007": {
+      "documents": 4,
+      "raw_valid_object": 4,
+      "document_affiliation_nonempty": 4,
+      "author_count_matches": 4,
+      "document_afid_rows": 6,
+      "all_payload_afid_rows": 6,
+      "all_affiliation_faculty_cohort": 4,
+      "country_yes": 1,
+      "affiliation_metadata_complete": 4,
+      "legacy_international": 1,
+      "payload_only_international": 1,
+      "role_status_complete": 4,
+      "all_author_rows": 11,
+      "all_author_first": 4,
+      "all_author_corresponding": 4,
+      "all_author_both": 3,
+      "all_author_coauthor": 6,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 4,
+      "eligible_faculty_author_first": 1,
+      "eligible_faculty_author_corresponding": 0,
+      "eligible_faculty_author_both": 0,
+      "eligible_faculty_author_coauthor": 3,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 1,
+      "faculty_positive_first": 1,
+      "faculty_positive_corresponding": 0,
+      "faculty_positive_coauthor": 3,
+      "country_no": 3,
+      "faculty_role_coauthor": 3
+    },
+    "2008": {
+      "documents": 2,
+      "raw_valid_object": 2,
+      "document_affiliation_nonempty": 2,
+      "author_count_matches": 2,
+      "document_afid_rows": 2,
+      "all_payload_afid_rows": 2,
+      "all_affiliation_faculty_cohort": 2,
+      "country_no": 2,
+      "affiliation_metadata_complete": 2,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_complete": 2,
+      "all_author_rows": 6,
+      "all_author_first": 2,
+      "all_author_corresponding": 2,
+      "all_author_both": 2,
+      "all_author_coauthor": 4,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 2,
+      "eligible_faculty_author_first": 0,
+      "eligible_faculty_author_corresponding": 0,
+      "eligible_faculty_author_both": 0,
+      "eligible_faculty_author_coauthor": 2,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 2,
+      "faculty_positive_first": 0,
+      "faculty_positive_corresponding": 0,
+      "faculty_positive_coauthor": 2
+    },
+    "2009": {
+      "documents": 3,
+      "raw_valid_object": 3,
+      "document_affiliation_nonempty": 3,
+      "author_count_matches": 3,
+      "document_afid_rows": 4,
+      "all_payload_afid_rows": 4,
+      "all_affiliation_faculty_cohort": 3,
+      "country_no": 3,
+      "affiliation_metadata_complete": 3,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_complete": 3,
+      "all_author_rows": 10,
+      "all_author_first": 3,
+      "all_author_corresponding": 3,
+      "all_author_both": 3,
+      "all_author_coauthor": 7,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 3,
+      "eligible_faculty_author_first": 1,
+      "eligible_faculty_author_corresponding": 1,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 2,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 2,
+      "faculty_positive_first": 1,
+      "faculty_positive_corresponding": 1,
+      "faculty_positive_coauthor": 2,
+      "faculty_role_first": 1,
+      "faculty_first_corresponding_overlap": 1,
+      "faculty_same_author_first_corresponding": 1
+    },
+    "2010": {
+      "documents": 8,
+      "raw_valid_object": 8,
+      "document_affiliation_nonempty": 8,
+      "author_count_matches": 8,
+      "document_afid_rows": 17,
+      "all_payload_afid_rows": 17,
+      "all_affiliation_faculty_cohort": 8,
+      "country_no": 4,
+      "affiliation_metadata_complete": 8,
+      "legacy_international": 4,
+      "payload_only_international": 4,
+      "role_status_no_correspondence": 1,
+      "all_author_rows": 24,
+      "all_author_first": 8,
+      "all_author_corresponding": 7,
+      "all_author_both": 5,
+      "all_author_coauthor": 14,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 8,
+      "eligible_faculty_author_first": 3,
+      "eligible_faculty_author_corresponding": 1,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 5,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 5,
+      "faculty_positive_first": 3,
+      "faculty_positive_corresponding": 1,
+      "faculty_positive_coauthor": 5,
+      "role_status_complete": 7,
+      "country_yes": 4,
+      "faculty_role_first": 3,
+      "faculty_first_corresponding_overlap": 1,
+      "faculty_same_author_first_corresponding": 1
+    },
+    "2011": {
+      "documents": 10,
+      "raw_valid_object": 10,
+      "document_affiliation_nonempty": 10,
+      "author_count_matches": 10,
+      "document_afid_rows": 16,
+      "all_payload_afid_rows": 16,
+      "all_affiliation_faculty_cohort": 10,
+      "country_no": 8,
+      "affiliation_metadata_complete": 10,
+      "legacy_international": 2,
+      "payload_only_international": 2,
+      "role_status_complete": 10,
+      "all_author_rows": 39,
+      "all_author_first": 10,
+      "all_author_corresponding": 10,
+      "all_author_both": 8,
+      "all_author_coauthor": 27,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 15,
+      "eligible_faculty_author_first": 6,
+      "eligible_faculty_author_corresponding": 5,
+      "eligible_faculty_author_both": 5,
+      "eligible_faculty_author_coauthor": 9,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 6,
+      "faculty_positive_first": 6,
+      "faculty_positive_corresponding": 5,
+      "faculty_positive_coauthor": 7,
+      "faculty_first_corresponding_overlap": 5,
+      "faculty_same_author_first_corresponding": 5,
+      "faculty_first_corresponding_coauthor_overlap": 3,
+      "country_yes": 2,
+      "faculty_role_coauthor": 4
+    },
+    "2012": {
+      "documents": 18,
+      "raw_valid_object": 18,
+      "document_affiliation_nonempty": 18,
+      "author_count_matches": 18,
+      "document_afid_rows": 31,
+      "all_payload_afid_rows": 31,
+      "all_affiliation_faculty_cohort": 18,
+      "country_no": 16,
+      "affiliation_metadata_complete": 18,
+      "legacy_international": 2,
+      "payload_only_international": 2,
+      "role_status_complete": 13,
+      "all_author_rows": 64,
+      "all_author_first": 18,
+      "all_author_corresponding": 13,
+      "all_author_both": 11,
+      "all_author_coauthor": 44,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 27,
+      "eligible_faculty_author_first": 9,
+      "eligible_faculty_author_corresponding": 8,
+      "eligible_faculty_author_both": 7,
+      "eligible_faculty_author_coauthor": 17,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 9,
+      "faculty_positive_first": 9,
+      "faculty_positive_corresponding": 8,
+      "faculty_positive_coauthor": 13,
+      "faculty_first_corresponding_overlap": 7,
+      "faculty_first_corresponding_coauthor_overlap": 5,
+      "faculty_same_author_first_corresponding": 7,
+      "faculty_role_coauthor": 8,
+      "role_status_no_correspondence": 5,
+      "multi_afid_author_rows": 2,
+      "multi_afid_documents": 2,
+      "faculty_role_corresponding": 1,
+      "country_yes": 2
+    },
+    "2013": {
+      "documents": 28,
+      "raw_valid_object": 28,
+      "document_affiliation_nonempty": 28,
+      "author_count_matches": 28,
+      "document_afid_rows": 39,
+      "all_payload_afid_rows": 39,
+      "all_affiliation_faculty_cohort": 28,
+      "country_no": 24,
+      "affiliation_metadata_complete": 28,
+      "legacy_international": 4,
+      "payload_only_international": 4,
+      "role_status_complete": 10,
+      "all_author_rows": 80,
+      "all_author_first": 28,
+      "all_author_corresponding": 10,
+      "all_author_both": 8,
+      "all_author_coauthor": 50,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 37,
+      "eligible_faculty_author_first": 7,
+      "eligible_faculty_author_corresponding": 5,
+      "eligible_faculty_author_both": 4,
+      "eligible_faculty_author_coauthor": 29,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 20,
+      "faculty_positive_first": 7,
+      "faculty_positive_corresponding": 5,
+      "faculty_positive_coauthor": 21,
+      "country_yes": 4,
+      "faculty_role_first": 7,
+      "faculty_first_corresponding_overlap": 4,
+      "faculty_same_author_first_corresponding": 4,
+      "role_status_no_correspondence": 18,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "multi_afid_author_rows": 3,
+      "multi_afid_documents": 2,
+      "faculty_role_corresponding": 1
+    },
+    "2014": {
+      "documents": 48,
+      "raw_valid_object": 48,
+      "document_affiliation_nonempty": 48,
+      "author_count_matches": 48,
+      "document_afid_rows": 61,
+      "all_payload_afid_rows": 61,
+      "all_affiliation_faculty_cohort": 48,
+      "country_no": 47,
+      "affiliation_metadata_complete": 48,
+      "legacy_international": 1,
+      "payload_only_international": 1,
+      "role_status_complete": 20,
+      "all_author_rows": 139,
+      "all_author_first": 48,
+      "all_author_corresponding": 20,
+      "all_author_both": 15,
+      "all_author_coauthor": 86,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 63,
+      "eligible_faculty_author_first": 10,
+      "eligible_faculty_author_corresponding": 9,
+      "eligible_faculty_author_both": 4,
+      "eligible_faculty_author_coauthor": 48,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 34,
+      "faculty_positive_first": 10,
+      "faculty_positive_corresponding": 9,
+      "faculty_positive_coauthor": 41,
+      "role_status_no_correspondence": 28,
+      "faculty_role_first": 10,
+      "faculty_first_corresponding_overlap": 5,
+      "faculty_role_corresponding": 4,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 4,
+      "country_yes": 1
+    },
+    "2015": {
+      "documents": 27,
+      "raw_valid_object": 27,
+      "document_affiliation_nonempty": 27,
+      "author_count_matches": 27,
+      "document_afid_rows": 33,
+      "all_payload_afid_rows": 33,
+      "all_affiliation_faculty_cohort": 27,
+      "country_no": 27,
+      "affiliation_metadata_complete": 27,
+      "legacy_international": 0,
+      "payload_only_international": 0,
+      "role_status_no_correspondence": 17,
+      "all_author_rows": 82,
+      "all_author_first": 27,
+      "all_author_corresponding": 10,
+      "all_author_both": 5,
+      "all_author_coauthor": 50,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 33,
+      "eligible_faculty_author_first": 6,
+      "eligible_faculty_author_corresponding": 7,
+      "eligible_faculty_author_both": 4,
+      "eligible_faculty_author_coauthor": 24,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 18,
+      "faculty_positive_first": 6,
+      "faculty_positive_corresponding": 7,
+      "faculty_positive_coauthor": 21,
+      "role_status_complete": 10,
+      "faculty_role_corresponding": 3,
+      "faculty_role_first": 6,
+      "faculty_first_corresponding_overlap": 4,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 4,
+      "multi_afid_author_rows": 7,
+      "multi_afid_documents": 2
+    },
+    "2016": {
+      "documents": 42,
+      "raw_valid_object": 42,
+      "document_affiliation_nonempty": 42,
+      "author_count_matches": 42,
+      "document_afid_rows": 52,
+      "all_payload_afid_rows": 52,
+      "all_affiliation_faculty_cohort": 42,
+      "country_no": 40,
+      "affiliation_metadata_complete": 42,
+      "legacy_international": 2,
+      "payload_only_international": 2,
+      "role_status_complete": 15,
+      "all_author_rows": 134,
+      "all_author_first": 42,
+      "all_author_corresponding": 15,
+      "all_author_both": 10,
+      "all_author_coauthor": 87,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 62,
+      "eligible_faculty_author_first": 8,
+      "eligible_faculty_author_corresponding": 7,
+      "eligible_faculty_author_both": 4,
+      "eligible_faculty_author_coauthor": 51,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 3,
+      "faculty_positive_first": 8,
+      "faculty_positive_corresponding": 7,
+      "faculty_positive_coauthor": 36,
+      "role_status_no_correspondence": 27,
+      "faculty_role_first": 8,
+      "faculty_role_coauthor": 31,
+      "faculty_first_corresponding_overlap": 4,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 4,
+      "multi_afid_author_rows": 2,
+      "multi_afid_documents": 2,
+      "country_yes": 2,
+      "dual_domestic_foreign_author_rows": 1,
+      "dual_domestic_foreign_documents": 1
+    },
+    "2017": {
+      "documents": 45,
+      "raw_valid_object": 45,
+      "document_affiliation_nonempty": 45,
+      "author_count_matches": 45,
+      "document_afid_rows": 64,
+      "all_payload_afid_rows": 64,
+      "all_affiliation_faculty_cohort": 45,
+      "country_no": 37,
+      "affiliation_metadata_complete": 45,
+      "legacy_international": 7,
+      "payload_only_international": 8,
+      "role_status_no_correspondence": 22,
+      "all_author_rows": 145,
+      "all_author_first": 45,
+      "all_author_corresponding": 23,
+      "all_author_both": 12,
+      "all_author_coauthor": 89,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 57,
+      "eligible_faculty_author_first": 10,
+      "eligible_faculty_author_corresponding": 15,
+      "eligible_faculty_author_both": 6,
+      "eligible_faculty_author_coauthor": 38,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 26,
+      "faculty_positive_first": 10,
+      "faculty_positive_corresponding": 15,
+      "faculty_positive_coauthor": 30,
+      "role_status_complete": 23,
+      "multi_afid_author_rows": 4,
+      "dual_domestic_foreign_author_rows": 4,
+      "country_yes": 8,
+      "multi_afid_documents": 4,
+      "dual_domestic_foreign_documents": 4,
+      "international_missed_by_legacy": 1,
+      "faculty_role_first": 10,
+      "faculty_first_corresponding_overlap": 6,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 6,
+      "faculty_role_corresponding": 9
+    },
+    "2018": {
+      "documents": 51,
+      "raw_valid_object": 51,
+      "document_affiliation_nonempty": 51,
+      "author_count_matches": 51,
+      "document_afid_rows": 85,
+      "all_payload_afid_rows": 85,
+      "all_affiliation_faculty_cohort": 51,
+      "country_no": 37,
+      "affiliation_metadata_complete": 51,
+      "legacy_international": 12,
+      "payload_only_international": 14,
+      "role_status_no_correspondence": 24,
+      "all_author_rows": 139,
+      "all_author_first": 51,
+      "all_author_corresponding": 27,
+      "all_author_both": 10,
+      "all_author_coauthor": 71,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 61,
+      "eligible_faculty_author_first": 14,
+      "eligible_faculty_author_corresponding": 18,
+      "eligible_faculty_author_both": 6,
+      "eligible_faculty_author_coauthor": 35,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 27,
+      "faculty_positive_first": 14,
+      "faculty_positive_corresponding": 18,
+      "faculty_positive_coauthor": 30,
+      "role_status_complete": 27,
+      "multi_afid_author_rows": 6,
+      "dual_domestic_foreign_author_rows": 5,
+      "country_yes": 14,
+      "multi_afid_documents": 6,
+      "dual_domestic_foreign_documents": 5,
+      "international_missed_by_legacy": 2,
+      "faculty_role_corresponding": 10,
+      "faculty_role_first": 14,
+      "faculty_first_corresponding_overlap": 8,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 6
+    },
+    "2019": {
+      "documents": 36,
+      "raw_valid_object": 36,
+      "document_affiliation_nonempty": 36,
+      "author_count_matches": 36,
+      "document_afid_rows": 60,
+      "all_payload_afid_rows": 60,
+      "all_affiliation_faculty_cohort": 36,
+      "country_no": 26,
+      "affiliation_metadata_complete": 35,
+      "legacy_international": 9,
+      "payload_only_international": 9,
+      "role_status_no_correspondence": 12,
+      "all_author_rows": 120,
+      "all_author_first": 36,
+      "all_author_corresponding": 24,
+      "all_author_both": 6,
+      "all_author_coauthor": 66,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 53,
+      "eligible_faculty_author_first": 9,
+      "eligible_faculty_author_corresponding": 19,
+      "eligible_faculty_author_both": 3,
+      "eligible_faculty_author_coauthor": 28,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 14,
+      "faculty_positive_first": 9,
+      "faculty_positive_corresponding": 19,
+      "faculty_positive_coauthor": 21,
+      "role_status_complete": 24,
+      "faculty_role_corresponding": 13,
+      "faculty_role_first": 9,
+      "faculty_first_corresponding_overlap": 6,
+      "faculty_first_corresponding_coauthor_overlap": 3,
+      "author_rows_missing_afid": 1,
+      "country_unknown": 1,
+      "affiliation_metadata_incomplete": 1,
+      "multi_afid_author_rows": 5,
+      "dual_domestic_foreign_author_rows": 4,
+      "country_yes": 9,
+      "multi_afid_documents": 5,
+      "dual_domestic_foreign_documents": 4,
+      "faculty_same_author_first_corresponding": 3
+    },
+    "2020": {
+      "documents": 36,
+      "raw_valid_object": 36,
+      "document_affiliation_nonempty": 36,
+      "author_count_matches": 36,
+      "document_afid_rows": 88,
+      "all_payload_afid_rows": 88,
+      "all_affiliation_faculty_cohort": 36,
+      "country_yes": 13,
+      "affiliation_metadata_complete": 35,
+      "legacy_international": 12,
+      "payload_only_international": 13,
+      "role_status_complete": 24,
+      "all_author_rows": 141,
+      "all_author_first": 36,
+      "all_author_corresponding": 25,
+      "all_author_both": 8,
+      "all_author_coauthor": 88,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 48,
+      "eligible_faculty_author_first": 5,
+      "eligible_faculty_author_corresponding": 16,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 28,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 18,
+      "faculty_positive_first": 5,
+      "faculty_positive_corresponding": 16,
+      "faculty_positive_coauthor": 24,
+      "country_no": 22,
+      "role_status_no_correspondence": 12,
+      "faculty_role_first": 5,
+      "faculty_first_corresponding_overlap": 3,
+      "faculty_role_corresponding": 13,
+      "faculty_first_corresponding_coauthor_overlap": 1,
+      "faculty_same_author_first_corresponding": 1,
+      "author_rows_missing_afid": 1,
+      "country_unknown": 1,
+      "affiliation_metadata_incomplete": 1,
+      "multi_afid_author_rows": 9,
+      "dual_domestic_foreign_author_rows": 7,
+      "multi_afid_documents": 6,
+      "dual_domestic_foreign_documents": 6,
+      "international_missed_by_legacy": 1
+    },
+    "2021": {
+      "documents": 36,
+      "raw_valid_object": 36,
+      "document_affiliation_nonempty": 36,
+      "author_count_matches": 36,
+      "document_afid_rows": 76,
+      "all_payload_afid_rows": 76,
+      "all_affiliation_faculty_cohort": 36,
+      "country_no": 23,
+      "affiliation_metadata_complete": 36,
+      "legacy_international": 12,
+      "payload_only_international": 13,
+      "role_status_no_correspondence": 13,
+      "all_author_rows": 127,
+      "all_author_first": 36,
+      "all_author_corresponding": 23,
+      "all_author_both": 3,
+      "all_author_coauthor": 71,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 49,
+      "eligible_faculty_author_first": 6,
+      "eligible_faculty_author_corresponding": 18,
+      "eligible_faculty_author_both": 1,
+      "eligible_faculty_author_coauthor": 26,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 16,
+      "faculty_positive_first": 6,
+      "faculty_positive_corresponding": 18,
+      "faculty_positive_coauthor": 21,
+      "role_status_complete": 23,
+      "faculty_role_corresponding": 14,
+      "faculty_role_first": 6,
+      "faculty_first_corresponding_overlap": 4,
+      "country_yes": 13,
+      "faculty_same_author_first_corresponding": 1,
+      "multi_afid_author_rows": 3,
+      "dual_domestic_foreign_author_rows": 2,
+      "multi_afid_documents": 3,
+      "dual_domestic_foreign_documents": 2,
+      "international_missed_by_legacy": 1
+    },
+    "2022": {
+      "documents": 49,
+      "raw_valid_object": 49,
+      "document_affiliation_nonempty": 49,
+      "author_count_matches": 49,
+      "document_afid_rows": 154,
+      "all_payload_afid_rows": 154,
+      "all_affiliation_faculty_cohort": 49,
+      "country_no": 23,
+      "affiliation_metadata_complete": 49,
+      "legacy_international": 26,
+      "payload_only_international": 26,
+      "role_status_complete": 43,
+      "all_author_rows": 238,
+      "all_author_first": 49,
+      "all_author_corresponding": 63,
+      "all_author_both": 12,
+      "all_author_coauthor": 138,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 66,
+      "eligible_faculty_author_first": 9,
+      "eligible_faculty_author_corresponding": 30,
+      "eligible_faculty_author_both": 4,
+      "eligible_faculty_author_coauthor": 31,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 23,
+      "faculty_positive_first": 9,
+      "faculty_positive_corresponding": 29,
+      "faculty_positive_coauthor": 24,
+      "faculty_role_coauthor": 17,
+      "multi_afid_author_rows": 11,
+      "dual_domestic_foreign_author_rows": 3,
+      "country_yes": 26,
+      "multi_afid_documents": 9,
+      "dual_domestic_foreign_documents": 3,
+      "role_status_no_correspondence": 6,
+      "faculty_role_first": 9,
+      "faculty_first_corresponding_overlap": 6,
+      "faculty_same_author_first_corresponding": 4,
+      "faculty_first_corresponding_coauthor_overlap": 3
+    },
+    "2023": {
+      "documents": 61,
+      "raw_valid_object": 61,
+      "document_affiliation_nonempty": 61,
+      "author_count_matches": 61,
+      "document_afid_rows": 180,
+      "all_payload_afid_rows": 180,
+      "all_affiliation_faculty_cohort": 61,
+      "country_no": 33,
+      "affiliation_metadata_complete": 61,
+      "legacy_international": 28,
+      "payload_only_international": 28,
+      "role_status_complete": 52,
+      "all_author_rows": 286,
+      "all_author_first": 61,
+      "all_author_corresponding": 59,
+      "all_author_both": 10,
+      "all_author_coauthor": 176,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 75,
+      "eligible_faculty_author_first": 13,
+      "eligible_faculty_author_corresponding": 28,
+      "eligible_faculty_author_both": 2,
+      "eligible_faculty_author_coauthor": 36,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_first": 13,
+      "faculty_positive_first": 13,
+      "faculty_positive_corresponding": 28,
+      "faculty_positive_coauthor": 33,
+      "faculty_first_corresponding_overlap": 4,
+      "faculty_same_author_first_corresponding": 2,
+      "role_status_no_correspondence": 9,
+      "faculty_role_coauthor": 24,
+      "faculty_role_corresponding": 24,
+      "multi_afid_author_rows": 15,
+      "multi_afid_documents": 7,
+      "country_yes": 28,
+      "faculty_first_corresponding_coauthor_overlap": 3,
+      "dual_domestic_foreign_author_rows": 1,
+      "dual_domestic_foreign_documents": 1
+    },
+    "2024": {
+      "documents": 68,
+      "raw_valid_object": 68,
+      "document_affiliation_nonempty": 68,
+      "author_count_matches": 68,
+      "document_afid_rows": 200,
+      "all_payload_afid_rows": 200,
+      "all_affiliation_faculty_cohort": 68,
+      "country_no": 31,
+      "affiliation_metadata_complete": 68,
+      "legacy_international": 37,
+      "payload_only_international": 37,
+      "role_status_complete": 61,
+      "all_author_rows": 308,
+      "all_author_first": 68,
+      "all_author_corresponding": 69,
+      "all_author_both": 20,
+      "all_author_coauthor": 191,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 90,
+      "eligible_faculty_author_first": 6,
+      "eligible_faculty_author_corresponding": 30,
+      "eligible_faculty_author_both": 2,
+      "eligible_faculty_author_coauthor": 56,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 26,
+      "faculty_positive_first": 6,
+      "faculty_positive_corresponding": 30,
+      "faculty_positive_coauthor": 48,
+      "faculty_role_coauthor": 36,
+      "faculty_role_first": 6,
+      "faculty_first_corresponding_overlap": 4,
+      "faculty_same_author_first_corresponding": 2,
+      "multi_afid_author_rows": 24,
+      "country_yes": 37,
+      "multi_afid_documents": 13,
+      "dual_domestic_foreign_author_rows": 1,
+      "dual_domestic_foreign_documents": 1,
+      "faculty_first_corresponding_coauthor_overlap": 3,
+      "role_status_no_correspondence": 7
+    },
+    "2025": {
+      "documents": 81,
+      "raw_valid_object": 81,
+      "document_affiliation_nonempty": 81,
+      "author_count_matches": 81,
+      "document_afid_rows": 216,
+      "all_payload_afid_rows": 216,
+      "all_affiliation_faculty_cohort": 81,
+      "country_no": 46,
+      "affiliation_metadata_complete": 81,
+      "legacy_international": 34,
+      "payload_only_international": 35,
+      "role_status_complete": 77,
+      "all_author_rows": 361,
+      "all_author_first": 81,
+      "all_author_corresponding": 89,
+      "all_author_both": 13,
+      "all_author_coauthor": 204,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 111,
+      "eligible_faculty_author_first": 9,
+      "eligible_faculty_author_corresponding": 36,
+      "eligible_faculty_author_both": 2,
+      "eligible_faculty_author_coauthor": 68,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_corresponding": 31,
+      "faculty_positive_first": 9,
+      "faculty_positive_corresponding": 36,
+      "faculty_positive_coauthor": 56,
+      "faculty_role_first": 9,
+      "faculty_first_corresponding_overlap": 5,
+      "faculty_first_corresponding_coauthor_overlap": 4,
+      "faculty_same_author_first_corresponding": 2,
+      "faculty_role_coauthor": 41,
+      "country_yes": 35,
+      "multi_afid_author_rows": 18,
+      "multi_afid_documents": 12,
+      "role_status_no_correspondence": 4,
+      "dual_domestic_foreign_author_rows": 2,
+      "dual_domestic_foreign_documents": 1,
+      "international_missed_by_legacy": 1
+    },
+    "2026": {
+      "documents": 77,
+      "raw_valid_object": 77,
+      "document_affiliation_nonempty": 77,
+      "author_count_matches": 77,
+      "document_afid_rows": 275,
+      "all_payload_afid_rows": 275,
+      "all_affiliation_faculty_cohort": 77,
+      "country_no": 27,
+      "affiliation_metadata_complete": 77,
+      "legacy_international": 48,
+      "payload_only_international": 50,
+      "role_status_complete": 62,
+      "all_author_rows": 401,
+      "all_author_first": 77,
+      "all_author_corresponding": 80,
+      "all_author_both": 12,
+      "all_author_coauthor": 256,
+      "all_author_null_flags": 0,
+      "eligible_faculty_author_rows": 106,
+      "eligible_faculty_author_first": 5,
+      "eligible_faculty_author_corresponding": 28,
+      "eligible_faculty_author_both": 2,
+      "eligible_faculty_author_coauthor": 75,
+      "eligible_faculty_author_null_flags": 0,
+      "faculty_role_coauthor": 47,
+      "faculty_positive_first": 5,
+      "faculty_positive_corresponding": 28,
+      "faculty_positive_coauthor": 59,
+      "country_yes": 50,
+      "multi_afid_author_rows": 30,
+      "multi_afid_documents": 19,
+      "faculty_role_first": 5,
+      "role_status_no_correspondence": 15,
+      "faculty_role_corresponding": 25,
+      "faculty_first_corresponding_overlap": 3,
+      "faculty_same_author_first_corresponding": 2,
+      "dual_domestic_foreign_author_rows": 4,
+      "dual_domestic_foreign_documents": 4,
+      "international_missed_by_legacy": 2,
+      "faculty_first_corresponding_coauthor_overlap": 1
+    }
+  },
+  "cross_tabs": {
+    "all_core": {
+      "no_unknown": 121,
+      "no_corresponding": 122,
+      "no_first": 111,
+      "no_coauthor": 256,
+      "yes_coauthor": 139,
+      "yes_corresponding": 78,
+      "yes_unknown": 83,
+      "yes_first": 34,
+      "unknown_unknown": 2,
+      "unknown_coauthor": 3
+    },
+    "all_core_2567_2569": {
+      "no_unknown": 12,
+      "no_corresponding": 52,
+      "no_first": 14,
+      "no_coauthor": 38,
+      "yes_coauthor": 86,
+      "yes_corresponding": 30,
+      "yes_first": 6,
+      "yes_unknown": 5
+    },
+    "faculty_all_years": {
+      "no_corresponding": 122,
+      "no_first": 111,
+      "no_coauthor": 256,
+      "yes_coauthor": 139,
+      "yes_corresponding": 78,
+      "yes_first": 34,
+      "unknown_coauthor": 3
+    },
+    "faculty_2567_2569": {
+      "no_corresponding": 52,
+      "no_first": 14,
+      "no_coauthor": 38,
+      "yes_coauthor": 86,
+      "yes_corresponding": 30,
+      "yes_first": 6
+    }
+  },
+  "partners": {
+    "all_core": {
+      "japan": 47,
+      "netherlands": 6,
+      "viet nam": 64,
+      "australia": 14,
+      "united states": 77,
+      "saudi arabia": 48,
+      "portugal": 1,
+      "greece": 1,
+      "indonesia": 14,
+      "sri lanka": 1,
+      "south korea": 22,
+      "china": 14,
+      "united kingdom": 9,
+      "canada": 7,
+      "malaysia": 21,
+      "france": 2,
+      "brazil": 5,
+      "mexico": 3,
+      "germany": 5,
+      "cambodia": 4,
+      "sweden": 9,
+      "taiwan": 5,
+      "india": 107,
+      "afghanistan": 4,
+      "italy": 5,
+      "lebanon": 11,
+      "norway": 10,
+      "finland": 12,
+      "pakistan": 29,
+      "jordan": 15,
+      "croatia": 6,
+      "turkey": 2,
+      "estonia": 2,
+      "south africa": 3,
+      "united arab emirates": 5,
+      "macao": 1,
+      "egypt": 6,
+      "tunisia": 2,
+      "philippines": 1,
+      "nigeria": 1,
+      "yemen": 3,
+      "slovakia": 3,
+      "ethiopia": 2,
+      "new zealand": 2,
+      "luxembourg": 2,
+      "cameroon": 1,
+      "hungary": 1,
+      "poland": 1,
+      "singapore": 3,
+      "russian federation": 1,
+      "cyprus": 1,
+      "switzerland": 3,
+      "bangladesh": 1
+    },
+    "all_core_2567_2569": {
+      "saudi arabia": 28,
+      "australia": 2,
+      "indonesia": 8,
+      "china": 8,
+      "malaysia": 19,
+      "viet nam": 14,
+      "india": 74,
+      "afghanistan": 4,
+      "south korea": 16,
+      "united states": 18,
+      "italy": 1,
+      "lebanon": 11,
+      "norway": 8,
+      "finland": 9,
+      "pakistan": 11,
+      "jordan": 11,
+      "croatia": 6,
+      "turkey": 2,
+      "estonia": 1,
+      "south africa": 2,
+      "united kingdom": 3,
+      "united arab emirates": 5,
+      "brazil": 3,
+      "macao": 1,
+      "egypt": 6,
+      "tunisia": 1,
+      "philippines": 1,
+      "nigeria": 1,
+      "yemen": 1,
+      "ethiopia": 1,
+      "taiwan": 2,
+      "japan": 16,
+      "luxembourg": 2,
+      "mexico": 1,
+      "cameroon": 1,
+      "france": 1,
+      "canada": 1,
+      "switzerland": 3,
+      "slovakia": 1,
+      "bangladesh": 1
+    },
+    "faculty_all_years": {
+      "japan": 24,
+      "netherlands": 4,
+      "viet nam": 64,
+      "united states": 37,
+      "saudi arabia": 46,
+      "portugal": 1,
+      "greece": 1,
+      "indonesia": 13,
+      "sri lanka": 1,
+      "australia": 11,
+      "china": 12,
+      "canada": 2,
+      "malaysia": 20,
+      "south korea": 20,
+      "france": 2,
+      "brazil": 5,
+      "mexico": 3,
+      "germany": 5,
+      "cambodia": 4,
+      "sweden": 9,
+      "taiwan": 5,
+      "india": 103,
+      "afghanistan": 4,
+      "finland": 12,
+      "pakistan": 21,
+      "jordan": 15,
+      "lebanon": 10,
+      "croatia": 6,
+      "norway": 9,
+      "turkey": 2,
+      "estonia": 2,
+      "south africa": 3,
+      "united kingdom": 8,
+      "united arab emirates": 5,
+      "macao": 1,
+      "egypt": 6,
+      "tunisia": 2,
+      "philippines": 1,
+      "nigeria": 1,
+      "yemen": 2,
+      "slovakia": 3,
+      "ethiopia": 2,
+      "italy": 4,
+      "new zealand": 2,
+      "luxembourg": 2,
+      "cameroon": 1,
+      "hungary": 1,
+      "poland": 1,
+      "singapore": 3,
+      "russian federation": 1,
+      "cyprus": 1,
+      "switzerland": 3,
+      "bangladesh": 1
+    },
+    "faculty_2567_2569": {
+      "saudi arabia": 28,
+      "australia": 2,
+      "indonesia": 8,
+      "china": 7,
+      "malaysia": 19,
+      "viet nam": 14,
+      "india": 73,
+      "afghanistan": 4,
+      "south korea": 15,
+      "united states": 14,
+      "finland": 9,
+      "pakistan": 11,
+      "jordan": 11,
+      "lebanon": 10,
+      "croatia": 6,
+      "norway": 7,
+      "turkey": 2,
+      "estonia": 1,
+      "south africa": 2,
+      "united kingdom": 3,
+      "united arab emirates": 5,
+      "brazil": 3,
+      "macao": 1,
+      "egypt": 6,
+      "tunisia": 1,
+      "philippines": 1,
+      "nigeria": 1,
+      "yemen": 1,
+      "ethiopia": 1,
+      "taiwan": 2,
+      "japan": 16,
+      "luxembourg": 2,
+      "mexico": 1,
+      "cameroon": 1,
+      "france": 1,
+      "switzerland": 3,
+      "slovakia": 1,
+      "bangladesh": 1
+    }
+  },
+  "examples": {
+    "first_corresponding_overlap": [
+      {
+        "document_id": 3,
+        "eid": "2-s2.0-105004911616",
+        "scopus_id": "SCOPUS_ID:105004911616",
+        "year_ce": "2025"
+      },
+      {
+        "document_id": 6,
+        "eid": "2-s2.0-85174268674",
+        "scopus_id": "SCOPUS_ID:85174268674",
+        "year_ce": "2023"
+      },
+      {
+        "document_id": 27,
+        "eid": "2-s2.0-84868578909",
+        "scopus_id": "SCOPUS_ID:84868578909",
+        "year_ce": "2012"
+      },
+      {
+        "document_id": 40,
+        "eid": "2-s2.0-85050125034",
+        "scopus_id": "SCOPUS_ID:85050125034",
+        "year_ce": "2018"
+      },
+      {
+        "document_id": 46,
+        "eid": "2-s2.0-85029150862",
+        "scopus_id": "SCOPUS_ID:85029150862",
+        "year_ce": "2017"
+      },
+      {
+        "document_id": 63,
+        "eid": "2-s2.0-84881299980",
+        "scopus_id": "SCOPUS_ID:84881299980",
+        "year_ce": "2013"
+      },
+      {
+        "document_id": 67,
+        "eid": "2-s2.0-79960240807",
+        "scopus_id": "SCOPUS_ID:79960240807",
+        "year_ce": "2011"
+      },
+      {
+        "document_id": 70,
+        "eid": "2-s2.0-33847192504",
+        "scopus_id": "SCOPUS_ID:33847192504",
+        "year_ce": "2005"
+      }
+    ],
+    "all_three_role_overlap": [
+      {
+        "document_id": 3,
+        "eid": "2-s2.0-105004911616",
+        "scopus_id": "SCOPUS_ID:105004911616",
+        "year_ce": "2025"
+      },
+      {
+        "document_id": 27,
+        "eid": "2-s2.0-84868578909",
+        "scopus_id": "SCOPUS_ID:84868578909",
+        "year_ce": "2012"
+      },
+      {
+        "document_id": 40,
+        "eid": "2-s2.0-85050125034",
+        "scopus_id": "SCOPUS_ID:85050125034",
+        "year_ce": "2018"
+      },
+      {
+        "document_id": 46,
+        "eid": "2-s2.0-85029150862",
+        "scopus_id": "SCOPUS_ID:85029150862",
+        "year_ce": "2017"
+      },
+      {
+        "document_id": 120,
+        "eid": "2-s2.0-84858772066",
+        "scopus_id": "SCOPUS_ID:84858772066",
+        "year_ce": "2011"
+      },
+      {
+        "document_id": 131,
+        "eid": "2-s2.0-85082003806",
+        "scopus_id": "SCOPUS_ID:85082003806",
+        "year_ce": "2020"
+      },
+      {
+        "document_id": 133,
+        "eid": "2-s2.0-85064935473",
+        "scopus_id": "SCOPUS_ID:85064935473",
+        "year_ce": "2019"
+      },
+      {
+        "document_id": 134,
+        "eid": "2-s2.0-85062950887",
+        "scopus_id": "SCOPUS_ID:85062950887",
+        "year_ce": "2019"
+      }
+    ],
+    "same_author_first_corresponding": [
+      {
+        "document_id": 3,
+        "eid": "2-s2.0-105004911616",
+        "scopus_id": "SCOPUS_ID:105004911616",
+        "year_ce": "2025"
+      },
+      {
+        "document_id": 6,
+        "eid": "2-s2.0-85174268674",
+        "scopus_id": "SCOPUS_ID:85174268674",
+        "year_ce": "2023"
+      },
+      {
+        "document_id": 27,
+        "eid": "2-s2.0-84868578909",
+        "scopus_id": "SCOPUS_ID:84868578909",
+        "year_ce": "2012"
+      },
+      {
+        "document_id": 40,
+        "eid": "2-s2.0-85050125034",
+        "scopus_id": "SCOPUS_ID:85050125034",
+        "year_ce": "2018"
+      },
+      {
+        "document_id": 46,
+        "eid": "2-s2.0-85029150862",
+        "scopus_id": "SCOPUS_ID:85029150862",
+        "year_ce": "2017"
+      },
+      {
+        "document_id": 63,
+        "eid": "2-s2.0-84881299980",
+        "scopus_id": "SCOPUS_ID:84881299980",
+        "year_ce": "2013"
+      },
+      {
+        "document_id": 67,
+        "eid": "2-s2.0-79960240807",
+        "scopus_id": "SCOPUS_ID:79960240807",
+        "year_ce": "2011"
+      },
+      {
+        "document_id": 70,
+        "eid": "2-s2.0-33847192504",
+        "scopus_id": "SCOPUS_ID:33847192504",
+        "year_ce": "2005"
+      }
+    ],
+    "eligible_role_evidence": [
+      {
+        "document_id": 3,
+        "eid": "2-s2.0-105004911616",
+        "scopus_id": "SCOPUS_ID:105004911616",
+        "year_ce": "2025",
+        "authors": [
+          {
+            "scopus_author_id": "54683571200",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "35179942700",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "57218454758",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 27,
+        "eid": "2-s2.0-84868578909",
+        "scopus_id": "SCOPUS_ID:84868578909",
+        "year_ce": "2012",
+        "authors": [
+          {
+            "scopus_author_id": "57218454758",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "55453256400",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "55453094300",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "36669331500",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 40,
+        "eid": "2-s2.0-85050125034",
+        "scopus_id": "SCOPUS_ID:85050125034",
+        "year_ce": "2018",
+        "authors": [
+          {
+            "scopus_author_id": "56688578200",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "6506313280",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 46,
+        "eid": "2-s2.0-85029150862",
+        "scopus_id": "SCOPUS_ID:85029150862",
+        "year_ce": "2017",
+        "authors": [
+          {
+            "scopus_author_id": "6506313280",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "57194219816",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 120,
+        "eid": "2-s2.0-84858772066",
+        "scopus_id": "SCOPUS_ID:84858772066",
+        "year_ce": "2011",
+        "authors": [
+          {
+            "scopus_author_id": "57218454758",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "6506519783",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 131,
+        "eid": "2-s2.0-85082003806",
+        "scopus_id": "SCOPUS_ID:85082003806",
+        "year_ce": "2020",
+        "authors": [
+          {
+            "scopus_author_id": "56205414600",
+            "first": 1,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "54895164800",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "57192588751",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 133,
+        "eid": "2-s2.0-85064935473",
+        "scopus_id": "SCOPUS_ID:85064935473",
+        "year_ce": "2019",
+        "authors": [
+          {
+            "scopus_author_id": "56205414600",
+            "first": 1,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "54895164800",
+            "first": 0,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "57192588751",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "56028467300",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      },
+      {
+        "document_id": 134,
+        "eid": "2-s2.0-85062950887",
+        "scopus_id": "SCOPUS_ID:85062950887",
+        "year_ce": "2019",
+        "authors": [
+          {
+            "scopus_author_id": "57192588751",
+            "first": 1,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "56028467300",
+            "first": 0,
+            "corresponding": 1
+          },
+          {
+            "scopus_author_id": "56205414600",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "54895164800",
+            "first": 0,
+            "corresponding": 0
+          },
+          {
+            "scopus_author_id": "6506082174",
+            "first": 0,
+            "corresponding": 0
+          }
+        ]
+      }
+    ],
+    "multi_afid": [
+      {
+        "document_id": 30,
+        "eid": "2-s2.0-85138626819",
+        "scopus_id": "SCOPUS_ID:85138626819",
+        "year_ce": "2022",
+        "author_id": "56562406000",
+        "afids": [
+          "60017165",
+          "60008734"
+        ]
+      },
+      {
+        "document_id": 30,
+        "eid": "2-s2.0-85138626819",
+        "scopus_id": "SCOPUS_ID:85138626819",
+        "year_ce": "2022",
+        "author_id": "57209068452",
+        "afids": [
+          "60008734",
+          "60019816"
+        ]
+      },
+      {
+        "document_id": 39,
+        "eid": "2-s2.0-85046824606",
+        "scopus_id": "SCOPUS_ID:85046824606",
+        "year_ce": "2018",
+        "author_id": "57371148100",
+        "afids": [
+          "60280609",
+          "60112696"
+        ]
+      },
+      {
+        "document_id": 45,
+        "eid": "2-s2.0-85044056513",
+        "scopus_id": "SCOPUS_ID:85044056513",
+        "year_ce": "2017",
+        "author_id": "57371148100",
+        "afids": [
+          "60280609",
+          "60112696"
+        ]
+      },
+      {
+        "document_id": 165,
+        "eid": "2-s2.0-85018167954",
+        "scopus_id": "SCOPUS_ID:85018167954",
+        "year_ce": "2017",
+        "author_id": "57193993429",
+        "afids": [
+          "118417985",
+          "101580429",
+          "60017165"
+        ]
+      },
+      {
+        "document_id": 165,
+        "eid": "2-s2.0-85018167954",
+        "scopus_id": "SCOPUS_ID:85018167954",
+        "year_ce": "2017",
+        "author_id": "26424681900",
+        "afids": [
+          "118417985",
+          "101580429",
+          "60017165"
+        ]
+      },
+      {
+        "document_id": 165,
+        "eid": "2-s2.0-85018167954",
+        "scopus_id": "SCOPUS_ID:85018167954",
+        "year_ce": "2017",
+        "author_id": "57193993699",
+        "afids": [
+          "118417985",
+          "101580429",
+          "60017165"
+        ]
+      },
+      {
+        "document_id": 165,
+        "eid": "2-s2.0-85018167954",
+        "scopus_id": "SCOPUS_ID:85018167954",
+        "year_ce": "2017",
+        "author_id": "57193990985",
+        "afids": [
+          "101728632",
+          "60017165"
+        ]
+      }
+    ],
+    "dual_domestic_foreign": [
+      {
+        "document_id": 30,
+        "eid": "2-s2.0-85138626819",
+        "scopus_id": "SCOPUS_ID:85138626819",
+        "year_ce": "2022",
+        "author_id": "56562406000",
+        "afids": [
+          "60017165",
+          "60008734"
+        ],
+        "countries": [
+          "thailand",
+          "netherlands"
+        ]
+      },
+      {
+        "document_id": 39,
+        "eid": "2-s2.0-85046824606",
+        "scopus_id": "SCOPUS_ID:85046824606",
+        "year_ce": "2018",
+        "author_id": "57371148100",
+        "afids": [
+          "60280609",
+          "60112696"
+        ],
+        "countries": [
+          "thailand",
+          "viet nam"
+        ]
+      },
+      {
+        "document_id": 45,
+        "eid": "2-s2.0-85044056513",
+        "scopus_id": "SCOPUS_ID:85044056513",
+        "year_ce": "2017",
+        "author_id": "57371148100",
+        "afids": [
+          "60280609",
+          "60112696"
+        ],
+        "countries": [
+          "thailand",
+          "viet nam"
+        ]
+      },
+      {
+        "document_id": 219,
+        "eid": "2-s2.0-38649101253",
+        "scopus_id": "SCOPUS_ID:38649101253",
+        "year_ce": "2007",
+        "author_id": "56688578200",
+        "afids": [
+          "60029470",
+          "60028190"
+        ],
+        "countries": [
+          "australia",
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 289,
+        "eid": "2-s2.0-85196849176",
+        "scopus_id": "SCOPUS_ID:85196849176",
+        "year_ce": "2024",
+        "author_id": "59188288200",
+        "afids": [
+          "60026046",
+          "60367363"
+        ],
+        "countries": [
+          "thailand",
+          "indonesia"
+        ]
+      },
+      {
+        "document_id": 297,
+        "eid": "2-s2.0-85144789359",
+        "scopus_id": "SCOPUS_ID:85144789359",
+        "year_ce": "2022",
+        "author_id": "57188997943",
+        "afids": [
+          "60089125",
+          "60017165"
+        ],
+        "countries": [
+          "indonesia",
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 410,
+        "eid": "2-s2.0-85085023580",
+        "scopus_id": "SCOPUS_ID:85085023580",
+        "year_ce": "2021",
+        "author_id": "56883514900",
+        "afids": [
+          "60280609",
+          "60111656"
+        ],
+        "countries": [
+          "thailand",
+          "viet nam"
+        ]
+      },
+      {
+        "document_id": 413,
+        "eid": "2-s2.0-85094833198",
+        "scopus_id": "SCOPUS_ID:85094833198",
+        "year_ce": "2020",
+        "author_id": "57200857951",
+        "afids": [
+          "60280609",
+          "60071997"
+        ],
+        "countries": [
+          "thailand",
+          "cambodia"
+        ]
+      }
+    ],
+    "international_missed_by_legacy": [
+      {
+        "document_id": 39,
+        "eid": "2-s2.0-85046824606",
+        "scopus_id": "SCOPUS_ID:85046824606",
+        "year_ce": "2018",
+        "countries": [
+          "thailand",
+          "viet nam"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 45,
+        "eid": "2-s2.0-85044056513",
+        "scopus_id": "SCOPUS_ID:85044056513",
+        "year_ce": "2017",
+        "countries": [
+          "thailand",
+          "viet nam"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 410,
+        "eid": "2-s2.0-85085023580",
+        "scopus_id": "SCOPUS_ID:85085023580",
+        "year_ce": "2021",
+        "countries": [
+          "thailand",
+          "viet nam"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 414,
+        "eid": "2-s2.0-85081566863",
+        "scopus_id": "SCOPUS_ID:85081566863",
+        "year_ce": "2020",
+        "countries": [
+          "cambodia",
+          "thailand"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 721,
+        "eid": "2-s2.0-105015041582",
+        "scopus_id": "SCOPUS_ID:105015041582",
+        "year_ce": "2026",
+        "countries": [
+          "india",
+          "thailand"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 802,
+        "eid": "2-s2.0-85049407842",
+        "scopus_id": "SCOPUS_ID:85049407842",
+        "year_ce": "2018",
+        "countries": [
+          "thailand",
+          "viet nam"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 912,
+        "eid": "2-s2.0-105033664816",
+        "scopus_id": "SCOPUS_ID:105033664816",
+        "year_ce": "2025",
+        "countries": [
+          "thailand",
+          "viet nam"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 953,
+        "eid": "2-s2.0-105035320416",
+        "scopus_id": "SCOPUS_ID:105035320416",
+        "year_ce": "2026",
+        "countries": [
+          "thailand",
+          "united states"
+        ],
+        "legacy_countries": [
+          "thailand"
+        ]
+      }
+    ],
+    "additional_all_affiliation_faculty": [
+      {
+        "document_id": 165,
+        "eid": "2-s2.0-85018167954",
+        "scopus_id": "SCOPUS_ID:85018167954",
+        "year_ce": "2017"
+      },
+      {
+        "document_id": 230,
+        "eid": "2-s2.0-85104665755",
+        "scopus_id": "SCOPUS_ID:85104665755",
+        "year_ce": "2021"
+      },
+      {
+        "document_id": 620,
+        "eid": "2-s2.0-85145355659",
+        "scopus_id": "SCOPUS_ID:85145355659",
+        "year_ce": "2023"
+      },
+      {
+        "document_id": 901,
+        "eid": "2-s2.0-84990211980",
+        "scopus_id": "SCOPUS_ID:84990211980",
+        "year_ce": "2016"
+      }
+    ],
+    "unresolved_country": [
+      {
+        "document_id": 230,
+        "eid": "2-s2.0-85104665755",
+        "scopus_id": "SCOPUS_ID:85104665755",
+        "year_ce": "2021",
+        "afids": [
+          "126187062"
+        ]
+      }
+    ],
+    "core_unknown_country": [
+      {
+        "document_id": 230,
+        "eid": "2-s2.0-85104665755",
+        "scopus_id": "SCOPUS_ID:85104665755",
+        "year_ce": "2021",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 302,
+        "eid": "2-s2.0-85083259138",
+        "scopus_id": "SCOPUS_ID:85083259138",
+        "year_ce": "2020",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 303,
+        "eid": "2-s2.0-85078284899",
+        "scopus_id": "SCOPUS_ID:85078284899",
+        "year_ce": "2019",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 503,
+        "eid": "2-s2.0-84866081039",
+        "scopus_id": "SCOPUS_ID:84866081039",
+        "year_ce": "2005",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 779,
+        "eid": "2-s2.0-85098514915",
+        "scopus_id": "SCOPUS_ID:85098514915",
+        "year_ce": "2020",
+        "countries": [
+          "thailand"
+        ]
+      }
+    ],
+    "missing_author_afid": [
+      {
+        "document_id": 302,
+        "eid": "2-s2.0-85083259138",
+        "scopus_id": "SCOPUS_ID:85083259138",
+        "year_ce": "2020",
+        "author_id": "57214133004"
+      },
+      {
+        "document_id": 303,
+        "eid": "2-s2.0-85078284899",
+        "scopus_id": "SCOPUS_ID:85078284899",
+        "year_ce": "2019",
+        "author_id": "57214133004"
+      },
+      {
+        "document_id": 503,
+        "eid": "2-s2.0-84866081039",
+        "scopus_id": "SCOPUS_ID:84866081039",
+        "year_ce": "2005",
+        "author_id": "55348994500"
+      },
+      {
+        "document_id": 640,
+        "eid": "2-s2.0-85129642319",
+        "scopus_id": "SCOPUS_ID:85129642319",
+        "year_ce": "2022",
+        "author_id": "57218830707"
+      },
+      {
+        "document_id": 640,
+        "eid": "2-s2.0-85129642319",
+        "scopus_id": "SCOPUS_ID:85129642319",
+        "year_ce": "2022",
+        "author_id": "57324816100"
+      },
+      {
+        "document_id": 643,
+        "eid": "2-s2.0-85129665829",
+        "scopus_id": "SCOPUS_ID:85129665829",
+        "year_ce": "2022",
+        "author_id": "57216217368"
+      },
+      {
+        "document_id": 643,
+        "eid": "2-s2.0-85129665829",
+        "scopus_id": "SCOPUS_ID:85129665829",
+        "year_ce": "2022",
+        "author_id": "57324816100"
+      },
+      {
+        "document_id": 779,
+        "eid": "2-s2.0-85098514915",
+        "scopus_id": "SCOPUS_ID:85098514915",
+        "year_ce": "2020",
+        "author_id": "6508122813"
+      }
+    ],
+    "faculty_unknown_country": [
+      {
+        "document_id": 302,
+        "eid": "2-s2.0-85083259138",
+        "scopus_id": "SCOPUS_ID:85083259138",
+        "year_ce": "2020",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 303,
+        "eid": "2-s2.0-85078284899",
+        "scopus_id": "SCOPUS_ID:85078284899",
+        "year_ce": "2019",
+        "countries": [
+          "thailand"
+        ]
+      },
+      {
+        "document_id": 503,
+        "eid": "2-s2.0-84866081039",
+        "scopus_id": "SCOPUS_ID:84866081039",
+        "year_ce": "2005",
+        "countries": [
+          "thailand"
+        ]
+      }
+    ]
+  },
+  "payload_country_spellings": {
+    "Thailand": 1201,
+    "Japan": 48,
+    "Netherlands": 7,
+    "Viet Nam": 82,
+    "Australia": 15,
+    "United States": 102,
+    "Saudi Arabia": 61,
+    "Portugal": 1,
+    "Indonesia": 21,
+    "Sri Lanka": 2,
+    "Greece": 1,
+    "South Korea": 24,
+    "China": 15,
+    "United Kingdom": 9,
+    "Canada": 7,
+    "Malaysia": 28,
+    "France": 2,
+    "Mexico": 3,
+    "Brazil": 5,
+    "Germany": 5,
+    "Cambodia": 4,
+    "Sweden": 9,
+    "Taiwan": 6,
+    "India": 211,
+    "Afghanistan": 4,
+    "Italy": 6,
+    "Lebanon": 11,
+    "Norway": 11,
+    "Finland": 14,
+    "Pakistan": 52,
+    "Jordan": 15,
+    "Croatia": 6,
+    "Estonia": 2,
+    "Turkey": 2,
+    "South Africa": 4,
+    "United Arab Emirates": 5,
+    "Macao": 1,
+    "Egypt": 6,
+    "Philippines": 2,
+    "Tunisia": 3,
+    "Nigeria": 2,
+    "Yemen": 3,
+    "Slovakia": 3,
+    "Ethiopia": 2,
+    "New Zealand": 2,
+    "Luxembourg": 2,
+    "Cameroon": 1,
+    "Hungary": 1,
+    "Poland": 1,
+    "Singapore": 4,
+    "Russian Federation": 1,
+    "Cyprus": 1,
+    "Switzerland": 3,
+    "Bangladesh": 1
+  },
+  "catalogue_country_spellings": {
+    "United States": 52,
+    "Thailand": 91,
+    "Brazil": 3,
+    "India": 90,
+    "China": 13,
+    "Bangladesh": 1,
+    "Singapore": 3,
+    "Germany": 2,
+    "Taiwan": 4,
+    "Indonesia": 14,
+    "Yemen": 2,
+    "Viet Nam": 17,
+    "United Arab Emirates": 4,
+    "Pakistan": 24,
+    "": 1,
+    "Egypt": 4,
+    "Canada": 3,
+    "South Korea": 11,
+    "South Africa": 4,
+    "Malaysia": 6,
+    "Poland": 1,
+    "Slovakia": 1,
+    "New Zealand": 2,
+    "Netherlands": 4,
+    "Italy": 3,
+    "Saudi Arabia": 25,
+    "Nigeria": 2,
+    "Cyprus": 1,
+    "Sweden": 1,
+    "Finland": 2,
+    "United Kingdom": 6,
+    "Mexico": 2,
+    "Japan": 9,
+    "Croatia": 2,
+    "Australia": 7,
+    "Norway": 3,
+    "Greece": 1,
+    "Portugal": 1,
+    "Macao": 1,
+    "Russian Federation": 1,
+    "Switzerland": 1,
+    "France": 1,
+    "Jordan": 4,
+    "Lebanon": 1,
+    "Estonia": 2,
+    "Tunisia": 3,
+    "Cameroon": 1,
+    "Sri Lanka": 2,
+    "Philippines": 2,
+    "Cambodia": 1,
+    "Luxembourg": 1,
+    "Turkey": 2,
+    "Hungary": 1,
+    "Ethiopia": 2,
+    "Afghanistan": 2
+  },
+  "missing_catalogue_afids": {},
+  "unresolved_country_afids": {
+    "126187062": 1
+  },
+  "payload_top_level_key_counts": {
+    "@_fa": 949,
+    "link": 949,
+    "prism:url": 949,
+    "dc:identifier": 949,
+    "eid": 949,
+    "dc:title": 949,
+    "dc:creator": 949,
+    "prism:publicationName": 949,
+    "prism:issn": 400,
+    "prism:volume": 629,
+    "prism:pageRange": 949,
+    "prism:coverDate": 949,
+    "prism:coverDisplayDate": 949,
+    "prism:doi": 835,
+    "pii": 74,
+    "dc:description": 919,
+    "citedby-count": 949,
+    "affiliation": 949,
+    "prism:aggregationType": 949,
+    "subtype": 949,
+    "subtypeDescription": 949,
+    "author-count": 949,
+    "author": 949,
+    "authkeywords": 835,
+    "article-number": 424,
+    "source-id": 949,
+    "fund-acr": 329,
+    "fund-sponsor": 336,
+    "openaccess": 949,
+    "openaccessFlag": 949,
+    "prism:isbn": 430,
+    "prism:eIssn": 463,
+    "freetoread": 322,
+    "freetoreadLabel": 322,
+    "prism:issueIdentifier": 337,
+    "fund-no": 178,
+    "pubmed-id": 40
+  },
+  "cohort_diagnostics": [
+    {
+      "users_active_non_test": 53,
+      "faculty_roster_users": "45",
+      "users_with_scopus_id": "41",
+      "non_roster_users_with_scopus_id": "0"
+    }
+  ],
+  "faculty_employment_diagnostics": [
+    {
+      "cohort_documents": 743,
+      "documents_with_preemployment_eligible_author": 0,
+      "documents_with_non_roster_eligible_user": 0
+    }
+  ],
+  "plan": [
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "u",
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": "59",
+      "Extra": "Using where; Start temporary"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "sa",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY,uq_scopus_authors_scopus_author_id",
+      "key": "uq_scopus_authors_scopus_author_id",
+      "key_len": "402",
+      "ref": "func",
+      "rows": "1",
+      "Extra": "Using where; Using index"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "sda",
+      "type": "ref",
+      "possible_keys": "uq_scopus_document_authors_doc_author,fk_scopus_document_authors_affiliation,idx_scopus_document_authors_author,idx_scopus_document_authors_document",
+      "key": "idx_scopus_document_authors_author",
+      "key_len": "8",
+      "ref": "drnadech_fund_cpkku_intern.sa.id",
+      "rows": "1",
+      "Extra": "Using where"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "sd",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "8",
+      "ref": "drnadech_fund_cpkku_intern.sda.document_id",
+      "rows": "1",
+      "Extra": "Using where"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "aff",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "8",
+      "ref": "drnadech_fund_cpkku_intern.sda.affiliation_id",
+      "rows": "1",
+      "Extra": "Using where; End temporary"
+    }
+  ],
+  "bounds": {
+    "core_count": 949,
+    "documents_read": 949,
+    "links_read": 3734,
+    "catalogue_read": 450
+  }
+}
