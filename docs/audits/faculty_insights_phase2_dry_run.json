@@ -1,0 +1,1 @@
+{"mode":"dry_run","normalizer_version":"core-countries-v2","processed":949,"last_id":955,"through_id":955,"yes":334,"no":610,"unknown":5,"complete":941,"reasons":{"missing_or_malformed_author_afids":7,"unresolved_affiliation_country":1,"unresolved_catalogue_country":1}}
