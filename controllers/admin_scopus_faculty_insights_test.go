@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"fund-management-api/models"
@@ -122,5 +124,36 @@ func TestFacultyInsightDimensionValidation(t *testing.T) {
 		if _, err := parseFacultyInsightDimensions(c); err != nil {
 			t.Fatalf("valid query %s: %v", query, err)
 		}
+	}
+}
+
+func TestFacultyInsightSearchBoundsAndFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, text := range []string{strings.Repeat("ก", 201), "line\nfeed", "\x00", string([]byte{0xff})} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("GET", "/?drilldown_search="+url.QueryEscape(text), nil)
+		if _, err := parseFacultyInsightDimensions(c); err == nil {
+			t.Fatalf("accepted invalid search %q", text)
+		}
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/?drilldown_search="+url.QueryEscape("  "+strings.Repeat("ก", 198)), nil)
+	dim, err := parseFacultyInsightDimensions(c)
+	if err != nil || dim.Search != strings.Repeat("ก", 198) {
+		t.Fatal("Unicode bound/trim", dim, err)
+	}
+	doc := facultyInsightDocument{EID: "EID-246", Title: insightString("ชื่อเรื่อง %_ MixedCase"), DOI: insightString("10.1234/special"), ScopusID: insightString("SID-246"), PublicationName: insightString("Unique Journal"), EligibleAuthors: []facultyInsightAuthor{{FullName: insightString("Alice Example")}}}
+	for _, text := range []string{"", "ชื่อเรื่อง", "%_", "mixedcase", "eid-246", "10.1234/SPECIAL", "sid-246", "unique journal", "ALICE"} {
+		if !facultyInsightSearchMatches(doc, text) {
+			t.Errorf("missed field %q", text)
+		}
+	}
+	for _, text := range []string{"%missing%", "author-id", "no match"} {
+		if facultyInsightSearchMatches(doc, text) {
+			t.Errorf("false match %q", text)
+		}
+	}
+	if facultyInsightSearchMatches(facultyInsightDocument{}, "anything") {
+		t.Fatal("nil fields matched")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -519,5 +520,71 @@ func TestFacultyInsightSnapshotBatchesAndAmbiguousMetrics(t *testing.T) {
 	w, b := facultyAPIRequest(t, AdminGetScopusFacultyInsights, "")
 	if w.Code != 503 || b["code"] != "faculty_insights_unavailable" {
 		t.Fatal("ambiguous metric joins silently classified", b)
+	}
+}
+
+func TestFacultyInsightAPIFullGroupSearch(t *testing.T) {
+	db := facultyAPIIntegrationDB(t)
+	seedFacultyAPIFixture(t, db)
+	if err := db.Exec(`UPDATE scopus_documents SET title='Beyond page 200 กรณีทดสอบ %_' WHERE id=246`).Error; err != nil {
+		t.Fatal(err)
+	}
+	total, rev := facultyAPITotal(t, "")
+	if total != 246 {
+		t.Fatal(total)
+	}
+	request := func(search, dimensions string) map[string]interface{} {
+		w, b := facultyAPIRequest(t, AdminGetScopusFacultyInsightsDrilldown, "revision="+rev+"&page_size=200&drilldown_search="+url.QueryEscape(search)+dimensions)
+		if w.Code != 200 || b["revision"] != rev {
+			t.Fatal(w.Code, b)
+		}
+		return b
+	}
+	for _, text := range []string{"BEYOND PAGE 200", "กรณีทดสอบ", "%_", "eid-246", "sid-246", "doi-246"} {
+		b := request(text, "")
+		docs := b["documents"].([]interface{})
+		if b["scope_total"] != float64(246) || b["total"] != float64(1) || len(docs) != 1 || docs[0].(map[string]interface{})["document_id"] != float64(246) {
+			t.Fatal("search truncated/changed scope", b)
+		}
+	}
+	b := request("eid-246", "&year_be=undated&international_status=unknown&faculty_role=coauthor&country_key=thailand")
+	if b["scope_total"] != float64(1) || b["total"] != float64(1) {
+		t.Fatal("combined dimensions lost", b)
+	}
+	if b = request("eid-246", "&international_status=yes"); b["total"] != float64(0) || b["scope_total"] != float64(3) {
+		t.Fatal("search escaped cell", b)
+	}
+	b = request("Alice Example", "")
+	if b["total"] != float64(246) || len(b["documents"].([]interface{})) != 200 {
+		t.Fatal("eligible author search", b)
+	}
+	b = request("Common Journal", "")
+	if b["total"] != float64(245) {
+		t.Fatal("journal search", b)
+	}
+	b = request("", "&page=2")
+	if b["total"] != float64(246) || len(b["documents"].([]interface{})) != 46 {
+		t.Fatal("clear/pagination", b)
+	}
+	b = request("missing", "")
+	if b["total"] != float64(0) || b["scope_total"] != float64(246) || b["total_pages"] != float64(0) {
+		t.Fatal("empty scope", b)
+	}
+	b = request("  eid-246  ", "")
+	if b["search"] != "eid-246" {
+		t.Fatal("normalized query", b)
+	}
+	_, after := facultyAPITotal(t, "")
+	if after != rev {
+		t.Fatal("search changed summary revision")
+	}
+	w, b := facultyAPIRequest(t, AdminGetScopusFacultyInsightsDrilldown, "revision="+strings.Repeat("0", 64)+"&drilldown_search=missing")
+	if w.Code != 409 || b["documents"] != nil {
+		t.Fatal("search bypassed revision", b)
+	}
+	_, filteredRev := facultyAPITotal(t, "search_title=Needle")
+	w, b = facultyAPIRequest(t, AdminGetScopusFacultyInsightsDrilldown, "search_title=Needle&revision="+filteredRev+"&drilldown_search=eid-246")
+	if w.Code != 200 || b["scope_total"] != float64(1) || b["total"] != float64(0) || b["revision"] != filteredRev {
+		t.Fatal("search replaced global filter", b)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -30,10 +32,10 @@ var insightCountryKeyPattern = regexp.MustCompile(`^[a-z][a-z '-]{0,95}$`)
 // This projection deliberately excludes raw_json, abstracts and any benchmark/ThaiJO data.
 type facultyInsightDocument struct {
 	ID                     uint                          `json:"document_id"`
-	EID                    string                        `json:"eid"`
+	EID                    string                        `gorm:"column:eid" json:"eid"`
 	ScopusID               *string                       `json:"scopus_id"`
 	Title                  *string                       `json:"title"`
-	DOI                    *string                       `json:"doi"`
+	DOI                    *string                       `gorm:"column:doi" json:"doi"`
 	ScopusLink             *string                       `json:"scopus_link"`
 	PublicationName        *string                       `json:"publication_name"`
 	AggregationType        *string                       `json:"aggregation_type"`
@@ -424,11 +426,17 @@ type facultyInsightDimensions struct {
 	Year                                      *int
 	Undated                                   bool
 	International, Role, CountryKey, Revision string
+	Search                                    string
 	Page, PageSize                            int
 }
 
 func parseFacultyInsightDimensions(c *gin.Context) (facultyInsightDimensions, error) {
 	d := facultyInsightDimensions{Page: 1, PageSize: 50, International: c.Query("international_status"), Role: c.Query("faculty_role"), CountryKey: c.Query("country_key"), Revision: c.Query("revision")}
+	rawSearch := c.Query("drilldown_search")
+	if !utf8.ValidString(rawSearch) || utf8.RuneCountInString(rawSearch) > 200 || strings.ContainsFunc(rawSearch, unicode.IsControl) {
+		return d, errors.New("drilldown_search must contain at most 200 Unicode characters without control characters")
+	}
+	d.Search = strings.TrimSpace(rawSearch)
 	if y := c.Query("year_be"); y != "" {
 		if y == "undated" {
 			d.Undated = true
@@ -521,9 +529,13 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 			return
 		}
 		matching := []facultyInsightDocument{}
+		scopeTotal := 0
 		for _, d := range snapshot.Documents {
 			if dim.matches(d) {
-				matching = append(matching, d)
+				scopeTotal++
+				if facultyInsightSearchMatches(d, dim.Search) {
+					matching = append(matching, d)
+				}
 			}
 		}
 		total := len(matching)
@@ -535,6 +547,30 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 		if end > total {
 			end = total
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "contract_version": facultyInsightContractVersion, "source": "scopus_core", "scope": "faculty", "revision": snapshot.Revision, "total": total, "page": dim.Page, "page_size": dim.PageSize, "total_pages": (total + dim.PageSize - 1) / dim.PageSize, "sort": "document_id_asc", "documents": matching[start:end]})
+		c.JSON(http.StatusOK, gin.H{"success": true, "contract_version": facultyInsightContractVersion, "source": "scopus_core", "scope": "faculty", "revision": snapshot.Revision, "scope_total": scopeTotal, "search": dim.Search, "total": total, "page": dim.Page, "page_size": dim.PageSize, "total_pages": (total + dim.PageSize - 1) / dim.PageSize, "sort": "document_id_asc", "documents": matching[start:end]})
 	})
+}
+
+// Literal, case-insensitive search of the entire selected group, after snapshot
+// revision validation and before pagination. It never changes shared filters.
+func facultyInsightSearchMatches(d facultyInsightDocument, search string) bool {
+	if search == "" {
+		return true
+	}
+	needle := strings.ToLower(search)
+	contains := func(value string) bool { return strings.Contains(strings.ToLower(value), needle) }
+	if contains(d.EID) {
+		return true
+	}
+	for _, value := range []*string{d.Title, d.DOI, d.ScopusID, d.PublicationName} {
+		if value != nil && contains(*value) {
+			return true
+		}
+	}
+	for _, author := range d.EligibleAuthors {
+		if author.FullName != nil && contains(*author.FullName) {
+			return true
+		}
+	}
+	return false
 }
