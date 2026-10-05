@@ -1,0 +1,1409 @@
+{
+  "timestamp_utc": "2026-10-04T23:17:45.516777+00:00",
+  "environment": "development",
+  "database": "drnadech_fund_cpkku_intern",
+  "endpoint_fingerprint_matches_phase1": true,
+  "identity": {
+    "database_name": "drnadech_fund_cpkku_intern",
+    "version": "10.11.18-MariaDB-0+deb12u1-log",
+    "server_read_only": 0
+  },
+  "migration_sha256": "498ec33503123623f64805e37d5b3dab076683ea226caab4c43b33f1e52e1180",
+  "new_tables_present": [],
+  "schema": {
+    "tables": [
+      {
+        "TABLE_NAME": "scopus_authors",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "ENGINE": "InnoDB",
+        "TABLE_COLLATION": "utf8mb4_unicode_ci"
+      }
+    ],
+    "columns": [
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "afid",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "name",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "city",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "country",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "affiliation_url",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "created_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "COLUMN_NAME": "updated_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "scopus_author_id",
+        "COLUMN_TYPE": "varchar(100)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "full_name",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "given_name",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "surname",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "initials",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "orcid",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "author_url",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "created_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "COLUMN_NAME": "updated_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "eid",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "scopus_id",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "scopus_link",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "title",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "abstract",
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "aggregation_type",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "subtype",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "subtype_description",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "source_id",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "publication_name",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "issn",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "eissn",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "isbn",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "volume",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "issue",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "page_range",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "article_number",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "cover_date",
+        "COLUMN_TYPE": "date",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "cover_display_date",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "doi",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "pii",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "citedby_count",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "openaccess",
+        "COLUMN_TYPE": "tinyint(4)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "openaccess_flag",
+        "COLUMN_TYPE": "tinyint(1)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "authkeywords",
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_bin"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "fund_acr",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "fund_sponsor",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_name",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_venue",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_city",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_country",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_location",
+        "COLUMN_TYPE": "text",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_info_json",
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_bin"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "conference_info_fetched_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "author_role_status",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "author_role_checked_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "raw_json",
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_bin"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "created_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "updated_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "category",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "classification_confidence",
+        "COLUMN_TYPE": "enum('High','Medium','Low','Preface')",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "classification_model",
+        "COLUMN_TYPE": "varchar(128)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "classification_taxonomy_version",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "COLUMN_NAME": "classified_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "document_id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "author_id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "author_seq",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "affiliation_id",
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "is_first_author",
+        "COLUMN_TYPE": "tinyint(1)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "is_corresponding_author",
+        "COLUMN_TYPE": "tinyint(1)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "created_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "COLUMN_NAME": "updated_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "source_metric_id",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "source_id",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "issn",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "eissn",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "metric_year",
+        "COLUMN_TYPE": "int(4)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "doc_type",
+        "COLUMN_TYPE": "varchar(32)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score",
+        "COLUMN_TYPE": "decimal(8,3)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_status",
+        "COLUMN_TYPE": "enum('Complete','In-Progress')",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_scholarly_output",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_citation_count",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_percent_cited",
+        "COLUMN_TYPE": "decimal(5,2)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_rank",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_percentile",
+        "COLUMN_TYPE": "decimal(5,2)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_quartile",
+        "COLUMN_TYPE": "varchar(4)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_current_metric",
+        "COLUMN_TYPE": "decimal(8,3)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_current_metric_year",
+        "COLUMN_TYPE": "int(4)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_tracker",
+        "COLUMN_TYPE": "decimal(8,3)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_score_tracker_year",
+        "COLUMN_TYPE": "int(4)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "sjr",
+        "COLUMN_TYPE": "decimal(8,3)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "snip",
+        "COLUMN_TYPE": "decimal(8,3)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "publication_count",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "cite_count_sce",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "zero_cites_sce",
+        "COLUMN_TYPE": "decimal(5,2)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "rev_percent",
+        "COLUMN_TYPE": "decimal(5,2)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "created_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "updated_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "COLUMN_NAME": "last_fetched_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "user_id",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "user_fname",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "user_lname",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "gender",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "email",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "email_notification",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "scholar_author_id",
+        "COLUMN_TYPE": "varchar(64)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "scopus_id",
+        "COLUMN_TYPE": "varchar(100)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "thaijo_author_id",
+        "COLUMN_TYPE": "varchar(100)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "thaijo_sync_enabled",
+        "COLUMN_TYPE": "tinyint(1)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "password",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "role_id",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "position_id",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "date_of_employment",
+        "COLUMN_TYPE": "date",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "create_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "update_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "delete_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "prefix",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "manage_position",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "position",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "position_en",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "prefix_position_en",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "Name_en",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "suffix_en",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "TEL",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "TELformat",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "TEL_ENG",
+        "COLUMN_TYPE": "varchar(50)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "manage_position_en",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "LAB_Name",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "Room",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "CP_WEB_ID",
+        "COLUMN_TYPE": "varchar(255)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "Is_active",
+        "COLUMN_TYPE": "char(1)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": "utf8mb4_unicode_ci"
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "is_test",
+        "COLUMN_TYPE": "tinyint(1)",
+        "IS_NULLABLE": "NO",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "last_login_at",
+        "COLUMN_TYPE": "datetime",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      },
+      {
+        "TABLE_NAME": "users",
+        "COLUMN_NAME": "course_id",
+        "COLUMN_TYPE": "int(11)",
+        "IS_NULLABLE": "YES",
+        "COLLATION_NAME": null
+      }
+    ],
+    "indexes": [
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_affiliations",
+        "INDEX_NAME": "uq_scopus_affiliations_afid",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "afid"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_authors",
+        "INDEX_NAME": "uq_scopus_authors_scopus_author_id",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "scopus_author_id"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_author_role_status",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "author_role_status"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_conference_city",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "conference_city"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_conference_country",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "conference_country"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_cover_date",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "cover_date"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_doi",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "doi"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_paper_category",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "category"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "idx_scopus_documents_source_id",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "source_id"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_documents",
+        "INDEX_NAME": "uq_scopus_documents_eid",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "eid"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "fk_scopus_document_authors_affiliation",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "affiliation_id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "idx_scopus_document_authors_author",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "author_id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "idx_scopus_document_authors_document",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "document_id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "idx_scopus_document_authors_document",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "author_seq"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "uq_scopus_document_authors_doc_author",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "document_id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "INDEX_NAME": "uq_scopus_document_authors_doc_author",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "author_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_eissn_year",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "eissn"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_eissn_year",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "metric_year"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_issn_year",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "issn"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_issn_year",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "metric_year"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_metrics_lookup",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "source_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_metrics_lookup",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "doc_type"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_metrics_lookup",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 3,
+        "COLUMN_NAME": "metric_year"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_metrics_lookup",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 4,
+        "COLUMN_NAME": "cite_score_status"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "doc_type"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "source_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 3,
+        "COLUMN_NAME": "metric_year"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "idx_ssm_doc_type_source_metric",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 4,
+        "COLUMN_NAME": "source_metric_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "source_metric_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "uq_scopus_source_year_type",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "source_id"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "uq_scopus_source_year_type",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "metric_year"
+      },
+      {
+        "TABLE_NAME": "scopus_source_metrics",
+        "INDEX_NAME": "uq_scopus_source_year_type",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 3,
+        "COLUMN_NAME": "doc_type"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "fk_instructor_course",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "course_id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "idx_email",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "email"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "idx_fullname",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "user_fname"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "idx_fullname",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "user_lname"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "position_id",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "position_id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "user_id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "INDEX_NAME": "role_id",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "role_id"
+      }
+    ],
+    "foreign_keys": [
+      {
+        "TABLE_NAME": "scopus_documents",
+        "CONSTRAINT_NAME": "fk_scopus_documents_paper_category",
+        "COLUMN_NAME": "category",
+        "REFERENCED_TABLE_NAME": "paper_categories",
+        "REFERENCED_COLUMN_NAME": "category_id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "CONSTRAINT_NAME": "fk_scopus_document_authors_affiliation",
+        "COLUMN_NAME": "affiliation_id",
+        "REFERENCED_TABLE_NAME": "scopus_affiliations",
+        "REFERENCED_COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "CONSTRAINT_NAME": "fk_scopus_document_authors_author",
+        "COLUMN_NAME": "author_id",
+        "REFERENCED_TABLE_NAME": "scopus_authors",
+        "REFERENCED_COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "scopus_document_authors",
+        "CONSTRAINT_NAME": "fk_scopus_document_authors_document",
+        "COLUMN_NAME": "document_id",
+        "REFERENCED_TABLE_NAME": "scopus_documents",
+        "REFERENCED_COLUMN_NAME": "id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "CONSTRAINT_NAME": "fk_instructor_course",
+        "COLUMN_NAME": "course_id",
+        "REFERENCED_TABLE_NAME": "instructor_courses",
+        "REFERENCED_COLUMN_NAME": "course_id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "CONSTRAINT_NAME": "users_ibfk_1",
+        "COLUMN_NAME": "role_id",
+        "REFERENCED_TABLE_NAME": "roles",
+        "REFERENCED_COLUMN_NAME": "role_id"
+      },
+      {
+        "TABLE_NAME": "users",
+        "CONSTRAINT_NAME": "users_ibfk_2",
+        "COLUMN_NAME": "position_id",
+        "REFERENCED_TABLE_NAME": "positions",
+        "REFERENCED_COLUMN_NAME": "position_id"
+      }
+    ],
+    "triggers": []
+  },
+  "privileges": {
+    "required_available": true,
+    "process_visibility": false,
+    "target_privilege_codes": [
+      "ALTER",
+      "ALTER ROUTINE",
+      "CREATE",
+      "CREATE ROUTINE",
+      "CREATE TEMPORARY TABLES",
+      "CREATE VIEW",
+      "DELETE",
+      "DROP",
+      "EVENT",
+      "EXECUTE",
+      "INDEX",
+      "INSERT",
+      "LOCK TABLES",
+      "REFERENCES",
+      "SELECT",
+      "SHOW VIEW",
+      "TRIGGER",
+      "UPDATE",
+      "USAGE"
+    ]
+  },
+  "activity": {
+    "visible_connections": 0,
+    "active_visible_writers": 0,
+    "active_job_rows": {
+      "scopus_api_import_jobs": 1,
+      "scopus_author_metrics_runs": 0,
+      "scopus_author_role_runs": 0,
+      "scopus_batch_import_runs": 0,
+      "scopus_benchmark_harvest_runs": 0,
+      "scopus_conference_fetch_runs": 0
+    },
+    "active_job_details": {
+      "scopus_api_import_jobs": [
+        {
+          "id": 214,
+          "status": "running",
+          "started_at": "2026-04-05T04:42:16",
+          "finished_at": null,
+          "created_at": "2026-04-05T04:42:16",
+          "updated_at": "2026-04-05T04:42:16"
+        }
+      ]
+    },
+    "request_history": {
+      "count": 547,
+      "last_created_at": "2026-08-16T22:07:46"
+    },
+    "limitation": "point-in-time visible sessions/job records; no guarantee against new external jobs"
+  },
+  "document_id_compatible": true,
+  "documents": {
+    "count": 949,
+    "max_id": 955
+  },
+  "source_fingerprints": {
+    "documents": "ce3c6ce4f4a7e6e8423b70bb081b3b21118989ad71e0a167f474b5309f65a710",
+    "author_links": "13f6e03fd9992c3aad4b703c18f8de139de7f8b3202a39ec93f01f9a520bb3fa",
+    "catalogue": "353ba59c21f752fe43bd62024a86a5dc505fe25d23658946671b25ca73002143",
+    "cohort_users": "f929a276a53b78c57dafe4c727a499278644bf57d5d4bbaa309bb9685f99ef9b",
+    "source_metrics": "f866d5a9610c66b621752b0ef3b7d906ddbf9bb2cf10288c63930cb8063caceb"
+  },
+  "existing_evidence_counts": {}
+}

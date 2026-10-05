@@ -1,0 +1,15 @@
+{
+  "backup_file": "G:\\works-fund-project\\.test-rollout-backup\\test-insights-20261004T231832Z.json.dpapi",
+  "encrypted_sha256": "f4e306b27d988ed96585509dc524830827801282217a1496df36bf6367dfe3f0",
+  "recoverability": "DPAPI current Windows user; encrypt/decrypt and disk roundtrip verified",
+  "database": "drnadech_fund_cpkku_intern",
+  "migration_sha256": "498ec33503123623f64805e37d5b3dab076683ea226caab4c43b33f1e52e1180",
+  "schema_state_hash": "f6922f9145de7821adf676d9576071566a3e82bc4386125989ec7f3946715894",
+  "source_fingerprints": {
+    "documents": "ce3c6ce4f4a7e6e8423b70bb081b3b21118989ad71e0a167f474b5309f65a710",
+    "author_links": "13f6e03fd9992c3aad4b703c18f8de139de7f8b3202a39ec93f01f9a520bb3fa",
+    "catalogue": "353ba59c21f752fe43bd62024a86a5dc505fe25d23658946671b25ca73002143",
+    "cohort_users": "f929a276a53b78c57dafe4c727a499278644bf57d5d4bbaa309bb9685f99ef9b",
+    "source_metrics": "f866d5a9610c66b621752b0ef3b7d906ddbf9bb2cf10288c63930cb8063caceb"
+  }
+}

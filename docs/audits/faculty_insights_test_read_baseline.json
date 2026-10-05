@@ -1,0 +1,147 @@
+{
+  "timestamp_utc": "2026-10-04T23:37:08.703318+00:00",
+  "database": "drnadech_fund_cpkku_intern",
+  "identity": {
+    "database_name": "drnadech_fund_cpkku_intern",
+    "version": "10.11.18-MariaDB-0+deb12u1-log",
+    "server_read_only": 0
+  },
+  "source_fingerprints": {
+    "documents": "ce3c6ce4f4a7e6e8423b70bb081b3b21118989ad71e0a167f474b5309f65a710",
+    "author_links": "13f6e03fd9992c3aad4b703c18f8de139de7f8b3202a39ec93f01f9a520bb3fa",
+    "catalogue": "353ba59c21f752fe43bd62024a86a5dc505fe25d23658946671b25ca73002143",
+    "cohort_users": "f929a276a53b78c57dafe4c727a499278644bf57d5d4bbaa309bb9685f99ef9b",
+    "source_metrics": "f866d5a9610c66b621752b0ef3b7d906ddbf9bb2cf10288c63930cb8063caceb"
+  },
+  "verification": {
+    "counts": {
+      "scopus_document_affiliations": 2041,
+      "scopus_document_countries": 1515,
+      "scopus_document_insights": 949,
+      "scopus_country_catalogue_guard": 1
+    },
+    "guard": [
+      {
+        "id": 1,
+        "revision": 0
+      }
+    ],
+    "foreign_keys": [
+      {
+        "TABLE_NAME": "scopus_document_affiliations",
+        "DELETE_RULE": "CASCADE"
+      },
+      {
+        "TABLE_NAME": "scopus_document_insights",
+        "DELETE_RULE": "CASCADE"
+      },
+      {
+        "TABLE_NAME": "scopus_document_countries",
+        "DELETE_RULE": "CASCADE"
+      }
+    ],
+    "required_triggers_verified": [
+      "scopus_core_catalogue_guard_insert",
+      "scopus_core_catalogue_guard_update",
+      "scopus_core_catalogue_guard_delete",
+      "scopus_core_country_catalogue_insert",
+      "scopus_core_country_catalogue_update",
+      "scopus_core_country_catalogue_delete",
+      "scopus_core_payload_update"
+    ],
+    "source_fingerprints_preserved": true,
+    "derived_fingerprints": {
+      "scopus_document_affiliations": "f4076a987c549bede9be46bb90bb696babba3b468c96532deb118aa67bca02ce",
+      "scopus_document_countries": "fb725255ce2c967f32e0ed835cf45ecd9fcad68de39a4c05387d6f5fa45f8b96",
+      "scopus_document_insights": "451143aee9b8cfc9f1169a7898a85df5efd2f22431785c671ef8de7f39dbe084",
+      "scopus_country_catalogue_guard": "c307e13b12dbbd2990106d8f1a4e963f68b8cf2e113bd0aca84b1c76955d6a9f"
+    },
+    "international": [
+      {
+        "international_collaboration": null,
+        "count": 5
+      },
+      {
+        "international_collaboration": 0,
+        "count": 610
+      },
+      {
+        "international_collaboration": 1,
+        "count": 334
+      }
+    ],
+    "statuses": [
+      {
+        "status": "complete",
+        "normalizer_version": "core-countries-v2",
+        "count": 941
+      },
+      {
+        "status": "incomplete",
+        "normalizer_version": "core-countries-v2",
+        "count": 8
+      }
+    ],
+    "completeness": {
+      "affiliations_complete": "942",
+      "countries_complete": "941"
+    },
+    "unknown_reasons": [
+      {
+        "document_id": 230,
+        "reasons_json": "[\"unresolved_affiliation_country\",\"unresolved_catalogue_country\"]"
+      },
+      {
+        "document_id": 302,
+        "reasons_json": "[\"missing_or_malformed_author_afids\"]"
+      },
+      {
+        "document_id": 303,
+        "reasons_json": "[\"missing_or_malformed_author_afids\"]"
+      },
+      {
+        "document_id": 503,
+        "reasons_json": "[\"missing_or_malformed_author_afids\"]"
+      },
+      {
+        "document_id": 779,
+        "reasons_json": "[\"missing_or_malformed_author_afids\"]"
+      }
+    ],
+    "duplicate_country_keys": 0,
+    "coverage": {
+      "documents": 949,
+      "with_insights": "949"
+    }
+  },
+  "activity": {
+    "visible_connections": 1,
+    "active_visible_writers": 0,
+    "active_job_rows": {
+      "scopus_api_import_jobs": 1,
+      "scopus_author_metrics_runs": 0,
+      "scopus_author_role_runs": 0,
+      "scopus_batch_import_runs": 0,
+      "scopus_benchmark_harvest_runs": 0,
+      "scopus_conference_fetch_runs": 0
+    },
+    "active_job_details": {
+      "scopus_api_import_jobs": [
+        {
+          "id": 214,
+          "status": "running",
+          "started_at": "2026-04-05T04:42:16",
+          "finished_at": null,
+          "created_at": "2026-04-05T04:42:16",
+          "updated_at": "2026-04-05T04:42:16"
+        }
+      ]
+    },
+    "recent_or_undated_running_jobs": 0,
+    "request_history": {
+      "count": 547,
+      "last_created_at": "2026-08-16T22:07:46"
+    },
+    "limitation": "point-in-time own-account sessions/job records; >24h records retained without cancellation, no guarantee against new external jobs"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "timestamp_utc": "2026-10-04T23:33:32.5784392+00:00",
+  "configured_http_port": 8080,
+  "local_api_listener_detected": false,
+  "owned_backend_process_detected": false,
+  "full_application_started": false,
+  "unrelated_port_8000_python_listener_preserved": true,
+  "services_stopped_or_restarted": [],
+  "externally_reachable_service_started": false,
+  "limitation": "No remote serving backend deployment/restart was attempted; cmd/api binds all interfaces and initializes background jobs, so any startup needs a separately reviewed loopback plan."
+}

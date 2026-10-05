@@ -1,0 +1,156 @@
+{
+  "timestamp_utc": "2026-10-04T23:29:16.676904+00:00",
+  "database": "drnadech_fund_cpkku_intern",
+  "through_id": 955,
+  "batches": [
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 100,
+      "through_id": 955,
+      "yes": 7,
+      "no": 93,
+      "unknown": 0,
+      "complete": 100,
+      "reasons": {}
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 200,
+      "through_id": 955,
+      "yes": 16,
+      "no": 84,
+      "unknown": 0,
+      "complete": 100,
+      "reasons": {}
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 300,
+      "through_id": 955,
+      "yes": 16,
+      "no": 83,
+      "unknown": 1,
+      "complete": 99,
+      "reasons": {
+        "unresolved_affiliation_country": 1,
+        "unresolved_catalogue_country": 1
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 400,
+      "through_id": 955,
+      "yes": 28,
+      "no": 70,
+      "unknown": 2,
+      "complete": 98,
+      "reasons": {
+        "missing_or_malformed_author_afids": 2
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 500,
+      "through_id": 955,
+      "yes": 15,
+      "no": 85,
+      "unknown": 0,
+      "complete": 100,
+      "reasons": {}
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 600,
+      "through_id": 955,
+      "yes": 43,
+      "no": 56,
+      "unknown": 1,
+      "complete": 99,
+      "reasons": {
+        "missing_or_malformed_author_afids": 1
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 700,
+      "through_id": 955,
+      "yes": 59,
+      "no": 41,
+      "unknown": 0,
+      "complete": 98,
+      "reasons": {
+        "missing_or_malformed_author_afids": 2
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 800,
+      "through_id": 955,
+      "yes": 73,
+      "no": 26,
+      "unknown": 1,
+      "complete": 99,
+      "reasons": {
+        "missing_or_malformed_author_afids": 1
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 100,
+      "last_id": 906,
+      "through_id": 955,
+      "yes": 50,
+      "no": 50,
+      "unknown": 0,
+      "complete": 99,
+      "reasons": {
+        "missing_or_malformed_author_afids": 1
+      }
+    },
+    {
+      "mode": "apply",
+      "normalizer_version": "core-countries-v2",
+      "processed": 49,
+      "last_id": 955,
+      "through_id": 955,
+      "yes": 27,
+      "no": 22,
+      "unknown": 0,
+      "complete": 49,
+      "reasons": {}
+    }
+  ],
+  "binary_sha256": "72c7dacc2c4430091a5bafe245fa06f3fe724b0f692733ed707e6f355a40a0da",
+  "processed": 949,
+  "last_id": 955,
+  "errors": 0,
+  "totals": {
+    "processed": 949,
+    "yes": 334,
+    "no": 610,
+    "unknown": 5,
+    "complete": 941
+  },
+  "reasons": {
+    "unresolved_affiliation_country": 1,
+    "unresolved_catalogue_country": 1,
+    "missing_or_malformed_author_afids": 7
+  }
+}

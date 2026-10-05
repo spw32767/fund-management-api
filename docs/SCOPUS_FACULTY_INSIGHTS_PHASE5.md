@@ -1,5 +1,7 @@
 # Faculty research insights — Phase 5 integrated verification
 
+**Subsequent authorized TEST rollout:** [TEST database rollout report](SCOPUS_FACULTY_INSIGHTS_TEST_ROLLOUT.md) records the later actual migration/backfill and saved-data verification. Unapplied-shared-TEST statements below describe the historical Phase 5 state; production remains untouched.
+
 **READY FOR MANAGER REVIEW.** The previously pending native MariaDB gate passed on an isolated, checksum-verified **MariaDB 10.11.16 Windows** process. Native foundation/API checks, authenticated frontend integration, regressions and production preview guards passed. This supersedes the historical Phase 2/3 statements that native execution was pending.
 
 Backend baseline `9f2e20f`; frontend baseline `10f7644`, both on `codex/faculty-research-insights`. Changes remain uncommitted. No shared migration/backfill, shared database writes, Scopus harvesting, deployment, commit/push, branch switch, subagent, manager message or automation was performed.

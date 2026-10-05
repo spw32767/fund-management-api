@@ -1,0 +1,3924 @@
+{
+  "database": "drnadech_fund_cpkku_intern",
+  "measurement_scope": "current configured TEST database over network, actual handler/query/JSON work; SQL instrumentation and test decoding included; HTTP/auth/browser transport excluded; serial warm samples, no production SLA",
+  "no_application_initialization": true,
+  "no_server_started": true,
+  "passed": true,
+  "read_only_confirmed": true,
+  "request_costs": [
+    {
+      "documents": 743,
+      "endpoint": "summary",
+      "iterations": 3,
+      "max_ms": 566.499,
+      "median_ms": 530.867,
+      "min_ms": 519.861,
+      "query": "scope=faculty\u0026open_access_mode=all",
+      "response_bytes_by_request": [
+        39777,
+        39777,
+        39777
+      ],
+      "sql_ms_by_request": [
+        494.818,
+        479.356,
+        528.0319999999999
+      ],
+      "sql_statements_by_request": [
+        19,
+        19,
+        19
+      ]
+    },
+    {
+      "documents": 743,
+      "endpoint": "drilldown_200",
+      "iterations": 3,
+      "max_ms": 558.457,
+      "median_ms": 545.078,
+      "min_ms": 532.25,
+      "query": "scope=faculty\u0026open_access_mode=all",
+      "response_bytes_by_request": [
+        355780,
+        355780,
+        355780
+      ],
+      "sql_ms_by_request": [
+        492.358,
+        517.684,
+        488.75299999999993
+      ],
+      "sql_statements_by_request": [
+        19,
+        19,
+        19
+      ]
+    },
+    {
+      "documents": 226,
+      "endpoint": "summary",
+      "iterations": 3,
+      "max_ms": 431.033,
+      "median_ms": 428.21,
+      "min_ms": 394.636,
+      "query": "scope=faculty\u0026open_access_mode=all\u0026year_start_be=2567\u0026year_end_be=2569",
+      "response_bytes_by_request": [
+        15025,
+        15025,
+        15025
+      ],
+      "sql_ms_by_request": [
+        360.024,
+        394.183,
+        394.08099999999996
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16
+      ]
+    },
+    {
+      "documents": 226,
+      "endpoint": "drilldown_200",
+      "iterations": 3,
+      "max_ms": 444.779,
+      "median_ms": 421.278,
+      "min_ms": 369.133,
+      "query": "scope=faculty\u0026open_access_mode=all\u0026year_start_be=2567\u0026year_end_be=2569",
+      "response_bytes_by_request": [
+        366331,
+        366331,
+        366331
+      ],
+      "sql_ms_by_request": [
+        406.07099999999997,
+        332.14,
+        382.457
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16
+      ]
+    },
+    {
+      "documents": 104,
+      "endpoint": "summary",
+      "iterations": 3,
+      "max_ms": 396.739,
+      "median_ms": 372.872,
+      "min_ms": 363.727,
+      "query": "scope=faculty\u0026open_access_mode=all\u0026aggregation_types=Journal\u0026quality_buckets=T1,Q1,Q2,Q3,Q4\u0026year_start_be=2568\u0026year_end_be=2569",
+      "response_bytes_by_request": [
+        10959,
+        10959,
+        10959
+      ],
+      "sql_ms_by_request": [
+        340.784,
+        331.57000000000005,
+        359.841
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16
+      ]
+    },
+    {
+      "documents": 104,
+      "endpoint": "drilldown_200",
+      "iterations": 3,
+      "max_ms": 380.166,
+      "median_ms": 372.446,
+      "min_ms": 369.641,
+      "query": "scope=faculty\u0026open_access_mode=all\u0026aggregation_types=Journal\u0026quality_buckets=T1,Q1,Q2,Q3,Q4\u0026year_start_be=2568\u0026year_end_be=2569",
+      "response_bytes_by_request": [
+        194406,
+        194406,
+        194406
+      ],
+      "sql_ms_by_request": [
+        333.97099999999995,
+        343.703,
+        336.538
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16
+      ]
+    }
+  ],
+  "revision_after_reads_unchanged": true,
+  "stale_revision_409_without_documents": true,
+  "summaries": {
+    "faculty_BE2567_2569": {
+      "cross_tab_cells_verified": 48,
+      "partner_counts_verified": 38,
+      "summary": {
+        "by_year": [
+          {
+            "bucket": "2567",
+            "country_role": {
+              "no": {
+                "coauthor": 10,
+                "corresponding": 17,
+                "first": 4,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 26,
+                "corresponding": 9,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 31,
+              "unknown": 0,
+              "yes": 37
+            },
+            "international_percent": {
+              "no": 45.588235294117645,
+              "unknown": 0,
+              "yes": 54.411764705882355
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 20,
+                "percent_international": 54.054054054054056
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 8,
+                "percent_international": 21.62162162162162
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 6,
+                "percent_international": 16.216216216216218
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 5,
+                "percent_international": 13.513513513513514
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 3,
+                "percent_international": 8.108108108108109
+              },
+              {
+                "country_key": "united arab emirates",
+                "country_name": "United Arab Emirates",
+                "documents": 3,
+                "percent_international": 8.108108108108109
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "norway",
+                "country_name": "Norway",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "cameroon",
+                "country_name": "Cameroon",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "croatia",
+                "country_name": "Croatia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "france",
+                "country_name": "France",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "luxembourg",
+                "country_name": "Luxembourg",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "mexico",
+                "country_name": "Mexico",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "nigeria",
+                "country_name": "Nigeria",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "philippines",
+                "country_name": "Philippines",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "south africa",
+                "country_name": "South Africa",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "tunisia",
+                "country_name": "Tunisia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "yemen",
+                "country_name": "Yemen",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              }
+            ],
+            "role_percent": {
+              "coauthor": 52.94117647058823,
+              "corresponding": 38.23529411764706,
+              "first": 8.823529411764707,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 36,
+              "corresponding": 26,
+              "first": 6,
+              "unknown": 0
+            },
+            "total": 68,
+            "year_be": 2567,
+            "year_ce": 2024
+          },
+          {
+            "bucket": "2568",
+            "country_role": {
+              "no": {
+                "coauthor": 16,
+                "corresponding": 23,
+                "first": 7,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 25,
+                "corresponding": 8,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 46,
+              "unknown": 0,
+              "yes": 35
+            },
+            "international_percent": {
+              "no": 56.79012345679013,
+              "unknown": 0,
+              "yes": 43.20987654320987
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 18,
+                "percent_international": 51.42857142857143
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "croatia",
+                "country_name": "Croatia",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "norway",
+                "country_name": "Norway",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 4,
+                "percent_international": 11.428571428571429
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 4,
+                "percent_international": 11.428571428571429
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 3,
+                "percent_international": 8.571428571428571
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 3,
+                "percent_international": 8.571428571428571
+              },
+              {
+                "country_key": "afghanistan",
+                "country_name": "Afghanistan",
+                "documents": 2,
+                "percent_international": 5.714285714285714
+              },
+              {
+                "country_key": "taiwan",
+                "country_name": "Taiwan",
+                "documents": 2,
+                "percent_international": 5.714285714285714
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "estonia",
+                "country_name": "Estonia",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "luxembourg",
+                "country_name": "Luxembourg",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "macao",
+                "country_name": "Macao",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "south africa",
+                "country_name": "South Africa",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "turkey",
+                "country_name": "Turkey",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              }
+            ],
+            "role_percent": {
+              "coauthor": 50.617283950617285,
+              "corresponding": 38.27160493827161,
+              "first": 11.11111111111111,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 41,
+              "corresponding": 31,
+              "first": 9,
+              "unknown": 0
+            },
+            "total": 81,
+            "year_be": 2568,
+            "year_ce": 2025
+          },
+          {
+            "bucket": "2569",
+            "country_role": {
+              "no": {
+                "coauthor": 12,
+                "corresponding": 12,
+                "first": 3,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 35,
+                "corresponding": 13,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 27,
+              "unknown": 0,
+              "yes": 50
+            },
+            "international_percent": {
+              "no": 35.064935064935064,
+              "unknown": 0,
+              "yes": 64.93506493506493
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 35,
+                "percent_international": 70
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 14,
+                "percent_international": 28
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 11,
+                "percent_international": 22
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 11,
+                "percent_international": 22
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 9,
+                "percent_international": 18
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 7,
+                "percent_international": 14
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 6,
+                "percent_international": 12
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 3,
+                "percent_international": 6
+              },
+              {
+                "country_key": "switzerland",
+                "country_name": "Switzerland",
+                "documents": 3,
+                "percent_international": 6
+              },
+              {
+                "country_key": "afghanistan",
+                "country_name": "Afghanistan",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "united arab emirates",
+                "country_name": "United Arab Emirates",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "bangladesh",
+                "country_name": "Bangladesh",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "ethiopia",
+                "country_name": "Ethiopia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "slovakia",
+                "country_name": "Slovakia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "turkey",
+                "country_name": "Turkey",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 1,
+                "percent_international": 2
+              }
+            ],
+            "role_percent": {
+              "coauthor": 61.03896103896104,
+              "corresponding": 32.467532467532465,
+              "first": 6.4935064935064934,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 47,
+              "corresponding": 25,
+              "first": 5,
+              "unknown": 0
+            },
+            "total": 77,
+            "year_be": 2569,
+            "year_ce": 2026
+          },
+          {
+            "bucket": "undated",
+            "country_role": {
+              "no": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 0,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": null,
+              "unknown": null,
+              "yes": null
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": null,
+              "corresponding": null,
+              "first": null,
+              "unknown": null
+            },
+            "roles": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "total": 0,
+            "year_be": null,
+            "year_ce": null
+          }
+        ],
+        "contract_version": "faculty-insights-v1",
+        "revision": "720d15e662414236437d58ed242c70b60a51a0a407598468eef24b49187e035b",
+        "scope": "faculty",
+        "source": "scopus_core",
+        "success": true,
+        "totals": {
+          "country_role": {
+            "no": {
+              "coauthor": 38,
+              "corresponding": 52,
+              "first": 14,
+              "unknown": 0
+            },
+            "unknown": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "yes": {
+              "coauthor": 86,
+              "corresponding": 30,
+              "first": 6,
+              "unknown": 0
+            }
+          },
+          "international": {
+            "no": 104,
+            "unknown": 0,
+            "yes": 122
+          },
+          "international_percent": {
+            "no": 46.017699115044245,
+            "unknown": 0,
+            "yes": 53.982300884955755
+          },
+          "partners": [
+            {
+              "country_key": "india",
+              "country_name": "India",
+              "documents": 73,
+              "percent_international": 59.83606557377049
+            },
+            {
+              "country_key": "saudi arabia",
+              "country_name": "Saudi Arabia",
+              "documents": 28,
+              "percent_international": 22.950819672131146
+            },
+            {
+              "country_key": "malaysia",
+              "country_name": "Malaysia",
+              "documents": 19,
+              "percent_international": 15.573770491803279
+            },
+            {
+              "country_key": "japan",
+              "country_name": "Japan",
+              "documents": 16,
+              "percent_international": 13.114754098360656
+            },
+            {
+              "country_key": "south korea",
+              "country_name": "South Korea",
+              "documents": 15,
+              "percent_international": 12.295081967213115
+            },
+            {
+              "country_key": "united states",
+              "country_name": "United States",
+              "documents": 14,
+              "percent_international": 11.475409836065573
+            },
+            {
+              "country_key": "vietnam",
+              "country_name": "Vietnam",
+              "documents": 14,
+              "percent_international": 11.475409836065573
+            },
+            {
+              "country_key": "jordan",
+              "country_name": "Jordan",
+              "documents": 11,
+              "percent_international": 9.01639344262295
+            },
+            {
+              "country_key": "pakistan",
+              "country_name": "Pakistan",
+              "documents": 11,
+              "percent_international": 9.01639344262295
+            },
+            {
+              "country_key": "lebanon",
+              "country_name": "Lebanon",
+              "documents": 10,
+              "percent_international": 8.19672131147541
+            },
+            {
+              "country_key": "finland",
+              "country_name": "Finland",
+              "documents": 9,
+              "percent_international": 7.377049180327869
+            },
+            {
+              "country_key": "indonesia",
+              "country_name": "Indonesia",
+              "documents": 8,
+              "percent_international": 6.557377049180328
+            },
+            {
+              "country_key": "china",
+              "country_name": "China",
+              "documents": 7,
+              "percent_international": 5.737704918032787
+            },
+            {
+              "country_key": "norway",
+              "country_name": "Norway",
+              "documents": 7,
+              "percent_international": 5.737704918032787
+            },
+            {
+              "country_key": "croatia",
+              "country_name": "Croatia",
+              "documents": 6,
+              "percent_international": 4.918032786885246
+            },
+            {
+              "country_key": "egypt",
+              "country_name": "Egypt",
+              "documents": 6,
+              "percent_international": 4.918032786885246
+            },
+            {
+              "country_key": "united arab emirates",
+              "country_name": "United Arab Emirates",
+              "documents": 5,
+              "percent_international": 4.098360655737705
+            },
+            {
+              "country_key": "afghanistan",
+              "country_name": "Afghanistan",
+              "documents": 4,
+              "percent_international": 3.278688524590164
+            },
+            {
+              "country_key": "brazil",
+              "country_name": "Brazil",
+              "documents": 3,
+              "percent_international": 2.459016393442623
+            },
+            {
+              "country_key": "switzerland",
+              "country_name": "Switzerland",
+              "documents": 3,
+              "percent_international": 2.459016393442623
+            },
+            {
+              "country_key": "united kingdom",
+              "country_name": "United Kingdom",
+              "documents": 3,
+              "percent_international": 2.459016393442623
+            },
+            {
+              "country_key": "australia",
+              "country_name": "Australia",
+              "documents": 2,
+              "percent_international": 1.639344262295082
+            },
+            {
+              "country_key": "luxembourg",
+              "country_name": "Luxembourg",
+              "documents": 2,
+              "percent_international": 1.639344262295082
+            },
+            {
+              "country_key": "south africa",
+              "country_name": "South Africa",
+              "documents": 2,
+              "percent_international": 1.639344262295082
+            },
+            {
+              "country_key": "taiwan",
+              "country_name": "Taiwan",
+              "documents": 2,
+              "percent_international": 1.639344262295082
+            },
+            {
+              "country_key": "turkey",
+              "country_name": "Turkey",
+              "documents": 2,
+              "percent_international": 1.639344262295082
+            },
+            {
+              "country_key": "bangladesh",
+              "country_name": "Bangladesh",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "cameroon",
+              "country_name": "Cameroon",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "estonia",
+              "country_name": "Estonia",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "ethiopia",
+              "country_name": "Ethiopia",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "france",
+              "country_name": "France",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "macao",
+              "country_name": "Macao",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "mexico",
+              "country_name": "Mexico",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "nigeria",
+              "country_name": "Nigeria",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "philippines",
+              "country_name": "Philippines",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "slovakia",
+              "country_name": "Slovakia",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "tunisia",
+              "country_name": "Tunisia",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            },
+            {
+              "country_key": "yemen",
+              "country_name": "Yemen",
+              "documents": 1,
+              "percent_international": 0.819672131147541
+            }
+          ],
+          "role_percent": {
+            "coauthor": 54.86725663716814,
+            "corresponding": 36.283185840707965,
+            "first": 8.849557522123893,
+            "unknown": 0
+          },
+          "roles": {
+            "coauthor": 124,
+            "corresponding": 82,
+            "first": 20,
+            "unknown": 0
+          },
+          "total": 226
+        }
+      },
+      "unique_paged_documents": 226
+    },
+    "faculty_all_years": {
+      "cross_tab_cells_verified": 312,
+      "partner_counts_verified": 53,
+      "summary": {
+        "by_year": [
+          {
+            "bucket": "2545",
+            "country_role": {
+              "no": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 1,
+              "unknown": 0,
+              "yes": 1
+            },
+            "international_percent": {
+              "no": 50,
+              "unknown": 0,
+              "yes": 50
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 1,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 100,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 2,
+              "unknown": 0
+            },
+            "total": 2,
+            "year_be": 2545,
+            "year_ce": 2002
+          },
+          {
+            "bucket": "2546",
+            "country_role": {
+              "no": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 1,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 100,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 1,
+              "unknown": 0
+            },
+            "total": 1,
+            "year_be": 2546,
+            "year_ce": 2003
+          },
+          {
+            "bucket": "2547",
+            "country_role": {
+              "no": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 1,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 100,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 1,
+              "unknown": 0
+            },
+            "total": 1,
+            "year_be": 2547,
+            "year_ce": 2004
+          },
+          {
+            "bucket": "2548",
+            "country_role": {
+              "no": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 3,
+              "unknown": 1,
+              "yes": 1
+            },
+            "international_percent": {
+              "no": 60,
+              "unknown": 20,
+              "yes": 20
+            },
+            "partners": [
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 1,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 60,
+              "corresponding": 0,
+              "first": 40,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 3,
+              "corresponding": 0,
+              "first": 2,
+              "unknown": 0
+            },
+            "total": 5,
+            "year_be": 2548,
+            "year_ce": 2005
+          },
+          {
+            "bucket": "2549",
+            "country_role": {
+              "no": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 2,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 4,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 50,
+              "corresponding": 0,
+              "first": 50,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 2,
+              "corresponding": 0,
+              "first": 2,
+              "unknown": 0
+            },
+            "total": 4,
+            "year_be": 2549,
+            "year_ce": 2006
+          },
+          {
+            "bucket": "2550",
+            "country_role": {
+              "no": {
+                "coauthor": 3,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 3,
+              "unknown": 0,
+              "yes": 1
+            },
+            "international_percent": {
+              "no": 75,
+              "unknown": 0,
+              "yes": 25
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 1,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 75,
+              "corresponding": 0,
+              "first": 25,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 3,
+              "corresponding": 0,
+              "first": 1,
+              "unknown": 0
+            },
+            "total": 4,
+            "year_be": 2550,
+            "year_ce": 2007
+          },
+          {
+            "bucket": "2551",
+            "country_role": {
+              "no": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 2,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 100,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 2,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "total": 2,
+            "year_be": 2551,
+            "year_ce": 2008
+          },
+          {
+            "bucket": "2552",
+            "country_role": {
+              "no": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 3,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 66.66666666666667,
+              "corresponding": 0,
+              "first": 33.333333333333336,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 2,
+              "corresponding": 0,
+              "first": 1,
+              "unknown": 0
+            },
+            "total": 3,
+            "year_be": 2552,
+            "year_ce": 2009
+          },
+          {
+            "bucket": "2553",
+            "country_role": {
+              "no": {
+                "coauthor": 4,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 3,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 4,
+              "unknown": 0,
+              "yes": 4
+            },
+            "international_percent": {
+              "no": 50,
+              "unknown": 0,
+              "yes": 50
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 4,
+                "percent_international": 100
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 3,
+                "percent_international": 75
+              }
+            ],
+            "role_percent": {
+              "coauthor": 62.5,
+              "corresponding": 0,
+              "first": 37.5,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 5,
+              "corresponding": 0,
+              "first": 3,
+              "unknown": 0
+            },
+            "total": 8,
+            "year_be": 2553,
+            "year_ce": 2010
+          },
+          {
+            "bucket": "2554",
+            "country_role": {
+              "no": {
+                "coauthor": 4,
+                "corresponding": 0,
+                "first": 4,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 8,
+              "unknown": 0,
+              "yes": 2
+            },
+            "international_percent": {
+              "no": 80,
+              "unknown": 0,
+              "yes": 20
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 2,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 40,
+              "corresponding": 0,
+              "first": 60,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 4,
+              "corresponding": 0,
+              "first": 6,
+              "unknown": 0
+            },
+            "total": 10,
+            "year_be": 2554,
+            "year_ce": 2011
+          },
+          {
+            "bucket": "2555",
+            "country_role": {
+              "no": {
+                "coauthor": 7,
+                "corresponding": 1,
+                "first": 8,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 16,
+              "unknown": 0,
+              "yes": 2
+            },
+            "international_percent": {
+              "no": 88.88888888888889,
+              "unknown": 0,
+              "yes": 11.11111111111111
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 2,
+                "percent_international": 100
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 1,
+                "percent_international": 50
+              }
+            ],
+            "role_percent": {
+              "coauthor": 44.44444444444444,
+              "corresponding": 5.555555555555555,
+              "first": 50,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 8,
+              "corresponding": 1,
+              "first": 9,
+              "unknown": 0
+            },
+            "total": 18,
+            "year_be": 2555,
+            "year_ce": 2012
+          },
+          {
+            "bucket": "2556",
+            "country_role": {
+              "no": {
+                "coauthor": 18,
+                "corresponding": 1,
+                "first": 5,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 24,
+              "unknown": 0,
+              "yes": 4
+            },
+            "international_percent": {
+              "no": 85.71428571428571,
+              "unknown": 0,
+              "yes": 14.285714285714286
+            },
+            "partners": [
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 2,
+                "percent_international": 50
+              },
+              {
+                "country_key": "canada",
+                "country_name": "Canada",
+                "documents": 1,
+                "percent_international": 25
+              },
+              {
+                "country_key": "netherlands",
+                "country_name": "Netherlands",
+                "documents": 1,
+                "percent_international": 25
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 1,
+                "percent_international": 25
+              }
+            ],
+            "role_percent": {
+              "coauthor": 71.42857142857143,
+              "corresponding": 3.5714285714285716,
+              "first": 25,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 20,
+              "corresponding": 1,
+              "first": 7,
+              "unknown": 0
+            },
+            "total": 28,
+            "year_be": 2556,
+            "year_ce": 2013
+          },
+          {
+            "bucket": "2557",
+            "country_role": {
+              "no": {
+                "coauthor": 33,
+                "corresponding": 4,
+                "first": 10,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 47,
+              "unknown": 0,
+              "yes": 1
+            },
+            "international_percent": {
+              "no": 97.91666666666667,
+              "unknown": 0,
+              "yes": 2.0833333333333335
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 1,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 70.83333333333333,
+              "corresponding": 8.333333333333334,
+              "first": 20.833333333333332,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 34,
+              "corresponding": 4,
+              "first": 10,
+              "unknown": 0
+            },
+            "total": 48,
+            "year_be": 2557,
+            "year_ce": 2014
+          },
+          {
+            "bucket": "2558",
+            "country_role": {
+              "no": {
+                "coauthor": 18,
+                "corresponding": 3,
+                "first": 6,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 27,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": 100,
+              "unknown": 0,
+              "yes": 0
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": 66.66666666666667,
+              "corresponding": 11.11111111111111,
+              "first": 22.22222222222222,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 18,
+              "corresponding": 3,
+              "first": 6,
+              "unknown": 0
+            },
+            "total": 27,
+            "year_be": 2558,
+            "year_ce": 2015
+          },
+          {
+            "bucket": "2559",
+            "country_role": {
+              "no": {
+                "coauthor": 29,
+                "corresponding": 3,
+                "first": 8,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 2,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 40,
+              "unknown": 0,
+              "yes": 2
+            },
+            "international_percent": {
+              "no": 95.23809523809524,
+              "unknown": 0,
+              "yes": 4.761904761904762
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 2,
+                "percent_international": 100
+              }
+            ],
+            "role_percent": {
+              "coauthor": 73.80952380952381,
+              "corresponding": 7.142857142857143,
+              "first": 19.047619047619047,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 31,
+              "corresponding": 3,
+              "first": 8,
+              "unknown": 0
+            },
+            "total": 42,
+            "year_be": 2559,
+            "year_ce": 2016
+          },
+          {
+            "bucket": "2560",
+            "country_role": {
+              "no": {
+                "coauthor": 23,
+                "corresponding": 4,
+                "first": 10,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 3,
+                "corresponding": 5,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 37,
+              "unknown": 0,
+              "yes": 8
+            },
+            "international_percent": {
+              "no": 82.22222222222223,
+              "unknown": 0,
+              "yes": 17.77777777777778
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 5,
+                "percent_international": 62.5
+              },
+              {
+                "country_key": "cambodia",
+                "country_name": "Cambodia",
+                "documents": 1,
+                "percent_international": 12.5
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 1,
+                "percent_international": 12.5
+              },
+              {
+                "country_key": "taiwan",
+                "country_name": "Taiwan",
+                "documents": 1,
+                "percent_international": 12.5
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 1,
+                "percent_international": 12.5
+              }
+            ],
+            "role_percent": {
+              "coauthor": 57.77777777777778,
+              "corresponding": 20,
+              "first": 22.22222222222222,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 26,
+              "corresponding": 9,
+              "first": 10,
+              "unknown": 0
+            },
+            "total": 45,
+            "year_be": 2560,
+            "year_ce": 2017
+          },
+          {
+            "bucket": "2561",
+            "country_role": {
+              "no": {
+                "coauthor": 23,
+                "corresponding": 3,
+                "first": 11,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 4,
+                "corresponding": 7,
+                "first": 3,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 37,
+              "unknown": 0,
+              "yes": 14
+            },
+            "international_percent": {
+              "no": 72.54901960784314,
+              "unknown": 0,
+              "yes": 27.45098039215686
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 8,
+                "percent_international": 57.142857142857146
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 3,
+                "percent_international": 21.428571428571427
+              },
+              {
+                "country_key": "italy",
+                "country_name": "Italy",
+                "documents": 3,
+                "percent_international": 21.428571428571427
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 2,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "sweden",
+                "country_name": "Sweden",
+                "documents": 2,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 1,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "singapore",
+                "country_name": "Singapore",
+                "documents": 1,
+                "percent_international": 7.142857142857143
+              }
+            ],
+            "role_percent": {
+              "coauthor": 52.94117647058823,
+              "corresponding": 19.607843137254903,
+              "first": 27.45098039215686,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 27,
+              "corresponding": 10,
+              "first": 14,
+              "unknown": 0
+            },
+            "total": 51,
+            "year_be": 2561,
+            "year_ce": 2018
+          },
+          {
+            "bucket": "2562",
+            "country_role": {
+              "no": {
+                "coauthor": 10,
+                "corresponding": 9,
+                "first": 7,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 3,
+                "corresponding": 4,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 26,
+              "unknown": 1,
+              "yes": 9
+            },
+            "international_percent": {
+              "no": 72.22222222222223,
+              "unknown": 2.7777777777777777,
+              "yes": 25
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 6,
+                "percent_international": 66.66666666666667
+              },
+              {
+                "country_key": "sweden",
+                "country_name": "Sweden",
+                "documents": 3,
+                "percent_international": 33.333333333333336
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 2,
+                "percent_international": 22.22222222222222
+              },
+              {
+                "country_key": "new zealand",
+                "country_name": "New Zealand",
+                "documents": 2,
+                "percent_international": 22.22222222222222
+              },
+              {
+                "country_key": "cambodia",
+                "country_name": "Cambodia",
+                "documents": 1,
+                "percent_international": 11.11111111111111
+              },
+              {
+                "country_key": "germany",
+                "country_name": "Germany",
+                "documents": 1,
+                "percent_international": 11.11111111111111
+              },
+              {
+                "country_key": "italy",
+                "country_name": "Italy",
+                "documents": 1,
+                "percent_international": 11.11111111111111
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 1,
+                "percent_international": 11.11111111111111
+              }
+            ],
+            "role_percent": {
+              "coauthor": 38.888888888888886,
+              "corresponding": 36.111111111111114,
+              "first": 25,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 14,
+              "corresponding": 13,
+              "first": 9,
+              "unknown": 0
+            },
+            "total": 36,
+            "year_be": 2562,
+            "year_ce": 2019
+          },
+          {
+            "bucket": "2563",
+            "country_role": {
+              "no": {
+                "coauthor": 10,
+                "corresponding": 8,
+                "first": 4,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 1,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 7,
+                "corresponding": 5,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 22,
+              "unknown": 1,
+              "yes": 13
+            },
+            "international_percent": {
+              "no": 61.111111111111114,
+              "unknown": 2.7777777777777777,
+              "yes": 36.111111111111114
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 7,
+                "percent_international": 53.84615384615385
+              },
+              {
+                "country_key": "sweden",
+                "country_name": "Sweden",
+                "documents": 4,
+                "percent_international": 30.76923076923077
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "cambodia",
+                "country_name": "Cambodia",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "germany",
+                "country_name": "Germany",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "greece",
+                "country_name": "Greece",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "netherlands",
+                "country_name": "Netherlands",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "portugal",
+                "country_name": "Portugal",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "sri lanka",
+                "country_name": "Sri Lanka",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              }
+            ],
+            "role_percent": {
+              "coauthor": 50,
+              "corresponding": 36.111111111111114,
+              "first": 13.88888888888889,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 18,
+              "corresponding": 13,
+              "first": 5,
+              "unknown": 0
+            },
+            "total": 36,
+            "year_be": 2563,
+            "year_ce": 2020
+          },
+          {
+            "bucket": "2564",
+            "country_role": {
+              "no": {
+                "coauthor": 8,
+                "corresponding": 10,
+                "first": 5,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 8,
+                "corresponding": 4,
+                "first": 1,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 23,
+              "unknown": 0,
+              "yes": 13
+            },
+            "international_percent": {
+              "no": 63.888888888888886,
+              "unknown": 0,
+              "yes": 36.111111111111114
+            },
+            "partners": [
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 9,
+                "percent_international": 69.23076923076923
+              },
+              {
+                "country_key": "germany",
+                "country_name": "Germany",
+                "documents": 3,
+                "percent_international": 23.076923076923077
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 2,
+                "percent_international": 15.384615384615385
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "netherlands",
+                "country_name": "Netherlands",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "singapore",
+                "country_name": "Singapore",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              },
+              {
+                "country_key": "taiwan",
+                "country_name": "Taiwan",
+                "documents": 1,
+                "percent_international": 7.6923076923076925
+              }
+            ],
+            "role_percent": {
+              "coauthor": 44.44444444444444,
+              "corresponding": 38.888888888888886,
+              "first": 16.666666666666668,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 16,
+              "corresponding": 14,
+              "first": 6,
+              "unknown": 0
+            },
+            "total": 36,
+            "year_be": 2564,
+            "year_ce": 2021
+          },
+          {
+            "bucket": "2565",
+            "country_role": {
+              "no": {
+                "coauthor": 8,
+                "corresponding": 9,
+                "first": 6,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 9,
+                "corresponding": 14,
+                "first": 3,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 23,
+              "unknown": 0,
+              "yes": 26
+            },
+            "international_percent": {
+              "no": 46.93877551020408,
+              "unknown": 0,
+              "yes": 53.06122448979592
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 14,
+                "percent_international": 53.84615384615385
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 10,
+                "percent_international": 38.46153846153846
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 6,
+                "percent_international": 23.076923076923077
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 3,
+                "percent_international": 11.538461538461538
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 3,
+                "percent_international": 11.538461538461538
+              },
+              {
+                "country_key": "canada",
+                "country_name": "Canada",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "cyprus",
+                "country_name": "Cyprus",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "ethiopia",
+                "country_name": "Ethiopia",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "netherlands",
+                "country_name": "Netherlands",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "russia",
+                "country_name": "Russia",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "taiwan",
+                "country_name": "Taiwan",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "tunisia",
+                "country_name": "Tunisia",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              },
+              {
+                "country_key": "yemen",
+                "country_name": "Yemen",
+                "documents": 1,
+                "percent_international": 3.8461538461538463
+              }
+            ],
+            "role_percent": {
+              "coauthor": 34.69387755102041,
+              "corresponding": 46.93877551020408,
+              "first": 18.367346938775512,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 17,
+              "corresponding": 23,
+              "first": 9,
+              "unknown": 0
+            },
+            "total": 49,
+            "year_be": 2565,
+            "year_ce": 2022
+          },
+          {
+            "bucket": "2566",
+            "country_role": {
+              "no": {
+                "coauthor": 12,
+                "corresponding": 15,
+                "first": 6,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 12,
+                "corresponding": 9,
+                "first": 7,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 33,
+              "unknown": 0,
+              "yes": 28
+            },
+            "international_percent": {
+              "no": 54.09836065573771,
+              "unknown": 0,
+              "yes": 45.90163934426229
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 14,
+                "percent_international": 50
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 8,
+                "percent_international": 28.571428571428573
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 7,
+                "percent_international": 25
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 5,
+                "percent_international": 17.857142857142858
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 3,
+                "percent_international": 10.714285714285714
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 3,
+                "percent_international": 10.714285714285714
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "mexico",
+                "country_name": "Mexico",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "norway",
+                "country_name": "Norway",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "slovakia",
+                "country_name": "Slovakia",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 2,
+                "percent_international": 7.142857142857143
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "estonia",
+                "country_name": "Estonia",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "france",
+                "country_name": "France",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "hungary",
+                "country_name": "Hungary",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "poland",
+                "country_name": "Poland",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "singapore",
+                "country_name": "Singapore",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "south africa",
+                "country_name": "South Africa",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 1,
+                "percent_international": 3.5714285714285716
+              }
+            ],
+            "role_percent": {
+              "coauthor": 39.34426229508197,
+              "corresponding": 39.34426229508197,
+              "first": 21.311475409836067,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 24,
+              "corresponding": 24,
+              "first": 13,
+              "unknown": 0
+            },
+            "total": 61,
+            "year_be": 2566,
+            "year_ce": 2023
+          },
+          {
+            "bucket": "2567",
+            "country_role": {
+              "no": {
+                "coauthor": 10,
+                "corresponding": 17,
+                "first": 4,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 26,
+                "corresponding": 9,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 31,
+              "unknown": 0,
+              "yes": 37
+            },
+            "international_percent": {
+              "no": 45.588235294117645,
+              "unknown": 0,
+              "yes": 54.411764705882355
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 20,
+                "percent_international": 54.054054054054056
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 8,
+                "percent_international": 21.62162162162162
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 6,
+                "percent_international": 16.216216216216218
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 5,
+                "percent_international": 13.513513513513514
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 4,
+                "percent_international": 10.81081081081081
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 3,
+                "percent_international": 8.108108108108109
+              },
+              {
+                "country_key": "united arab emirates",
+                "country_name": "United Arab Emirates",
+                "documents": 3,
+                "percent_international": 8.108108108108109
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "norway",
+                "country_name": "Norway",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 2,
+                "percent_international": 5.405405405405405
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "cameroon",
+                "country_name": "Cameroon",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "croatia",
+                "country_name": "Croatia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "france",
+                "country_name": "France",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "luxembourg",
+                "country_name": "Luxembourg",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "mexico",
+                "country_name": "Mexico",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "nigeria",
+                "country_name": "Nigeria",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "philippines",
+                "country_name": "Philippines",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "south africa",
+                "country_name": "South Africa",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "tunisia",
+                "country_name": "Tunisia",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              },
+              {
+                "country_key": "yemen",
+                "country_name": "Yemen",
+                "documents": 1,
+                "percent_international": 2.7027027027027026
+              }
+            ],
+            "role_percent": {
+              "coauthor": 52.94117647058823,
+              "corresponding": 38.23529411764706,
+              "first": 8.823529411764707,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 36,
+              "corresponding": 26,
+              "first": 6,
+              "unknown": 0
+            },
+            "total": 68,
+            "year_be": 2567,
+            "year_ce": 2024
+          },
+          {
+            "bucket": "2568",
+            "country_role": {
+              "no": {
+                "coauthor": 16,
+                "corresponding": 23,
+                "first": 7,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 25,
+                "corresponding": 8,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 46,
+              "unknown": 0,
+              "yes": 35
+            },
+            "international_percent": {
+              "no": 56.79012345679013,
+              "unknown": 0,
+              "yes": 43.20987654320987
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 18,
+                "percent_international": 51.42857142857143
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 6,
+                "percent_international": 17.142857142857142
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "croatia",
+                "country_name": "Croatia",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "norway",
+                "country_name": "Norway",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 5,
+                "percent_international": 14.285714285714286
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 4,
+                "percent_international": 11.428571428571429
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 4,
+                "percent_international": 11.428571428571429
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 3,
+                "percent_international": 8.571428571428571
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 3,
+                "percent_international": 8.571428571428571
+              },
+              {
+                "country_key": "afghanistan",
+                "country_name": "Afghanistan",
+                "documents": 2,
+                "percent_international": 5.714285714285714
+              },
+              {
+                "country_key": "taiwan",
+                "country_name": "Taiwan",
+                "documents": 2,
+                "percent_international": 5.714285714285714
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "estonia",
+                "country_name": "Estonia",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "luxembourg",
+                "country_name": "Luxembourg",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "macao",
+                "country_name": "Macao",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "south africa",
+                "country_name": "South Africa",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              },
+              {
+                "country_key": "turkey",
+                "country_name": "Turkey",
+                "documents": 1,
+                "percent_international": 2.857142857142857
+              }
+            ],
+            "role_percent": {
+              "coauthor": 50.617283950617285,
+              "corresponding": 38.27160493827161,
+              "first": 11.11111111111111,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 41,
+              "corresponding": 31,
+              "first": 9,
+              "unknown": 0
+            },
+            "total": 81,
+            "year_be": 2568,
+            "year_ce": 2025
+          },
+          {
+            "bucket": "2569",
+            "country_role": {
+              "no": {
+                "coauthor": 12,
+                "corresponding": 12,
+                "first": 3,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 35,
+                "corresponding": 13,
+                "first": 2,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 27,
+              "unknown": 0,
+              "yes": 50
+            },
+            "international_percent": {
+              "no": 35.064935064935064,
+              "unknown": 0,
+              "yes": 64.93506493506493
+            },
+            "partners": [
+              {
+                "country_key": "india",
+                "country_name": "India",
+                "documents": 35,
+                "percent_international": 70
+              },
+              {
+                "country_key": "saudi arabia",
+                "country_name": "Saudi Arabia",
+                "documents": 14,
+                "percent_international": 28
+              },
+              {
+                "country_key": "japan",
+                "country_name": "Japan",
+                "documents": 11,
+                "percent_international": 22
+              },
+              {
+                "country_key": "malaysia",
+                "country_name": "Malaysia",
+                "documents": 11,
+                "percent_international": 22
+              },
+              {
+                "country_key": "south korea",
+                "country_name": "South Korea",
+                "documents": 9,
+                "percent_international": 18
+              },
+              {
+                "country_key": "united states",
+                "country_name": "United States",
+                "documents": 7,
+                "percent_international": 14
+              },
+              {
+                "country_key": "jordan",
+                "country_name": "Jordan",
+                "documents": 6,
+                "percent_international": 12
+              },
+              {
+                "country_key": "egypt",
+                "country_name": "Egypt",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "pakistan",
+                "country_name": "Pakistan",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "vietnam",
+                "country_name": "Vietnam",
+                "documents": 4,
+                "percent_international": 8
+              },
+              {
+                "country_key": "lebanon",
+                "country_name": "Lebanon",
+                "documents": 3,
+                "percent_international": 6
+              },
+              {
+                "country_key": "switzerland",
+                "country_name": "Switzerland",
+                "documents": 3,
+                "percent_international": 6
+              },
+              {
+                "country_key": "afghanistan",
+                "country_name": "Afghanistan",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "brazil",
+                "country_name": "Brazil",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "china",
+                "country_name": "China",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "united arab emirates",
+                "country_name": "United Arab Emirates",
+                "documents": 2,
+                "percent_international": 4
+              },
+              {
+                "country_key": "australia",
+                "country_name": "Australia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "bangladesh",
+                "country_name": "Bangladesh",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "ethiopia",
+                "country_name": "Ethiopia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "finland",
+                "country_name": "Finland",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "indonesia",
+                "country_name": "Indonesia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "slovakia",
+                "country_name": "Slovakia",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "turkey",
+                "country_name": "Turkey",
+                "documents": 1,
+                "percent_international": 2
+              },
+              {
+                "country_key": "united kingdom",
+                "country_name": "United Kingdom",
+                "documents": 1,
+                "percent_international": 2
+              }
+            ],
+            "role_percent": {
+              "coauthor": 61.03896103896104,
+              "corresponding": 32.467532467532465,
+              "first": 6.4935064935064934,
+              "unknown": 0
+            },
+            "roles": {
+              "coauthor": 47,
+              "corresponding": 25,
+              "first": 5,
+              "unknown": 0
+            },
+            "total": 77,
+            "year_be": 2569,
+            "year_ce": 2026
+          },
+          {
+            "bucket": "undated",
+            "country_role": {
+              "no": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "unknown": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              },
+              "yes": {
+                "coauthor": 0,
+                "corresponding": 0,
+                "first": 0,
+                "unknown": 0
+              }
+            },
+            "international": {
+              "no": 0,
+              "unknown": 0,
+              "yes": 0
+            },
+            "international_percent": {
+              "no": null,
+              "unknown": null,
+              "yes": null
+            },
+            "partners": [],
+            "role_percent": {
+              "coauthor": null,
+              "corresponding": null,
+              "first": null,
+              "unknown": null
+            },
+            "roles": {
+              "coauthor": 0,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "total": 0,
+            "year_be": null,
+            "year_ce": null
+          }
+        ],
+        "contract_version": "faculty-insights-v1",
+        "revision": "3c1ffd16043b640f54ace32b14080a62f746ce5b7bb60fd50fc427d0fd827519",
+        "scope": "faculty",
+        "source": "scopus_core",
+        "success": true,
+        "totals": {
+          "country_role": {
+            "no": {
+              "coauthor": 256,
+              "corresponding": 122,
+              "first": 111,
+              "unknown": 0
+            },
+            "unknown": {
+              "coauthor": 3,
+              "corresponding": 0,
+              "first": 0,
+              "unknown": 0
+            },
+            "yes": {
+              "coauthor": 139,
+              "corresponding": 78,
+              "first": 34,
+              "unknown": 0
+            }
+          },
+          "international": {
+            "no": 489,
+            "unknown": 3,
+            "yes": 251
+          },
+          "international_percent": {
+            "no": 65.814266487214,
+            "unknown": 0.4037685060565276,
+            "yes": 33.78196500672947
+          },
+          "partners": [
+            {
+              "country_key": "india",
+              "country_name": "India",
+              "documents": 103,
+              "percent_international": 41.03585657370518
+            },
+            {
+              "country_key": "vietnam",
+              "country_name": "Vietnam",
+              "documents": 64,
+              "percent_international": 25.49800796812749
+            },
+            {
+              "country_key": "saudi arabia",
+              "country_name": "Saudi Arabia",
+              "documents": 46,
+              "percent_international": 18.326693227091635
+            },
+            {
+              "country_key": "united states",
+              "country_name": "United States",
+              "documents": 37,
+              "percent_international": 14.741035856573705
+            },
+            {
+              "country_key": "japan",
+              "country_name": "Japan",
+              "documents": 24,
+              "percent_international": 9.56175298804781
+            },
+            {
+              "country_key": "pakistan",
+              "country_name": "Pakistan",
+              "documents": 21,
+              "percent_international": 8.366533864541832
+            },
+            {
+              "country_key": "malaysia",
+              "country_name": "Malaysia",
+              "documents": 20,
+              "percent_international": 7.968127490039841
+            },
+            {
+              "country_key": "south korea",
+              "country_name": "South Korea",
+              "documents": 20,
+              "percent_international": 7.968127490039841
+            },
+            {
+              "country_key": "jordan",
+              "country_name": "Jordan",
+              "documents": 15,
+              "percent_international": 5.9760956175298805
+            },
+            {
+              "country_key": "indonesia",
+              "country_name": "Indonesia",
+              "documents": 13,
+              "percent_international": 5.179282868525896
+            },
+            {
+              "country_key": "china",
+              "country_name": "China",
+              "documents": 12,
+              "percent_international": 4.780876494023905
+            },
+            {
+              "country_key": "finland",
+              "country_name": "Finland",
+              "documents": 12,
+              "percent_international": 4.780876494023905
+            },
+            {
+              "country_key": "australia",
+              "country_name": "Australia",
+              "documents": 11,
+              "percent_international": 4.382470119521912
+            },
+            {
+              "country_key": "lebanon",
+              "country_name": "Lebanon",
+              "documents": 10,
+              "percent_international": 3.9840637450199203
+            },
+            {
+              "country_key": "norway",
+              "country_name": "Norway",
+              "documents": 9,
+              "percent_international": 3.585657370517928
+            },
+            {
+              "country_key": "sweden",
+              "country_name": "Sweden",
+              "documents": 9,
+              "percent_international": 3.585657370517928
+            },
+            {
+              "country_key": "united kingdom",
+              "country_name": "United Kingdom",
+              "documents": 8,
+              "percent_international": 3.187250996015936
+            },
+            {
+              "country_key": "croatia",
+              "country_name": "Croatia",
+              "documents": 6,
+              "percent_international": 2.3904382470119523
+            },
+            {
+              "country_key": "egypt",
+              "country_name": "Egypt",
+              "documents": 6,
+              "percent_international": 2.3904382470119523
+            },
+            {
+              "country_key": "brazil",
+              "country_name": "Brazil",
+              "documents": 5,
+              "percent_international": 1.9920318725099602
+            },
+            {
+              "country_key": "germany",
+              "country_name": "Germany",
+              "documents": 5,
+              "percent_international": 1.9920318725099602
+            },
+            {
+              "country_key": "taiwan",
+              "country_name": "Taiwan",
+              "documents": 5,
+              "percent_international": 1.9920318725099602
+            },
+            {
+              "country_key": "united arab emirates",
+              "country_name": "United Arab Emirates",
+              "documents": 5,
+              "percent_international": 1.9920318725099602
+            },
+            {
+              "country_key": "afghanistan",
+              "country_name": "Afghanistan",
+              "documents": 4,
+              "percent_international": 1.593625498007968
+            },
+            {
+              "country_key": "cambodia",
+              "country_name": "Cambodia",
+              "documents": 4,
+              "percent_international": 1.593625498007968
+            },
+            {
+              "country_key": "italy",
+              "country_name": "Italy",
+              "documents": 4,
+              "percent_international": 1.593625498007968
+            },
+            {
+              "country_key": "netherlands",
+              "country_name": "Netherlands",
+              "documents": 4,
+              "percent_international": 1.593625498007968
+            },
+            {
+              "country_key": "mexico",
+              "country_name": "Mexico",
+              "documents": 3,
+              "percent_international": 1.1952191235059761
+            },
+            {
+              "country_key": "singapore",
+              "country_name": "Singapore",
+              "documents": 3,
+              "percent_international": 1.1952191235059761
+            },
+            {
+              "country_key": "slovakia",
+              "country_name": "Slovakia",
+              "documents": 3,
+              "percent_international": 1.1952191235059761
+            },
+            {
+              "country_key": "south africa",
+              "country_name": "South Africa",
+              "documents": 3,
+              "percent_international": 1.1952191235059761
+            },
+            {
+              "country_key": "switzerland",
+              "country_name": "Switzerland",
+              "documents": 3,
+              "percent_international": 1.1952191235059761
+            },
+            {
+              "country_key": "canada",
+              "country_name": "Canada",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "estonia",
+              "country_name": "Estonia",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "ethiopia",
+              "country_name": "Ethiopia",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "france",
+              "country_name": "France",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "luxembourg",
+              "country_name": "Luxembourg",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "new zealand",
+              "country_name": "New Zealand",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "tunisia",
+              "country_name": "Tunisia",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "turkey",
+              "country_name": "Turkey",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "yemen",
+              "country_name": "Yemen",
+              "documents": 2,
+              "percent_international": 0.796812749003984
+            },
+            {
+              "country_key": "bangladesh",
+              "country_name": "Bangladesh",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "cameroon",
+              "country_name": "Cameroon",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "cyprus",
+              "country_name": "Cyprus",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "greece",
+              "country_name": "Greece",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "hungary",
+              "country_name": "Hungary",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "macao",
+              "country_name": "Macao",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "nigeria",
+              "country_name": "Nigeria",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "philippines",
+              "country_name": "Philippines",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "poland",
+              "country_name": "Poland",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "portugal",
+              "country_name": "Portugal",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "russia",
+              "country_name": "Russia",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            },
+            {
+              "country_key": "sri lanka",
+              "country_name": "Sri Lanka",
+              "documents": 1,
+              "percent_international": 0.398406374501992
+            }
+          ],
+          "role_percent": {
+            "coauthor": 53.566621803499324,
+            "corresponding": 26.917900403768506,
+            "first": 19.515477792732167,
+            "unknown": 0
+          },
+          "roles": {
+            "coauthor": 398,
+            "corresponding": 200,
+            "first": 145,
+            "unknown": 0
+          },
+          "total": 743
+        }
+      },
+      "unique_paged_documents": 743
+    }
+  },
+  "timestamp_utc": "2026-10-04T23:36:24Z",
+  "version": "10.11.18-MariaDB-0+deb12u1-log",
+  "zero_response": {
+    "by_year": [
+      {
+        "bucket": "undated",
+        "country_role": {
+          "no": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "unknown": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "yes": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          }
+        },
+        "international": {
+          "no": 0,
+          "unknown": 0,
+          "yes": 0
+        },
+        "international_percent": {
+          "no": null,
+          "unknown": null,
+          "yes": null
+        },
+        "partners": [],
+        "role_percent": {
+          "coauthor": null,
+          "corresponding": null,
+          "first": null,
+          "unknown": null
+        },
+        "roles": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        },
+        "total": 0,
+        "year_be": null,
+        "year_ce": null
+      }
+    ],
+    "contract_version": "faculty-insights-v1",
+    "revision": "1fbf40a70abeb781660dccb6f03e6d46f2f0cce50da1f93acfe2454e18b1326e",
+    "scope": "faculty",
+    "source": "scopus_core",
+    "success": true,
+    "totals": {
+      "country_role": {
+        "no": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        },
+        "unknown": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        },
+        "yes": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        }
+      },
+      "international": {
+        "no": 0,
+        "unknown": 0,
+        "yes": 0
+      },
+      "international_percent": {
+        "no": null,
+        "unknown": null,
+        "yes": null
+      },
+      "partners": [],
+      "role_percent": {
+        "coauthor": null,
+        "corresponding": null,
+        "first": null,
+        "unknown": null
+      },
+      "roles": {
+        "coauthor": 0,
+        "corresponding": 0,
+        "first": 0,
+        "unknown": 0
+      },
+      "total": 0
+    }
+  }
+}
