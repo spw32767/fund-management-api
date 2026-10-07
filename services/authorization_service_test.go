@@ -39,6 +39,36 @@ func TestApplyPermissionImplicationsRespectsExplicitDeny(t *testing.T) {
 	}
 }
 
+func TestMouManageImpliesReadUnlessExplicitlyDenied(t *testing.T) {
+	allowed := map[string]struct{}{"mou.manage": {}}
+	applyPermissionImplications(allowed, nil)
+	if _, ok := allowed["mou.read"]; !ok {
+		t.Fatal("mou.manage should grant mou.read")
+	}
+
+	denied := map[string]struct{}{"mou.read": {}}
+	allowed = map[string]struct{}{"mou.manage": {}}
+	applyPermissionImplications(allowed, denied)
+	if _, ok := allowed["mou.read"]; ok {
+		t.Fatal("explicit deny of mou.read should take precedence")
+	}
+}
+
+func TestAccessManageImpliesViewUnlessExplicitlyDenied(t *testing.T) {
+	allowed := map[string]struct{}{"access.manage": {}}
+	applyPermissionImplications(allowed, nil)
+	if _, ok := allowed["access.view"]; !ok {
+		t.Fatal("access.manage should grant access.view")
+	}
+
+	denied := map[string]struct{}{"access.view": {}}
+	allowed = map[string]struct{}{"access.manage": {}}
+	applyPermissionImplications(allowed, denied)
+	if _, ok := allowed["access.view"]; ok {
+		t.Fatal("explicit deny of access.view should take precedence")
+	}
+}
+
 func TestResolveRolePermissionCodesUsesDefaultCatalogWithoutDatabase(t *testing.T) {
 	service := &AuthorizationService{}
 	permissions, err := service.ResolveRolePermissionCodes(101, 3)
@@ -50,7 +80,7 @@ func TestResolveRolePermissionCodesUsesDefaultCatalogWithoutDatabase(t *testing.
 	for _, code := range permissions {
 		found[code] = true
 	}
-	for _, expected := range []string{"access.manage", "ui.page.admin.access_control.view", "access.view", "portal.admin.access"} {
+	for _, expected := range []string{"access.manage", "ui.page.admin.access_control.view", "access.view", "portal.admin.access", "mou.read", "mou.manage"} {
 		if !found[expected] {
 			t.Fatalf("expected default admin role permission %q", expected)
 		}

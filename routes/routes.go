@@ -190,54 +190,56 @@ func SetupRoutes(router *gin.Engine) {
 
 			// ===== MOU (Memorandum of Understanding) =====
 			mou := protected.Group("/mou")
-			mou.Use(middleware.RequireRole(3))
+			mou.Use(middleware.RequirePermission("mou.read"))
 			{
-				mou.GET("", controllers.GetMous)                                                             // List all MOUs
-				mou.GET("/statuses", controllers.GetMouStatuses)                                             // List available statuses
-				mou.GET("/countries", controllers.GetCountries)                                              // List available countries
-				mou.GET("/faculties", controllers.GetFaculties)                                              // List available faculties
-				mou.GET("/partner-types", controllers.GetMouPartnerTypes)                                    // List partner types
-				mou.POST("/partner-types", controllers.CreateMouPartnerType)                                 // Create partner type
-				mou.PUT("/partner-types/:id", controllers.UpdateMouPartnerType)                              // Update partner type
-				mou.DELETE("/partner-types/:id", controllers.DeleteMouPartnerType)                           // Delete partner type
-				mou.GET("/levels", controllers.GetMouLevels)                                                 // List distinct levels
-				mou.POST("", controllers.CreateMou)                                                          // Create new MOU
-				mou.GET("/dashboard", controllers.GetMouDashboard)                                           // Dashboard stats
-				mou.GET("/active-by-year", controllers.GetMouActiveByYear)                                   // MOUs active in a given year
-				mou.GET("/notifications", controllers.GetMouNotifications)                                   // Notifications for bell icon
-				mou.GET("/activity-types", controllers.GetActivityTypes)                                     // List activity types
-				mou.POST("/activity-types", controllers.CreateActivityType)                                  // Create activity type
-				mou.PUT("/activity-types/:id", controllers.UpdateActivityType)                               // Update activity type
-				mou.DELETE("/activity-types/:id", controllers.DeleteActivityType)                            // Delete activity type
-				mou.GET("/okrs", controllers.GetOkrList)                                                     // List OKRs
-				mou.POST("/okrs", controllers.CreateOkr)                                                     // Create OKR
-				mou.PUT("/okrs/:id", controllers.UpdateOkr)                                                  // Update OKR
-				mou.DELETE("/okrs/:id", controllers.DeleteOkr)                                               // Delete OKR
-				mou.POST("/activities", controllers.CreateMouActivity)                                       // Create activity
-				mou.GET("/activities/:id", controllers.GetMouActivity)                                       // Get activity detail
-				mou.PUT("/activities/:id", controllers.UpdateMouActivity)                                    // Update activity
-				mou.DELETE("/activities/:id", controllers.DeleteMouActivity)                                 // Delete activity
-				mou.DELETE("/activities/:id/attachments/:attachId", controllers.DeleteMouActivityAttachment) // Delete activity attachment
+				mou.GET("", controllers.GetMous)                          // List all MOUs
+				mou.GET("/statuses", controllers.GetMouStatuses)          // List available statuses
+				mou.GET("/countries", controllers.GetCountries)           // List available countries
+				mou.GET("/faculties", controllers.GetFaculties)           // List available faculties
+				mou.GET("/partner-types", controllers.GetMouPartnerTypes) // List partner types
+				mou.POST("/partner-types", middleware.RequireRole(3), controllers.CreateMouPartnerType)
+				mou.PUT("/partner-types/:id", middleware.RequireRole(3), controllers.UpdateMouPartnerType)
+				mou.DELETE("/partner-types/:id", middleware.RequireRole(3), controllers.DeleteMouPartnerType)
+				mou.GET("/levels", controllers.GetMouLevels) // List distinct levels
+				mou.GET("/expired", controllers.GetExpiredMous)
+				mou.POST("", middleware.RequirePermission("mou.manage"), controllers.CreateMou)
+				mou.GET("/dashboard", controllers.GetMouDashboard)         // Dashboard stats
+				mou.GET("/active-by-year", controllers.GetMouActiveByYear) // MOUs active in a given year
+				mou.GET("/notifications", controllers.GetMouNotifications) // Notifications for bell icon
+				mou.GET("/activity-types", controllers.GetActivityTypes)   // List activity types
+				mou.POST("/activity-types", middleware.RequireRole(3), controllers.CreateActivityType)
+				mou.PUT("/activity-types/:id", middleware.RequireRole(3), controllers.UpdateActivityType)
+				mou.DELETE("/activity-types/:id", middleware.RequireRole(3), controllers.DeleteActivityType)
+				mou.GET("/okrs", controllers.GetOkrList) // List OKRs
+				mou.POST("/okrs", middleware.RequireRole(3), controllers.CreateOkr)
+				mou.PUT("/okrs/:id", middleware.RequireRole(3), controllers.UpdateOkr)
+				mou.DELETE("/okrs/:id", middleware.RequireRole(3), controllers.DeleteOkr)
+				mou.POST("/activities", middleware.RequirePermission("mou.manage"), controllers.CreateMouActivity)
+				mou.GET("/activities/:id", controllers.GetMouActivity) // Get activity detail
+				mou.PUT("/activities/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateMouActivity)
+				mou.DELETE("/activities/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteMouActivity)
+				mou.DELETE("/activities/:id/attachments/:attachId", middleware.RequirePermission("mou.manage"), controllers.DeleteMouActivityAttachment)
 
-				mou.GET("/:id", controllers.GetMouDetail)                                          // Get MOU detail
-				mou.GET("/:id/download", controllers.DownloadMouAttachments)                       // Download MOU attachments as ZIP
-				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment)                // View/download single attachment
-				mou.PUT("/:id", controllers.UpdateMou)                                             // Update MOU
-				mou.PUT("/:id/renew", controllers.RenewMou)                                        // Renew MOU
-				mou.GET("/export", controllers.ExportMouCsv)                                       // Export MOU list as CSV
-				mou.GET("/notification-recipients", controllers.ListMouNotificationRecipients)     // List all potential recipients
-				mou.GET("/notification-preview", controllers.GetMouNotificationPreview)            // Preview notification email
-				mou.POST("/send-notifications", controllers.SendMouNotifications)                  // Trigger sending email notifications
-				mou.GET("/notification-settings", controllers.GetMouNotificationSetting)           // Get notification settings
-				mou.PUT("/notification-settings", controllers.UpdateMouNotificationSetting)        // Update notification settings
-				mou.GET("/notifications/:id/recipients", controllers.GetMouNotificationRecipients) // Get notification recipients
-				mou.DELETE("/:id", controllers.DeleteMou)                                          // Delete MOU
+				mou.GET("/:id", controllers.GetMouDetail)                           // Get MOU detail
+				mou.GET("/:id/download", controllers.DownloadMouAttachments)        // Download MOU attachments as ZIP
+				mou.GET("/:id/attachments/:attachId", controllers.GetMouAttachment) // View/download single attachment
+				mou.PUT("/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateMou)
+				mou.PUT("/:id/lock", middleware.RequirePermission("mou.manage"), controllers.ToggleLockMou)
+				mou.PUT("/:id/renew", middleware.RequirePermission("mou.manage"), controllers.RenewMou)
+				mou.GET("/export", controllers.ExportMouCsv) // Export MOU list as CSV
+				mou.GET("/notification-recipients", middleware.RequireRole(3), controllers.ListMouNotificationRecipients)
+				mou.GET("/notification-preview", middleware.RequireRole(3), controllers.GetMouNotificationPreview)
+				mou.POST("/send-notifications", middleware.RequireRole(3), controllers.SendMouNotifications)
+				mou.GET("/notification-settings", middleware.RequireRole(3), controllers.GetMouNotificationSetting)
+				mou.PUT("/notification-settings", middleware.RequireRole(3), controllers.UpdateMouNotificationSetting)
+				mou.GET("/notifications/:id/recipients", middleware.RequireRole(3), controllers.GetMouNotificationRecipients)
+				mou.DELETE("/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteMou)
 			}
 
-			// Researcher management routes for academic designer
+			// Researcher management routes use the same delegated permission as the portal entry.
 			researcherManagement := protected.Group("/researcher-management")
 
-			researcherManagement.Use(middleware.RequireRole(3, 6))
+			researcherManagement.Use(middleware.RequirePermission("portal.card.researcher_management.access"))
 			{
 				researcherManagement.GET("/instructors", controllers.GetInstructors)
 				researcherManagement.GET("/instructors/:id", controllers.GetInstructorByID)
@@ -562,9 +564,19 @@ func SetupRoutes(router *gin.Engine) {
 				"ui.page.admin.import_export.view",
 				"ui.page.admin.academic_imports.view",
 				"ui.page.admin.access_control.view",
+				"access.view",
+				"access.manage",
+				"api.clients.manage",
+				"announcement.manage",
+				"fund.request.approve",
+				"publication.reward.approve",
+				"publication.reward.rate.manage",
+				"report.export",
+				"scopus.publications.read",
 				"users.view",
 				"users.manage",
 			))
+			admin.Use(middleware.RequireAdminAreaPermission())
 			{
 				admin.GET("/import-templates", controllers.GetImportTemplatesAdmin)
 				admin.POST("/import-templates", controllers.CreateImportTemplateAdmin)
@@ -663,8 +675,8 @@ func SetupRoutes(router *gin.Engine) {
 				summary.GET("/faculty", controllers.AdminBenchmarkSummaryFaculty)
 				summary.GET("/documents", controllers.AdminBenchmarkSummaryDocuments)
 				summary.GET("/export", controllers.AdminBenchmarkSummaryExport)
-				admin.GET("/scopus/config", controllers.AdminGetScopusAPIKey)
-				admin.PUT("/scopus/config", controllers.AdminUpdateScopusAPIKey)
+				admin.GET("/scopus/config", middleware.RequirePermission("api.clients.manage"), controllers.AdminGetScopusAPIKey)
+				admin.PUT("/scopus/config", middleware.RequirePermission("api.clients.manage"), controllers.AdminUpdateScopusAPIKey)
 				admin.GET("/scopus/import/jobs", controllers.AdminListScopusAPIImportJobs)
 				admin.GET("/scopus/import/batch/runs", controllers.AdminListScopusBatchImportRuns)
 				admin.GET("/scopus/import/jobs/:id/requests", controllers.AdminListScopusAPIRequests)

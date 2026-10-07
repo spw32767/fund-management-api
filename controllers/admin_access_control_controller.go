@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"fund-management-api/config"
+	"fund-management-api/models"
 	"fund-management-api/services"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +25,7 @@ type accessRoleRow struct {
 type accessPermissionRow struct {
 	PermissionID int    `json:"permission_id"`
 	Code         string `json:"code"`
+	Module       string `json:"module"`
 	Resource     string `json:"resource"`
 	Action       string `json:"action"`
 	Description  string `json:"description"`
@@ -55,11 +58,11 @@ type accessUserOverride struct {
 }
 
 type updateRolePermissionsRequest struct {
-	PermissionCodes []string `json:"permission_codes"`
+	PermissionCodes *[]string `json:"permission_codes"`
 }
 
 type updateUserOverridesRequest struct {
-	Overrides []accessUserOverride `json:"overrides"`
+	Overrides *[]accessUserOverride `json:"overrides"`
 }
 
 func AdminListAccessRoles(c *gin.Context) {
@@ -92,6 +95,7 @@ func AdminListAccessPermissions(c *gin.Context) {
 	err := config.DB.Raw(`
 		SELECT permission_id,
 		       code,
+		       module,
 		       COALESCE(resource, '') AS resource,
 		       COALESCE(action, '') AS action,
 		       COALESCE(description, '') AS description
@@ -160,12 +164,17 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 	}
 
 	var req updateRolePermissionsRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	if req.PermissionCodes == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "permission_codes must be an array"})
+		return
+	}
 
-	codes := normalizeCodeList(req.PermissionCodes)
+	codes := normalizeCodeList(*req.PermissionCodes)
 	permissionIDByCode, missingCodes, err := getPermissionIDsByCode(codes)
 	if err != nil {
 		InternalError(c, "access_control", err)
@@ -177,6 +186,11 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 			"error":   "some permission codes do not exist",
 			"missing": missingCodes,
 		})
+		return
+	}
+	_, previousCodes, err := getRolePermissions(roleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
 		return
 	}
 
@@ -204,7 +218,8 @@ func AdminUpdateRolePermissions(c *gin.Context) {
 			}
 		}
 
-		return nil
+		return createAccessControlAudit(tx, c, "role_permissions", roleID,
+			gin.H{"permission_codes": previousCodes}, gin.H{"permission_codes": codes})
 	})
 	if err != nil {
 		InternalError(c, "access_control", err)
@@ -281,13 +296,18 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 	}
 
 	var req updateUserOverridesRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	if req.Overrides == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "overrides must be an array"})
+		return
+	}
 
 	overrideByCode := map[string]string{}
-	for _, item := range req.Overrides {
+	for _, item := range *req.Overrides {
 		code := strings.TrimSpace(strings.ToLower(item.Code))
 		effect := strings.TrimSpace(strings.ToLower(item.Effect))
 		if code == "" {
@@ -322,6 +342,11 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 		})
 		return
 	}
+	previousOverrides, err := getUserPermissionOverrides(userID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
 
 	now := time.Now()
 	err = config.DB.Transaction(func(tx *gorm.DB) error {
@@ -349,7 +374,12 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 			}
 		}
 
-		return nil
+		newOverrides := make([]accessUserOverride, 0, len(overrideCodes))
+		for _, code := range overrideCodes {
+			newOverrides = append(newOverrides, accessUserOverride{Code: code, Effect: overrideByCode[code]})
+		}
+		return createAccessControlAudit(tx, c, "user_permissions", userID,
+			gin.H{"overrides": previousOverrides}, gin.H{"overrides": newOverrides})
 	})
 	if err != nil {
 		InternalError(c, "access_control", err)
@@ -501,6 +531,7 @@ func getRolePermissions(roleID int) ([]accessPermissionRow, []string, error) {
 	err := config.DB.Raw(`
 		SELECT p.permission_id,
 		       p.code,
+		       p.module,
 		       COALESCE(p.resource, '') AS resource,
 		       COALESCE(p.action, '') AS action,
 		       COALESCE(p.description, '') AS description
@@ -677,4 +708,34 @@ func getUserPermissionOverrides(userID int) ([]accessUserOverride, error) {
 	}
 
 	return overrides, nil
+}
+
+func createAccessControlAudit(tx *gorm.DB, c *gin.Context, entityType string, entityID int, oldValues, newValues gin.H) error {
+	oldJSON, err := json.Marshal(oldValues)
+	if err != nil {
+		return err
+	}
+	newJSON, err := json.Marshal(newValues)
+	if err != nil {
+		return err
+	}
+	oldText, newText := string(oldJSON), string(newJSON)
+	description := "Access control permissions updated"
+	userAgentRunes := []rune(c.GetHeader("User-Agent"))
+	if len(userAgentRunes) > 255 {
+		userAgentRunes = userAgentRunes[:255]
+	}
+	userAgent := string(userAgentRunes)
+	return tx.Create(&models.AuditLog{
+		UserID:      c.GetInt("userID"),
+		Action:      "update",
+		EntityType:  entityType,
+		EntityID:    &entityID,
+		OldValues:   &oldText,
+		NewValues:   &newText,
+		Description: &description,
+		IPAddress:   c.ClientIP(),
+		UserAgent:   &userAgent,
+		CreatedAt:   time.Now(),
+	}).Error
 }

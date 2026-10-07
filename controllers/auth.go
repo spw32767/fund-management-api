@@ -161,11 +161,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Keep role/position loading visible during auth troubleshooting
-	log.Printf("User loaded: %+v", user)
-	log.Printf("Role loaded: %+v", user.Role)
-	log.Printf("Position loaded: %+v", user.Position)
-
 	// Manual load Role
 	if user.RoleID > 0 {
 		config.DB.Where("role_id = ?", user.RoleID).First(&user.Role)
@@ -336,11 +331,6 @@ func GetProfile(c *gin.Context) {
 	if user.PositionID > 0 {
 		config.DB.Where("position_id = ?", user.PositionID).First(&user.Position)
 	}
-
-	// Debug log
-	log.Printf("Profile - User loaded: %+v", user)
-	log.Printf("Profile - Role loaded: %+v", user.Role)
-	log.Printf("Profile - Position loaded: %+v", user.Position)
 
 	if !ensureUserStoragePrepared(c, user) {
 		return

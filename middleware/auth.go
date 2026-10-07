@@ -239,8 +239,8 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequirePermission checks whether the authenticated user has at least one
-// required permission code.
+// RequirePermission checks the effective permissions resolved by AuthMiddleware
+// for this request, including role grants and user-specific overrides.
 func RequirePermission(permissionCodes ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if len(permissionCodes) == 0 {
@@ -260,8 +260,8 @@ func RequirePermission(permissionCodes ...string) gin.HandlerFunc {
 			return
 		}
 
-		userID, okUser := userIDVal.(int)
-		roleID, okRole := roleIDVal.(int)
+		_, okUser := userIDVal.(int)
+		_, okRole := roleIDVal.(int)
 		if !okUser || !okRole {
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
@@ -272,12 +272,34 @@ func RequirePermission(permissionCodes ...string) gin.HandlerFunc {
 			return
 		}
 
-		authz := services.GetAuthorizationService()
+		effectivePermissions, ok := c.Get("permissions")
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Authorization permissions not found",
+				"code":    "AUTH_CONTEXT_MISSING",
+			})
+			c.Abort()
+			return
+		}
+
+		granted, ok := effectivePermissions.([]string)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "Invalid authorization permissions",
+				"code":    "AUTH_CONTEXT_INVALID",
+			})
+			c.Abort()
+			return
+		}
 
 		for _, required := range permissionCodes {
-			if authz.HasPermission(userID, roleID, required) {
-				c.Next()
-				return
+			for _, permission := range granted {
+				if strings.EqualFold(strings.TrimSpace(permission), strings.TrimSpace(required)) {
+					c.Next()
+					return
+				}
 			}
 		}
 

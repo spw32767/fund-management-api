@@ -22,6 +22,9 @@ var (
 
 var defaultPermissionsByRole = map[int][]string{
 	1: {
+		"portal.card.research_fund.access",
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
 		"portal.member.access",
 		"dashboard.view.self",
 		"fund.request.create",
@@ -40,6 +43,9 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.notifications.view",
 	},
 	2: {
+		"portal.card.research_fund.access",
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
 		"portal.member.access",
 		"dashboard.view.self",
 		"fund.request.create",
@@ -58,6 +64,12 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.notifications.view",
 	},
 	3: {
+		"mou.read",
+		"mou.manage",
+		"portal.card.research_fund.access",
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
+		"portal.card.researcher_management.access",
 		"portal.admin.access",
 		"access.view",
 		"access.manage",
@@ -91,6 +103,9 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.admin.access_control.view",
 	},
 	4: {
+		"portal.card.research_fund.access",
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
 		"portal.member.access",
 		"dashboard.view.self",
 		"fund.request.create",
@@ -114,13 +129,23 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.dept_review.view",
 	},
 	5: {
+		"portal.card.research_fund.access",
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
 		"portal.executive.access",
 		"dashboard.view.admin",
 		"ui.page.admin.dashboard.view",
 	},
+	6: {
+		"portal.card.external_fund.access",
+		"portal.card.links.access",
+		"portal.card.researcher_management.access",
+	},
 }
 
 var impliedPermissions = map[string][]string{
+	"access.manage":                         {"access.view"},
+	"mou.manage":                            {"mou.read"},
 	"ui.page.admin.dashboard.view":          {"dashboard.view.admin"},
 	"ui.page.admin.research_dashboard.view": {"scopus.publications.read"},
 	"ui.page.admin.applications.view":       {"submission.read.all"},
