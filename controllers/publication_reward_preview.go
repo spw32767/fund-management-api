@@ -121,7 +121,6 @@ func handlePublicationRewardPreviewSubmission(c *gin.Context) {
 	var submission models.Submission
 	if err := config.DB.
 		Preload("User").
-		Preload("User.Position").
 		Where("submission_id = ? AND submission_type = ?", req.SubmissionID, "publication_reward").
 		First(&submission).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

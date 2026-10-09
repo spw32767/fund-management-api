@@ -40,8 +40,6 @@ type adminManagedUserRow struct {
 	Room              *string    `gorm:"column:room" json:"room,omitempty"`
 	RoleID            int        `gorm:"column:role_id" json:"role_id"`
 	Role              string     `gorm:"column:role" json:"role"`
-	PositionID        int        `gorm:"column:position_id" json:"position_id"`
-	PositionName      string     `gorm:"column:position_name" json:"position_name"`
 	AccountStatus     string     `gorm:"column:account_status" json:"account_status"`
 	LocalAuth         bool       `gorm:"column:local_auth" json:"local_auth"`
 	SSOAuth           bool       `gorm:"column:sso_auth" json:"sso_auth"`
@@ -90,9 +88,6 @@ func AdminListManagedUsers(c *gin.Context) {
 	if roleID := parsePositiveQueryInt(c.Query("role_id"), 0); roleID > 0 {
 		query = query.Where("u.role_id = ?", roleID)
 	}
-	if positionID := parsePositiveQueryInt(c.Query("position_id"), 0); positionID > 0 {
-		query = query.Where("u.position_id = ?", positionID)
-	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -105,7 +100,6 @@ func AdminListManagedUsers(c *gin.Context) {
 		err := query.
 			Select(adminManagedUserSelect).
 			Joins("LEFT JOIN roles AS r ON r.role_id = u.role_id").
-			Joins("LEFT JOIN positions AS p ON p.position_id = u.position_id").
 			Order("u.user_fname ASC, u.user_lname ASC, u.user_id ASC").
 			Limit(pageSize).
 			Offset((page - 1) * pageSize).
@@ -211,7 +205,7 @@ func AdminCreateManagedUser(c *gin.Context) {
 	}
 
 	err = config.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Omit("PositionID").Create(&user).Error; err != nil {
+		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
 		if err := upsertAdminUserPrimaryRole(tx, user.UserID, req.RoleID, now, false); err != nil {
@@ -354,8 +348,6 @@ const adminManagedUserSelect = `
 	u.Room AS room,
 	COALESCE(u.role_id, 0) AS role_id,
 	COALESCE(r.role, '') AS role,
-	COALESCE(u.position_id, 0) AS position_id,
-	COALESCE(p.position_name, '') AS position_name,
 	COALESCE(u.Is_active, '') AS account_status,
 	CASE WHEN u.password IS NOT NULL AND u.password <> '' THEN 1 ELSE 0 END AS local_auth,
 	CASE WHEN EXISTS (
@@ -565,7 +557,6 @@ func getAdminManagedUserByID(db *gorm.DB, userID int) (adminManagedUserRow, erro
 	err := db.Table("users AS u").
 		Select(adminManagedUserSelect).
 		Joins("LEFT JOIN roles AS r ON r.role_id = u.role_id").
-		Joins("LEFT JOIN positions AS p ON p.position_id = u.position_id").
 		Where("u.user_id = ? AND u.delete_at IS NULL", userID).
 		Scan(&row).Error
 	if err != nil {

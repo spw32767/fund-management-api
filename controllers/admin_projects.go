@@ -124,12 +124,11 @@ func formatProjectMemberUser(user models.User) gin.H {
 	}
 
 	response := gin.H{
-		"user_id":     user.UserID,
-		"user_fname":  user.UserFname,
-		"user_lname":  user.UserLname,
-		"email":       user.Email,
-		"role_id":     user.RoleID,
-		"position_id": user.PositionID,
+		"user_id":    user.UserID,
+		"user_fname": user.UserFname,
+		"user_lname": user.UserLname,
+		"email":      user.Email,
+		"role_id":    user.RoleID,
 	}
 
 	if user.Prefix != nil {
@@ -155,12 +154,6 @@ func formatProjectMemberUser(user models.User) gin.H {
 	}
 	if user.Tel != nil {
 		response["tel"] = user.Tel
-	}
-	if user.Position.PositionID != 0 {
-		response["position"] = gin.H{
-			"position_id":   user.Position.PositionID,
-			"position_name": user.Position.PositionName,
-		}
 	}
 	if user.Role.RoleID != 0 {
 		response["role"] = gin.H{
@@ -1153,7 +1146,7 @@ func GetProjectMemberCandidates(c *gin.Context) {
 	}
 
 	var users []models.User
-	if err := config.DB.Preload("Role").Preload("Position").
+	if err := config.DB.Preload("Role").
 		Where("delete_at IS NULL").
 		Where("role_id <> ?", 3).
 		Order("user_fname ASC, user_lname ASC").
@@ -1202,7 +1195,6 @@ func GetProjectMembers(c *gin.Context) {
 	var members []models.ProjectMember
 	if err := config.DB.Where("project_id = ?", projectID).
 		Preload("User.Role").
-		Preload("User.Position").
 		Order("display_order ASC, member_id ASC").
 		Find(&members).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลผู้ร่วมโครงการได้"})
@@ -1314,7 +1306,7 @@ func CreateProjectMember(c *gin.Context) {
 		return
 	}
 
-	if err := config.DB.Preload("User.Role").Preload("User.Position").First(&member, member.MemberID).Error; err != nil {
+	if err := config.DB.Preload("User.Role").First(&member, member.MemberID).Error; err != nil {
 		c.JSON(http.StatusCreated, gin.H{"success": true, "member_id": member.MemberID})
 		return
 	}
@@ -1358,7 +1350,6 @@ func UpdateProjectMember(c *gin.Context) {
 	var member models.ProjectMember
 	if err := config.DB.Where("project_id = ?", projectID).
 		Preload("User.Role").
-		Preload("User.Position").
 		First(&member, memberID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบผู้ร่วมโครงการ"})
@@ -1444,7 +1435,7 @@ func UpdateProjectMember(c *gin.Context) {
 		return
 	}
 
-	if err := config.DB.Preload("User.Role").Preload("User.Position").First(&member, memberID).Error; err != nil {
+	if err := config.DB.Preload("User.Role").First(&member, memberID).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
@@ -1516,7 +1507,7 @@ func DeleteProjectMember(c *gin.Context) {
 
 func loadEligibleProjectUser(userID uint) (*models.User, error) {
 	var user models.User
-	if err := config.DB.Preload("Role").Preload("Position").
+	if err := config.DB.Preload("Role").
 		Where("user_id = ? AND delete_at IS NULL AND role_id <> ?", userID, 3).
 		First(&user).Error; err != nil {
 		return nil, err

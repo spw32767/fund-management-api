@@ -140,58 +140,52 @@ func addSampleUsers() error {
 	log.Println("👥 Adding sample users...")
 
 	sampleUsers := []struct {
-		Email      string
-		Password   string
-		FirstName  string
-		LastName   string
-		Gender     string
-		RoleID     int
-		PositionID int
+		Email     string
+		Password  string
+		FirstName string
+		LastName  string
+		Gender    string
+		RoleID    int
 	}{
 		{
-			Email:      "admin@cpkku.ac.th",
-			Password:   "Admin123!",
-			FirstName:  "ผู้ดูแล",
-			LastName:   "ระบบ",
-			Gender:     "male",
-			RoleID:     3, // admin
-			PositionID: 3, // พนักงานธุรการ
+			Email:     "admin@cpkku.ac.th",
+			Password:  "Admin123!",
+			FirstName: "ผู้ดูแล",
+			LastName:  "ระบบ",
+			Gender:    "male",
+			RoleID:    3, // admin
 		},
 		{
-			Email:      "teacher@cpkku.ac.th",
-			Password:   "Teacher123!",
-			FirstName:  "สมชาย",
-			LastName:   "ใจดี",
-			Gender:     "male",
-			RoleID:     1, // teacher
-			PositionID: 1, // อาจารย์
+			Email:     "teacher@cpkku.ac.th",
+			Password:  "Teacher123!",
+			FirstName: "สมชาย",
+			LastName:  "ใจดี",
+			Gender:    "male",
+			RoleID:    1, // teacher
 		},
 		{
-			Email:      "teacher2@cpkku.ac.th",
-			Password:   "Teacher123!",
-			FirstName:  "สมหญิง",
-			LastName:   "รักการศึกษา",
-			Gender:     "female",
-			RoleID:     1, // teacher
-			PositionID: 2, // รองศาสตราจารย์
+			Email:     "teacher2@cpkku.ac.th",
+			Password:  "Teacher123!",
+			FirstName: "สมหญิง",
+			LastName:  "รักการศึกษา",
+			Gender:    "female",
+			RoleID:    1, // teacher
 		},
 		{
-			Email:      "staff@cpkku.ac.th",
-			Password:   "Staff123!",
-			FirstName:  "สุดา",
-			LastName:   "ช่วยเหลือ",
-			Gender:     "female",
-			RoleID:     2, // staff
-			PositionID: 3, // พนักงานธุรการ
+			Email:     "staff@cpkku.ac.th",
+			Password:  "Staff123!",
+			FirstName: "สุดา",
+			LastName:  "ช่วยเหลือ",
+			Gender:    "female",
+			RoleID:    2, // staff
 		},
 		{
-			Email:      "depthead@cpkku.ac.th",
-			Password:   "Head123!",
-			FirstName:  "หัวหน้า",
-			LastName:   "สาขา",
-			Gender:     "female",
-			RoleID:     4, // department head
-			PositionID: 3, // พนักงานธุรการ
+			Email:     "depthead@cpkku.ac.th",
+			Password:  "Head123!",
+			FirstName: "หัวหน้า",
+			LastName:  "สาขา",
+			Gender:    "female",
+			RoleID:    4, // department head
 		},
 	}
 
@@ -219,15 +213,14 @@ func addSampleUsers() error {
 		// Create user (without specifying user_id, let AUTO_INCREMENT handle it)
 		now := time.Now()
 		user := models.User{
-			UserFname:  userData.FirstName,
-			UserLname:  userData.LastName,
-			Gender:     userData.Gender,
-			Email:      userData.Email,
-			Password:   &hashedPassword,
-			RoleID:     userData.RoleID,
-			PositionID: userData.PositionID,
-			CreateAt:   &now,
-			UpdateAt:   &now,
+			UserFname: userData.FirstName,
+			UserLname: userData.LastName,
+			Gender:    userData.Gender,
+			Email:     userData.Email,
+			Password:  &hashedPassword,
+			RoleID:    userData.RoleID,
+			CreateAt:  &now,
+			UpdateAt:  &now,
 		}
 
 		if err := config.DB.Create(&user).Error; err != nil {

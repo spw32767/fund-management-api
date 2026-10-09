@@ -66,7 +66,7 @@ func TestAdminUserAuditValuesNeverContainPassword(t *testing.T) {
 	hash := "secret-hash"
 	values := adminUserAuditValues(models.User{
 		UserID: 1, UserFname: "Test", UserLname: "User", Email: "test@example.com",
-		Password: &hash, RoleID: 1, PositionID: 1,
+		Password: &hash, RoleID: 1,
 	})
 
 	for key, value := range values {

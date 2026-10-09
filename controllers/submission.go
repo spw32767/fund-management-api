@@ -629,7 +629,6 @@ func SubmitSubmission(c *gin.Context) {
 	var submission models.Submission
 	if err := config.DB.
 		Preload("User").
-		Preload("User.Position").
 		Where("submission_id = ? AND user_id = ? AND deleted_at IS NULL", submissionID, userID).
 		First(&submission).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
@@ -719,7 +718,7 @@ func SubmitSubmission(c *gin.Context) {
 		if applicant == nil {
 			applicant = &models.User{}
 		}
-		if err := tx.Preload("Position").Where("user_id = ?", submission.UserID).First(applicant).Error; err != nil {
+		if err := tx.Where("user_id = ?", submission.UserID).First(applicant).Error; err != nil {
 			return fmt.Errorf("failed to load applicant: %w", err)
 		}
 		submission.User = applicant

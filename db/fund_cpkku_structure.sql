@@ -742,21 +742,6 @@ CREATE TABLE `notification_message` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `positions`
---
-
-CREATE TABLE `positions` (
-  `position_id` int(11) NOT NULL,
-  `position_name` varchar(255) DEFAULT NULL,
-  `is_active` enum('yes','no') DEFAULT 'yes',
-  `create_at` datetime DEFAULT current_timestamp(),
-  `update_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
-  `delete_at` datetime DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `projects`
 --
 
@@ -1613,7 +1598,6 @@ CREATE TABLE `users` (
   `scopus_id` varchar(100) DEFAULT NULL,
   `password` varchar(255) DEFAULT NULL,
   `role_id` int(11) DEFAULT NULL,
-  `position_id` int(11) DEFAULT NULL,
   `date_of_employment` date DEFAULT NULL,
   `create_at` datetime DEFAULT current_timestamp(),
   `update_at` datetime DEFAULT NULL,
@@ -2299,12 +2283,6 @@ ALTER TABLE `notification_message`
   ADD UNIQUE KEY `uk_notification_message_event_audience` (`event_key`,`send_to`);
 
 --
--- Indexes for table `positions`
---
-ALTER TABLE `positions`
-  ADD PRIMARY KEY (`position_id`);
-
---
 -- Indexes for table `projects`
 --
 ALTER TABLE `projects`
@@ -2589,7 +2567,6 @@ ALTER TABLE `system_config`
 ALTER TABLE `users`
   ADD PRIMARY KEY (`user_id`),
   ADD KEY `role_id` (`role_id`),
-  ADD KEY `position_id` (`position_id`),
   ADD KEY `idx_email` (`email`),
   ADD KEY `idx_fullname` (`user_fname`,`user_lname`);
 
@@ -2756,12 +2733,6 @@ ALTER TABLE `kku_people_import_runs`
 --
 ALTER TABLE `notifications`
   MODIFY `notification_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `positions`
---
-ALTER TABLE `positions`
-  MODIFY `position_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `projects`
@@ -2986,7 +2957,7 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`drnadech_funddev`@`%` SQL SECURITY DEFINER V
 --
 DROP TABLE IF EXISTS `view_fund_applications_summary`;
 
-CREATE ALGORITHM=UNDEFINED DEFINER=`drnadech_funddev`@`%` SQL SECURITY DEFINER VIEW `view_fund_applications_summary`  AS SELECT `fa`.`application_id` AS `application_id`, `fa`.`application_number` AS `application_number`, `fa`.`project_title` AS `project_title`, concat(`u`.`user_fname`,' ',`u`.`user_lname`) AS `applicant_name`, `u`.`email` AS `email`, `p`.`position_name` AS `position_name`, `fc`.`category_name` AS `category_name`, `fs`.`subcategory_name` AS `subcategory_name`, `y`.`year` AS `year`, `ast`.`status_name` AS `status_name`, `fa`.`requested_amount` AS `requested_amount`, `fa`.`approved_amount` AS `approved_amount`, `fa`.`submitted_at` AS `submitted_at`, `fa`.`approved_at` AS `approved_at` FROM ((((((`v_fund_applications` `fa` left join `users` `u` on(`fa`.`user_id` = `u`.`user_id`)) left join `positions` `p` on(`u`.`position_id` = `p`.`position_id`)) left join `fund_subcategories` `fs` on(`fa`.`subcategory_id` = `fs`.`subcategory_id`)) left join `fund_categories` `fc` on(`fs`.`category_id` = `fc`.`category_id`)) left join `years` `y` on(`fa`.`year_id` = `y`.`year_id`)) left join `application_status` `ast` on(`fa`.`application_status_id` = `ast`.`application_status_id`)) WHERE `fa`.`delete_at` is null ;
+CREATE VIEW view_fund_applications_summary AS SELECT fa.application_id, fa.application_number, fa.project_title, CONCAT(u.user_fname, ' ', u.user_lname) AS applicant_name, u.email, u.position AS position_name, fc.category_name, fs.subcategory_name, y.year AS year, ast.status_name, fa.requested_amount, fa.approved_amount, fa.submitted_at, fa.approved_at FROM v_fund_applications AS fa LEFT JOIN users AS u ON fa.user_id = u.user_id LEFT JOIN fund_subcategories AS fs ON fa.subcategory_id = fs.subcategory_id LEFT JOIN fund_categories AS fc ON fs.category_id = fc.category_id LEFT JOIN years AS y ON fa.year_id = y.year_id LEFT JOIN application_status AS ast ON fa.application_status_id = ast.application_status_id WHERE fa.delete_at IS NULL;
 
 -- --------------------------------------------------------
 
@@ -3347,8 +3318,7 @@ ALTER TABLE `system_config`
 -- Constraints for table `users`
 --
 ALTER TABLE `users`
-  ADD CONSTRAINT `users_ibfk_1` FOREIGN KEY (`role_id`) REFERENCES `roles` (`role_id`),
-  ADD CONSTRAINT `users_ibfk_2` FOREIGN KEY (`position_id`) REFERENCES `positions` (`position_id`);
+  ADD CONSTRAINT `users_ibfk_1` FOREIGN KEY (`role_id`) REFERENCES `roles` (`role_id`);
 
 --
 -- Constraints for table `user_fund_eligibilities`

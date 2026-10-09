@@ -56,17 +56,10 @@ type userLite struct {
 	Prefix            *string `gorm:"column:prefix"`
 	FName             *string `gorm:"column:user_fname"`
 	LName             *string `gorm:"column:user_lname"`
-	PositionID        *uint   `gorm:"column:position_id"`
+	PositionTitle     *string `gorm:"column:position"`
 }
 
 func (userLite) TableName() string { return "users" }
-
-type positionLite struct {
-	PositionID   uint    `gorm:"column:position_id"`
-	PositionName *string `gorm:"column:position_name"`
-}
-
-func (positionLite) TableName() string { return "positions" }
 
 type submissionLite struct {
 	SubmissionID     uint       `gorm:"column:submission_id"`
@@ -344,16 +337,12 @@ func getCurrentDeptHeadIDs(db *gorm.DB) []uint {
 
 func loadOwnerDisplay(db *gorm.DB, userID uint) (displayName string, email string) {
 	var owner userLite
-	_ = db.Select("user_id, role_id, email_notification, prefix, user_fname, user_lname, position_id").
+	_ = db.Select("user_id, role_id, email_notification, prefix, user_fname, user_lname, position").
 		First(&owner, "user_id = ?", userID).Error
 
 	posName := ""
-	if owner.PositionID != nil {
-		var p positionLite
-		if err := db.Select("position_id, position_name").
-			First(&p, "position_id = ?", *owner.PositionID).Error; err == nil && p.PositionName != nil {
-			posName = *p.PositionName
-		}
+	if owner.PositionTitle != nil {
+		posName = *owner.PositionTitle
 	}
 	displayName = strings.TrimSpace(buildThaiDisplayName(owner, posName))
 	if owner.EmailNotification != nil {

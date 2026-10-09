@@ -69,7 +69,7 @@ func AdminImportUsers(c *gin.Context) {
 	}
 
 	headers := normalizeHeaders(rows[0])
-	requiredCols := []string{"user_fname", "user_lname", "email", "role_id", "position_id"}
+	requiredCols := []string{"user_fname", "user_lname", "email", "role_id"}
 	for _, col := range requiredCols {
 		if _, exists := headers[col]; !exists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("คอลัมน์ %s หายไปจากไฟล์", col)})
@@ -100,11 +100,6 @@ func AdminImportUsers(c *gin.Context) {
 		if err != nil || roleVal <= 0 {
 			continue
 		}
-		positionVal, err := strconv.Atoi(strings.TrimSpace(rowData["position_id"]))
-		if err != nil || positionVal <= 0 {
-			continue
-		}
-
 		user := models.User{
 			UserFname:        strings.TrimSpace(rowData["user_fname"]),
 			UserLname:        strings.TrimSpace(rowData["user_lname"]),
@@ -112,7 +107,6 @@ func AdminImportUsers(c *gin.Context) {
 			Email:            email,
 			ScholarAuthorID:  optionalString(rowData["scholar_author_id"]),
 			RoleID:           roleVal,
-			PositionID:       positionVal,
 			Password:         &hashedPassword,
 			Prefix:           optionalString(rowData["prefix"]),
 			ManagePosition:   optionalString(rowData["manage_position"]),
@@ -148,7 +142,6 @@ func AdminImportUsers(c *gin.Context) {
 			"gender":             user.Gender,
 			"scholar_author_id":  user.ScholarAuthorID,
 			"role_id":            user.RoleID,
-			"position_id":        user.PositionID,
 			"date_of_employment": user.DateOfEmployment,
 			"prefix":             user.Prefix,
 			"manage_position":    user.ManagePosition,

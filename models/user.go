@@ -14,7 +14,6 @@ type User struct {
 	ScholarAuthorID   *string    `gorm:"column:scholar_author_id" json:"scholar_author_id,omitempty"`
 	Password          *string    `gorm:"column:password" json:"-"`
 	RoleID            int        `gorm:"column:role_id" json:"role_id"`
-	PositionID        int        `gorm:"column:position_id" json:"position_id"`
 	DateOfEmployment  *time.Time `gorm:"column:date_of_employment" json:"date_of_employment,omitempty"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at" json:"last_login_at,omitempty"`
 	CreateAt          *time.Time `gorm:"column:create_at" json:"create_at"`
@@ -39,8 +38,7 @@ type User struct {
 	AccountStatus    *string `gorm:"column:Is_active" json:"is_active,omitempty"`
 
 	// Relations
-	Role     Role     `gorm:"foreignKey:RoleID" json:"role,omitempty"`
-	Position Position `gorm:"foreignKey:PositionID" json:"position,omitempty"`
+	Role               Role               `gorm:"foreignKey:RoleID" json:"role,omitempty"`
 	ResponsibleCourses []InstructorCourse `gorm:"many2many:instructor_course_responsibility;foreignKey:UserID;joinForeignKey:user_id;References:CourseID;joinReferences:course_id" json:"responsible_courses"`
 }
 
@@ -52,15 +50,6 @@ type Role struct {
 	DeleteAt *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 }
 
-type Position struct {
-	PositionID   int        `gorm:"primaryKey;column:position_id" json:"position_id"`
-	PositionName string     `gorm:"column:position_name" json:"position_name"`
-	IsActive     string     `gorm:"column:is_active" json:"is_active"`
-	CreateAt     *time.Time `gorm:"column:create_at" json:"create_at"`
-	UpdateAt     *time.Time `gorm:"column:update_at" json:"update_at"`
-	DeleteAt     *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
-}
-
 // TableName overrides
 func (User) TableName() string {
 	return "users"
@@ -68,8 +57,4 @@ func (User) TableName() string {
 
 func (Role) TableName() string {
 	return "roles"
-}
-
-func (Position) TableName() string {
-	return "positions"
 }

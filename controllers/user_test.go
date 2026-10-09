@@ -16,9 +16,9 @@ func TestGetUsersExcludesTestAccounts(t *testing.T) {
 	steps := []*queryStep{
 		{
 			kind:    stepQuery,
-			pattern: regexp.MustCompile(`(?is)SELECT user_id, user_fname, user_lname, email, role_id, position_id, prefix FROM .*users.*delete_at IS NULL.*is_test = \?.*role_id = \?`),
+			pattern: regexp.MustCompile(`(?is)SELECT user_id, user_fname, user_lname, email, role_id, prefix FROM .*users.*delete_at IS NULL.*is_test = \?.*role_id = \?`),
 			args:    []driver.Value{int64(0), int64(1)},
-			columns: []string{"user_id", "user_fname", "user_lname", "email", "role_id", "position_id", "prefix"},
+			columns: []string{"user_id", "user_fname", "user_lname", "email", "role_id", "prefix"},
 			rows:    [][]driver.Value{},
 		},
 	}

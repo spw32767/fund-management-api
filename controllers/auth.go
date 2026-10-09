@@ -51,9 +51,7 @@ type UserProfile struct {
 	UserLname        string   `json:"user_lname"`
 	Email            string   `json:"email"`
 	RoleID           int      `json:"role_id"`
-	PositionID       int      `json:"position_id"`
 	Role             string   `json:"role"`
-	PositionName     string   `json:"position_name"`
 	Prefix           string   `json:"prefix,omitempty"`
 	ManagePosition   string   `json:"manage_position,omitempty"`
 	PositionTitle    string   `json:"position_title,omitempty"`
@@ -151,7 +149,7 @@ func Login(c *gin.Context) {
 
 	// Find user by email
 	var user models.User
-	if err := config.DB.Preload("Role").Preload("Position").
+	if err := config.DB.Preload("Role").
 		Where("email = ? AND delete_at IS NULL", req.Email).
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -164,11 +162,6 @@ func Login(c *gin.Context) {
 	// Manual load Role
 	if user.RoleID > 0 {
 		config.DB.Where("role_id = ?", user.RoleID).First(&user.Role)
-	}
-
-	// Manual load Position
-	if user.PositionID > 0 {
-		config.DB.Where("position_id = ?", user.PositionID).First(&user.Position)
 	}
 
 	// Check password using bcrypt
@@ -272,9 +265,7 @@ func Login(c *gin.Context) {
 		UserLname:        user.UserLname,
 		Email:            user.Email,
 		RoleID:           user.RoleID,
-		PositionID:       user.PositionID,
 		Role:             user.Role.Role,
-		PositionName:     user.Position.PositionName,
 		Prefix:           stringValue(user.Prefix),
 		ManagePosition:   stringValue(user.ManagePosition),
 		PositionTitle:    stringValue(user.PositionTitle),
@@ -327,11 +318,6 @@ func GetProfile(c *gin.Context) {
 		config.DB.Where("role_id = ?", user.RoleID).First(&user.Role)
 	}
 
-	// Manual load Position
-	if user.PositionID > 0 {
-		config.DB.Where("position_id = ?", user.PositionID).First(&user.Position)
-	}
-
 	if !ensureUserStoragePrepared(c, user) {
 		return
 	}
@@ -351,9 +337,7 @@ func GetProfile(c *gin.Context) {
 			"user_lname":         user.UserLname,
 			"email":              user.Email,
 			"role_id":            user.RoleID,
-			"position_id":        user.PositionID,
 			"role":               user.Role.Role,
-			"position_name":      user.Position.PositionName,
 			"prefix":             stringValue(user.Prefix),
 			"manage_position":    stringValue(user.ManagePosition),
 			"position_title":     stringValue(user.PositionTitle),
@@ -476,7 +460,7 @@ func RefreshToken(c *gin.Context) {
 
 	// Get user
 	var user models.User
-	if err := config.DB.Preload("Role").Preload("Position").
+	if err := config.DB.Preload("Role").
 		Where("user_id = ? AND delete_at IS NULL", userID).
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -718,7 +702,7 @@ func RefreshTokenWithRefreshToken(c *gin.Context) {
 
 	// Get user information
 	var user models.User
-	if err := config.DB.Preload("Role").Preload("Position").
+	if err := config.DB.Preload("Role").
 		Where("user_id = ? AND delete_at IS NULL", userToken.UserID).
 		First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{

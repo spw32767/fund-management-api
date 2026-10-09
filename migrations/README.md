@@ -66,9 +66,10 @@ done
 | 047 | 20260929_add_scopus_author_roles | เพิ่มสถานะการตรวจ XML และบทบาท first/corresponding ของผู้เขียน Scopus |
 | 048 | 20260929_create_scopus_author_role_runs | ประวัติงาน XML จากหน้า academic-imports |
 | 049 | 20260930_scopus_benchmark_summary | schema รายงาน benchmark และหลาย affiliation; รันซ้ำได้ ต้องลงก่อน backend ใหม่ |
+| 050 | 20261005_scopus_core_insights | Core document affiliation/country metadata and catalogue dirty triggers; apply before new ingest binary, then separately authorize bounded backfill; see [Phase 2 plan](../docs/SCOPUS_FACULTY_INSIGHTS_PHASE2.md) |
 | 050 | 20261006_add_permission_modules_and_mou_access | แยกโมดูลสิทธิ์และเพิ่มสิทธิ์ MOU/การ์ด portal; ลงก่อน backend/frontend ใหม่ |
 | 051 | 20261007_researcher_management_permission_scope | ปรับคำอธิบายสิทธิ์จัดการบุคลากรให้ตรงกับขอบเขตหน้าและ API |
-| 050 | 20261005_scopus_core_insights | Core document affiliation/country metadata and catalogue dirty triggers; apply before new ingest binary, then separately authorize bounded backfill; see [Phase 2 plan](../docs/SCOPUS_FACULTY_INSIGHTS_PHASE2.md) |
+| 052 | 20261009_remove_legacy_positions | ย้าย view ไปอ่าน `users.position` และลบ FK, คอลัมน์ `users.position_id`, ตาราง `positions` |
 
 Production ให้ลงเฉพาะ migration ที่ยังขาด ไม่รันทั้งโฟลเดอร์ซ้ำ โดยเฉพาะ 047 ซึ่งเพิ่มคอลัมน์แบบไม่ตรวจการมีอยู่ ดู [checklist deploy](../docs/SCOPUS_BENCHMARK_DEPLOY.md) เลข 045/046 ในตารางเป็นประวัติ migration ที่ไม่มีไฟล์ใน main ปัจจุบัน; release นี้ใช้ 049 เติม benchmark classification/taxonomy ที่ขาด
 
