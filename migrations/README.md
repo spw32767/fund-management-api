@@ -68,6 +68,7 @@ done
 | 049 | 20260930_scopus_benchmark_summary | schema รายงาน benchmark และหลาย affiliation; รันซ้ำได้ ต้องลงก่อน backend ใหม่ |
 | 050 | 20261006_add_permission_modules_and_mou_access | แยกโมดูลสิทธิ์และเพิ่มสิทธิ์ MOU/การ์ด portal; ลงก่อน backend/frontend ใหม่ |
 | 051 | 20261007_researcher_management_permission_scope | ปรับคำอธิบายสิทธิ์จัดการบุคลากรให้ตรงกับขอบเขตหน้าและ API |
+| 050 | 20261005_scopus_core_insights | Core document affiliation/country metadata and catalogue dirty triggers; apply before new ingest binary, then separately authorize bounded backfill; see [Phase 2 plan](../docs/SCOPUS_FACULTY_INSIGHTS_PHASE2.md) |
 
 Production ให้ลงเฉพาะ migration ที่ยังขาด ไม่รันทั้งโฟลเดอร์ซ้ำ โดยเฉพาะ 047 ซึ่งเพิ่มคอลัมน์แบบไม่ตรวจการมีอยู่ ดู [checklist deploy](../docs/SCOPUS_BENCHMARK_DEPLOY.md) เลข 045/046 ในตารางเป็นประวัติ migration ที่ไม่มีไฟล์ใน main ปัจจุบัน; release นี้ใช้ 049 เติม benchmark classification/taxonomy ที่ขาด
 
@@ -92,3 +93,5 @@ schema และข้อมูล seed ของตาราง lookup คร�
    แต่ควรแก้ให้ถูกเพื่อความสะอาด
 2. `022_..._add_id_...sql` ถูก comment ทั้งไฟล์ แต่ตารางจริงใน intern มีคอลัมน์ `id` แล้ว
    (ไฟล์ 020 เวอร์ชันปัจจุบันสร้าง `id` มาให้ตั้งแต่ต้น) — ไฟล์นี้จึงเป็น no-op เก็บไว้อ้างอิงได้
+
+หมายเหตุ: มี migration หมายเลข 050 จากสองสายงาน ให้ตรวจด้วยชื่อไฟล์เต็มและวันที่ (20261005_scopus_core_insights และ 20261006_add_permission_modules_and_mou_access) เป็นคนละรายการ ห้ามถือว่าลงครบจากหมายเลข 050 เพียงอย่างเดียว

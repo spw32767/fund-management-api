@@ -1,0 +1,53 @@
+{
+  "timestamp_utc": "2026-10-04T23:22:03.639379+00:00",
+  "database": "drnadech_fund_cpkku_intern",
+  "through_id": 955,
+  "batches": [
+    {
+      "mode": "dry_run",
+      "normalizer_version": "core-countries-v2",
+      "processed": 500,
+      "last_id": 500,
+      "through_id": 955,
+      "yes": 82,
+      "no": 415,
+      "unknown": 3,
+      "complete": 497,
+      "reasons": {
+        "missing_or_malformed_author_afids": 2,
+        "unresolved_affiliation_country": 1,
+        "unresolved_catalogue_country": 1
+      }
+    },
+    {
+      "mode": "dry_run",
+      "normalizer_version": "core-countries-v2",
+      "processed": 449,
+      "last_id": 955,
+      "through_id": 955,
+      "yes": 252,
+      "no": 195,
+      "unknown": 2,
+      "complete": 444,
+      "reasons": {
+        "missing_or_malformed_author_afids": 5
+      }
+    }
+  ],
+  "binary_sha256": "72c7dacc2c4430091a5bafe245fa06f3fe724b0f692733ed707e6f355a40a0da",
+  "processed": 949,
+  "last_id": 955,
+  "errors": 0,
+  "totals": {
+    "processed": 949,
+    "yes": 334,
+    "no": 610,
+    "unknown": 5,
+    "complete": 941
+  },
+  "reasons": {
+    "missing_or_malformed_author_afids": 7,
+    "unresolved_affiliation_country": 1,
+    "unresolved_catalogue_country": 1
+  }
+}

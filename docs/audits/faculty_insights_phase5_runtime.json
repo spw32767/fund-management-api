@@ -1,0 +1,22 @@
+{
+  "sha256": "b1659bd9fe816624632c6b445ce4ad1ed6758a199e35f89e2448aef99828527b",
+  "owned_pid": 24804,
+  "checksum_url": "https://dlm.mariadb.com/4559170/MariaDB/mariadb-10.11.16/winx64-packages/sha256sums.txt",
+  "synthetic_schema_tables_after_test": 0,
+  "bind_address": "127.0.0.1",
+  "schemas": [
+    "scopus_insights_test_phase2",
+    "scopus_insights_test_api"
+  ],
+  "hidden_process": true,
+  "max_connections": 32,
+  "stopped": true,
+  "retained_runtime_directory": "G:\\works-fund-project\\.phase5-mariadb",
+  "service_installed": false,
+  "global_path_modified": false,
+  "port": 33117,
+  "archive_url": "https://dlm.mariadb.com/4559168/MariaDB/mariadb-10.11.16/winx64-packages/mariadb-10.11.16-winx64.zip",
+  "official_listing": "https://dlm.mariadb.com/browse/mariadb_server/10.11.16/winx64-packages/",
+  "buffer_pool": "128M",
+  "version": "10.11.16-MariaDB"
+}

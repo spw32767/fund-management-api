@@ -18,7 +18,19 @@ func TestSetupRoutesNoConflict(t *testing.T) {
 			t.Fatalf("SetupRoutes panicked (route conflict?): %v", r)
 		}
 	}()
-	SetupRoutes(gin.New())
+	router := gin.New()
+	SetupRoutes(router)
+	for _, path := range []string{"/api/v1/admin/scopus/dashboard/faculty-insights", "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown"} {
+		found := false
+		for _, route := range router.Routes() {
+			if route.Method == "GET" && route.Path == path {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("faculty insights GET route missing: %s", path)
+		}
+	}
 }
 
 // TestFileViewSignRoundTrip verifies that a signed path validates and that

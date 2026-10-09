@@ -1,0 +1,15 @@
+{
+  "environment": "Windows workspace host",
+  "discovery": {
+    "docker_podman_mysql_mariadb_commands": "not found on PATH",
+    "common_runtime_install_locations": "no Docker, Podman, MySQL Server, MariaDB server or XAMPP server executable found",
+    "matching_services": ["WSLService running", "WslInstaller stopped"],
+    "wsl_sandbox_result": "Wsl/Service/E_ACCESSDENIED",
+    "wsl_approved_read_only_result": "no installed distributions; Wsl/WSL_E_DEFAULT_DISTRO_NOT_FOUND; default WSL version 2",
+    "G_MySQL": "Workbench support files only; no server binary found"
+  },
+  "native_mariadb_executed": false,
+  "software_installed": false,
+  "shared_database_mutated": false,
+  "fallback": "guarded opt-in insight_mariadb integration harness; native validation pending"
+}

@@ -1,0 +1,1207 @@
+{
+  "authenticated_http": {
+    "active_session": 200,
+    "database_member_with_admin_claim": 403,
+    "legacy_sessionless_token": 200,
+    "missing_expired_session": 401,
+    "missing_invalid_token": 401
+  },
+  "baseline_documents": 246,
+  "baseline_summary": {
+    "by_year": [
+      {
+        "bucket": "2567",
+        "country_role": {
+          "no": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "unknown": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 1
+          },
+          "yes": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          }
+        },
+        "international": {
+          "no": 0,
+          "unknown": 1,
+          "yes": 0
+        },
+        "international_percent": {
+          "no": 0,
+          "unknown": 100,
+          "yes": 0
+        },
+        "partners": [],
+        "role_percent": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 100
+        },
+        "roles": {
+          "coauthor": 0,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 1
+        },
+        "total": 1,
+        "year_be": 2567,
+        "year_ce": 2024
+      },
+      {
+        "bucket": "2568",
+        "country_role": {
+          "no": {
+            "coauthor": 1,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "unknown": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 1
+          },
+          "yes": {
+            "coauthor": 0,
+            "corresponding": 1,
+            "first": 0,
+            "unknown": 0
+          }
+        },
+        "international": {
+          "no": 1,
+          "unknown": 1,
+          "yes": 1
+        },
+        "international_percent": {
+          "no": 33.333333333333336,
+          "unknown": 33.333333333333336,
+          "yes": 33.333333333333336
+        },
+        "partners": [
+          {
+            "country_key": "japan",
+            "country_name": "Japan",
+            "documents": 1,
+            "percent_international": 100
+          }
+        ],
+        "role_percent": {
+          "coauthor": 33.333333333333336,
+          "corresponding": 33.333333333333336,
+          "first": 0,
+          "unknown": 33.333333333333336
+        },
+        "roles": {
+          "coauthor": 1,
+          "corresponding": 1,
+          "first": 0,
+          "unknown": 1
+        },
+        "total": 3,
+        "year_be": 2568,
+        "year_ce": 2025
+      },
+      {
+        "bucket": "2569",
+        "country_role": {
+          "no": {
+            "coauthor": 234,
+            "corresponding": 0,
+            "first": 1,
+            "unknown": 3
+          },
+          "unknown": {
+            "coauthor": 1,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "yes": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 2,
+            "unknown": 0
+          }
+        },
+        "international": {
+          "no": 238,
+          "unknown": 1,
+          "yes": 2
+        },
+        "international_percent": {
+          "no": 98.7551867219917,
+          "unknown": 0.4149377593360996,
+          "yes": 0.8298755186721992
+        },
+        "partners": [
+          {
+            "country_key": "japan",
+            "country_name": "Japan",
+            "documents": 2,
+            "percent_international": 100
+          },
+          {
+            "country_key": "china",
+            "country_name": "China",
+            "documents": 1,
+            "percent_international": 50
+          }
+        ],
+        "role_percent": {
+          "coauthor": 97.5103734439834,
+          "corresponding": 0,
+          "first": 1.2448132780082988,
+          "unknown": 1.2448132780082988
+        },
+        "roles": {
+          "coauthor": 235,
+          "corresponding": 0,
+          "first": 3,
+          "unknown": 3
+        },
+        "total": 241,
+        "year_be": 2569,
+        "year_ce": 2026
+      },
+      {
+        "bucket": "undated",
+        "country_role": {
+          "no": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "unknown": {
+            "coauthor": 1,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          },
+          "yes": {
+            "coauthor": 0,
+            "corresponding": 0,
+            "first": 0,
+            "unknown": 0
+          }
+        },
+        "international": {
+          "no": 0,
+          "unknown": 1,
+          "yes": 0
+        },
+        "international_percent": {
+          "no": 0,
+          "unknown": 100,
+          "yes": 0
+        },
+        "partners": [],
+        "role_percent": {
+          "coauthor": 100,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        },
+        "roles": {
+          "coauthor": 1,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 0
+        },
+        "total": 1,
+        "year_be": null,
+        "year_ce": null
+      }
+    ],
+    "contract_version": "faculty-insights-v1",
+    "revision": "54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1",
+    "scope": "faculty",
+    "source": "scopus_core",
+    "success": true,
+    "totals": {
+      "country_role": {
+        "no": {
+          "coauthor": 235,
+          "corresponding": 0,
+          "first": 1,
+          "unknown": 3
+        },
+        "unknown": {
+          "coauthor": 2,
+          "corresponding": 0,
+          "first": 0,
+          "unknown": 2
+        },
+        "yes": {
+          "coauthor": 0,
+          "corresponding": 1,
+          "first": 2,
+          "unknown": 0
+        }
+      },
+      "international": {
+        "no": 239,
+        "unknown": 4,
+        "yes": 3
+      },
+      "international_percent": {
+        "no": 97.15447154471545,
+        "unknown": 1.6260162601626016,
+        "yes": 1.2195121951219512
+      },
+      "partners": [
+        {
+          "country_key": "japan",
+          "country_name": "Japan",
+          "documents": 3,
+          "percent_international": 100
+        },
+        {
+          "country_key": "china",
+          "country_name": "China",
+          "documents": 1,
+          "percent_international": 33.333333333333336
+        }
+      ],
+      "role_percent": {
+        "coauthor": 96.34146341463415,
+        "corresponding": 0.4065040650406504,
+        "first": 1.2195121951219512,
+        "unknown": 2.032520325203252
+      },
+      "roles": {
+        "coauthor": 237,
+        "corresponding": 1,
+        "first": 3,
+        "unknown": 5
+      },
+      "total": 246
+    }
+  },
+  "concurrent_snapshot_passed": true,
+  "cost_results": [
+    {
+      "allocated_bytes_per_request": 67792868,
+      "endpoint": "summary",
+      "filter": "",
+      "filtered_documents": 5246,
+      "iterations": 5,
+      "max_ms": 667.291,
+      "median_ms": 606.45,
+      "min_ms": 587.354,
+      "response_bytes_by_request": [
+        3229,
+        3229,
+        3229,
+        3229,
+        3229
+      ],
+      "sql_ms_by_request": [
+        557.155,
+        571.0280000000001,
+        566.2959999999999,
+        569.6969999999999,
+        632.106
+      ],
+      "sql_statements_by_request": [
+        55,
+        55,
+        55,
+        55,
+        55
+      ]
+    },
+    {
+      "allocated_bytes_per_request": 69449011,
+      "endpoint": "drilldown_200",
+      "filter": "",
+      "filtered_documents": 5246,
+      "iterations": 5,
+      "max_ms": 655.441,
+      "median_ms": 625.751,
+      "min_ms": 608.048,
+      "response_bytes_by_request": [
+        218470,
+        218470,
+        218470,
+        218470,
+        218470
+      ],
+      "sql_ms_by_request": [
+        584.64,
+        567.434,
+        599.9920000000002,
+        618.738,
+        579.298
+      ],
+      "sql_statements_by_request": [
+        55,
+        55,
+        55,
+        55,
+        55
+      ]
+    },
+    {
+      "allocated_bytes_per_request": 67803105,
+      "endpoint": "summary",
+      "filter": "year_start_be=2569\u0026year_end_be=2569\u0026quality_buckets=Q4",
+      "filtered_documents": 5239,
+      "iterations": 5,
+      "max_ms": 730.376,
+      "median_ms": 667.199,
+      "min_ms": 447.241,
+      "response_bytes_by_request": [
+        2177,
+        2177,
+        2177,
+        2177,
+        2177
+      ],
+      "sql_ms_by_request": [
+        626.8540000000003,
+        695.6500000000001,
+        665.831,
+        505.765,
+        410.14799999999985
+      ],
+      "sql_statements_by_request": [
+        55,
+        55,
+        55,
+        55,
+        55
+      ]
+    },
+    {
+      "allocated_bytes_per_request": 69447963,
+      "endpoint": "drilldown_200",
+      "filter": "year_start_be=2569\u0026year_end_be=2569\u0026quality_buckets=Q4",
+      "filtered_documents": 5239,
+      "iterations": 5,
+      "max_ms": 757.552,
+      "median_ms": 611.044,
+      "min_ms": 452.374,
+      "response_bytes_by_request": [
+        218503,
+        218503,
+        218503,
+        218503,
+        218503
+      ],
+      "sql_ms_by_request": [
+        408.677,
+        480.52399999999994,
+        560.824,
+        698.7189999999997,
+        567.942
+      ],
+      "sql_statements_by_request": [
+        55,
+        55,
+        55,
+        55,
+        55
+      ]
+    },
+    {
+      "allocated_bytes_per_request": 188078,
+      "endpoint": "summary",
+      "filter": "search_title=Synthetic%20cost%20paper%201000",
+      "filtered_documents": 1,
+      "iterations": 5,
+      "max_ms": 47.541,
+      "median_ms": 37.785,
+      "min_ms": 29.191,
+      "response_bytes_by_request": [
+        1877,
+        1877,
+        1877,
+        1877,
+        1877
+      ],
+      "sql_ms_by_request": [
+        46.035000000000004,
+        36.589,
+        28.188000000000002,
+        31.993000000000002,
+        41.516999999999996
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16,
+        16,
+        16
+      ]
+    },
+    {
+      "allocated_bytes_per_request": 154728,
+      "endpoint": "drilldown_200",
+      "filter": "search_title=Synthetic%20cost%20paper%201000",
+      "filtered_documents": 1,
+      "iterations": 5,
+      "max_ms": 181.307,
+      "median_ms": 83.6,
+      "min_ms": 52.14,
+      "response_bytes_by_request": [
+        1469,
+        1469,
+        1469,
+        1469,
+        1469
+      ],
+      "sql_ms_by_request": [
+        90.589,
+        164.258,
+        66.15,
+        51.526,
+        83.09599999999999
+      ],
+      "sql_statements_by_request": [
+        16,
+        16,
+        16,
+        16,
+        16
+      ]
+    }
+  ],
+  "cost_scale": {
+    "additional_documents": 5000,
+    "country_rows_added": 7500,
+    "duplicate_users": true,
+    "eligible_documents": 5246,
+    "metric_sources": 5,
+    "metric_year_rows": 7,
+    "representative_indexes": "repository db/fund_cpkku.sql relevant index shapes",
+    "request_measurement": "controller snapshot/aggregation/JSON; excludes HTTP/auth network overhead"
+  },
+  "explain_": {
+    "query_block": {
+      "filesort": {
+        "sort_key": "sd.`id`",
+        "temporary_table": {
+          "nested_loop": [
+            {
+              "duplicates_removal": [
+                {
+                  "table": {
+                    "access_type": "ALL",
+                    "attached_condition": "lcase(trim(coalesce(aff.`name`,''))) in ('khon kaen university','faculty of science, khon kaen university')",
+                    "filtered": 100,
+                    "possible_keys": [
+                      "PRIMARY"
+                    ],
+                    "rows": 3,
+                    "table_name": "aff"
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "buffer_size": "53Kb",
+                    "buffer_type": "flat",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "filtered": 100,
+                      "possible_keys": [
+                        "PRIMARY",
+                        "idx_scopus_authors_scopus_author_id"
+                      ],
+                      "rows": 5,
+                      "table_name": "sa"
+                    }
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "ref",
+                    "attached_condition": "sda.affiliation_id = aff.`id` and sda.document_id is not null",
+                    "filtered": 100,
+                    "key": "idx_scopus_document_authors_author",
+                    "key_length": "9",
+                    "possible_keys": [
+                      "uq_scopus_document_authors_doc_author",
+                      "idx_scopus_document_authors_document",
+                      "idx_scopus_document_authors_author",
+                      "fk_scopus_document_authors_affiliation"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sa.id"
+                    ],
+                    "rows": 25,
+                    "table_name": "sda",
+                    "used_key_parts": [
+                      "author_id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "filtered": 100,
+                    "key": "PRIMARY",
+                    "key_length": "8",
+                    "possible_keys": [
+                      "PRIMARY"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sda.document_id"
+                    ],
+                    "rows": 1,
+                    "table_name": "sd",
+                    "used_key_parts": [
+                      "id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "attached_condition": "trigcond(metrics.doc_type = 'all' and metrics.metric_year = coalesce((subquery#2),(subquery#3)) and trigcond(sd.source_id is not null))",
+                    "filtered": 100,
+                    "key": "uq_scopus_source_year_type",
+                    "key_length": "271",
+                    "possible_keys": [
+                      "uq_scopus_source_year_type"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sd.source_id",
+                      "func",
+                      "const"
+                    ],
+                    "rows": 1,
+                    "table_name": "metrics",
+                    "used_key_parts": [
+                      "source_id",
+                      "metric_year",
+                      "doc_type"
+                    ]
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "attached_condition": "trim(u.scopus_id) = sa.scopus_author_id",
+                    "buffer_size": "252Kb",
+                    "buffer_type": "flat",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "attached_condition": "u.is_test = 0 and u.delete_at is null and u.scopus_id is not null and trim(u.scopus_id) \u003c\u003e ''",
+                      "filtered": 100,
+                      "rows": 8,
+                      "table_name": "u"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "subqueries": [
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "ref",
+                        "attached_condition": "lcase(ssm_prev.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_prev.doc_type = 'all' and ssm_prev.metric_year \u003c coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "131",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_prev",
+                        "used_key_parts": [
+                          "source_id"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 3
+                },
+                "state": "uninitialized"
+              }
+            },
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "eq_ref",
+                        "attached_condition": "lcase(ssm_complete.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_complete.doc_type = 'all' and ssm_complete.metric_year = coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "271",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id",
+                          "func",
+                          "const"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_complete",
+                        "used_key_parts": [
+                          "source_id",
+                          "metric_year",
+                          "doc_type"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 2
+                },
+                "state": "uninitialized"
+              }
+            }
+          ]
+        }
+      },
+      "select_id": 1
+    }
+  },
+  "explain_search_title=Synthetic%20cost%20paper%201000": {
+    "query_block": {
+      "filesort": {
+        "sort_key": "sd.`id`",
+        "temporary_table": {
+          "nested_loop": [
+            {
+              "duplicates_removal": [
+                {
+                  "table": {
+                    "access_type": "ALL",
+                    "filtered": 100,
+                    "possible_keys": [
+                      "PRIMARY",
+                      "idx_scopus_authors_scopus_author_id"
+                    ],
+                    "rows": 5,
+                    "table_name": "sa"
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "ref",
+                    "attached_condition": "sda.document_id is not null",
+                    "filtered": 100,
+                    "key": "idx_scopus_document_authors_author",
+                    "key_length": "9",
+                    "possible_keys": [
+                      "uq_scopus_document_authors_doc_author",
+                      "idx_scopus_document_authors_document",
+                      "idx_scopus_document_authors_author",
+                      "fk_scopus_document_authors_affiliation"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sa.id"
+                    ],
+                    "rows": 25,
+                    "table_name": "sda",
+                    "used_key_parts": [
+                      "author_id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "attached_condition": "sd.title like '%Synthetic cost paper 1000%'",
+                    "filtered": 100,
+                    "key": "PRIMARY",
+                    "key_length": "8",
+                    "possible_keys": [
+                      "PRIMARY"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sda.document_id"
+                    ],
+                    "rows": 1,
+                    "table_name": "sd",
+                    "used_key_parts": [
+                      "id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "attached_condition": "trigcond(metrics.doc_type = 'all' and metrics.metric_year = coalesce((subquery#2),(subquery#3)) and trigcond(sd.source_id is not null))",
+                    "filtered": 100,
+                    "key": "uq_scopus_source_year_type",
+                    "key_length": "271",
+                    "possible_keys": [
+                      "uq_scopus_source_year_type"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sd.source_id",
+                      "func",
+                      "const"
+                    ],
+                    "rows": 1,
+                    "table_name": "metrics",
+                    "used_key_parts": [
+                      "source_id",
+                      "metric_year",
+                      "doc_type"
+                    ]
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "attached_condition": "aff.`id` = sda.affiliation_id",
+                    "buffer_size": "255Kb",
+                    "buffer_type": "flat",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "attached_condition": "lcase(trim(coalesce(aff.`name`,''))) in ('khon kaen university','faculty of science, khon kaen university')",
+                      "filtered": 100,
+                      "possible_keys": [
+                        "PRIMARY"
+                      ],
+                      "rows": 3,
+                      "table_name": "aff"
+                    }
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "attached_condition": "trim(u.scopus_id) = sa.scopus_author_id",
+                    "buffer_size": "252Kb",
+                    "buffer_type": "incremental",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "attached_condition": "u.is_test = 0 and u.delete_at is null and u.scopus_id is not null and trim(u.scopus_id) \u003c\u003e ''",
+                      "filtered": 100,
+                      "rows": 8,
+                      "table_name": "u"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "subqueries": [
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "ref",
+                        "attached_condition": "lcase(ssm_prev.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_prev.doc_type = 'all' and ssm_prev.metric_year \u003c coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "131",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_prev",
+                        "used_key_parts": [
+                          "source_id"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 3
+                },
+                "state": "uninitialized"
+              }
+            },
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "eq_ref",
+                        "attached_condition": "lcase(ssm_complete.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_complete.doc_type = 'all' and ssm_complete.metric_year = coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "271",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id",
+                          "func",
+                          "const"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_complete",
+                        "used_key_parts": [
+                          "source_id",
+                          "metric_year",
+                          "doc_type"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 2
+                },
+                "state": "uninitialized"
+              }
+            }
+          ]
+        }
+      },
+      "select_id": 1
+    }
+  },
+  "explain_year_start_be=2569\u0026year_end_be=2569\u0026quality_buckets=Q4": {
+    "query_block": {
+      "filesort": {
+        "sort_key": "sd.`id`",
+        "temporary_table": {
+          "nested_loop": [
+            {
+              "duplicates_removal": [
+                {
+                  "table": {
+                    "access_type": "ALL",
+                    "filtered": 100,
+                    "possible_keys": [
+                      "PRIMARY",
+                      "idx_scopus_authors_scopus_author_id"
+                    ],
+                    "rows": 5,
+                    "table_name": "sa"
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "ref",
+                    "attached_condition": "sda.document_id is not null",
+                    "filtered": 100,
+                    "key": "idx_scopus_document_authors_author",
+                    "key_length": "9",
+                    "possible_keys": [
+                      "uq_scopus_document_authors_doc_author",
+                      "idx_scopus_document_authors_document",
+                      "idx_scopus_document_authors_author",
+                      "fk_scopus_document_authors_affiliation"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sa.id"
+                    ],
+                    "rows": 25,
+                    "table_name": "sda",
+                    "used_key_parts": [
+                      "author_id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "attached_condition": "coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned)) \u003e= 2026 and coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned)) \u003c= 2026 and lcase(trim(coalesce(sd.aggregation_type,''))) \u003c\u003e 'conference proceeding'",
+                    "filtered": 100,
+                    "key": "PRIMARY",
+                    "key_length": "8",
+                    "possible_keys": [
+                      "PRIMARY"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sda.document_id"
+                    ],
+                    "rows": 1,
+                    "table_name": "sd",
+                    "used_key_parts": [
+                      "id"
+                    ]
+                  }
+                },
+                {
+                  "table": {
+                    "access_type": "eq_ref",
+                    "attached_condition": "trigcond((metrics.cite_score_percentile is null or metrics.cite_score_percentile not between 90 and 100) and coalesce(nullif(ucase(trim(metrics.cite_score_quartile)),''),'N/A') = 'Q4') and trigcond(metrics.doc_type = 'all' and metrics.metric_year = coalesce((subquery#2),(subquery#3)) and trigcond(sd.source_id is not null))",
+                    "filtered": 100,
+                    "key": "uq_scopus_source_year_type",
+                    "key_length": "271",
+                    "possible_keys": [
+                      "uq_scopus_source_year_type"
+                    ],
+                    "ref": [
+                      "scopus_insights_test_api.sd.source_id",
+                      "func",
+                      "const"
+                    ],
+                    "rows": 1,
+                    "table_name": "metrics",
+                    "used_key_parts": [
+                      "source_id",
+                      "metric_year",
+                      "doc_type"
+                    ]
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "attached_condition": "aff.`id` = sda.affiliation_id",
+                    "buffer_size": "255Kb",
+                    "buffer_type": "flat",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "attached_condition": "lcase(trim(coalesce(aff.`name`,''))) in ('khon kaen university','faculty of science, khon kaen university')",
+                      "filtered": 100,
+                      "possible_keys": [
+                        "PRIMARY"
+                      ],
+                      "rows": 3,
+                      "table_name": "aff"
+                    }
+                  }
+                },
+                {
+                  "block-nl-join": {
+                    "attached_condition": "trim(u.scopus_id) = sa.scopus_author_id",
+                    "buffer_size": "252Kb",
+                    "buffer_type": "incremental",
+                    "join_type": "BNL",
+                    "table": {
+                      "access_type": "ALL",
+                      "attached_condition": "u.is_test = 0 and u.delete_at is null and u.scopus_id is not null and trim(u.scopus_id) \u003c\u003e ''",
+                      "filtered": 100,
+                      "rows": 8,
+                      "table_name": "u"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "subqueries": [
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "ref",
+                        "attached_condition": "lcase(ssm_prev.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_prev.doc_type = 'all' and ssm_prev.metric_year \u003c coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "131",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_prev",
+                        "used_key_parts": [
+                          "source_id"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 3
+                },
+                "state": "uninitialized"
+              }
+            },
+            {
+              "expression_cache": {
+                "query_block": {
+                  "nested_loop": [
+                    {
+                      "table": {
+                        "access_type": "eq_ref",
+                        "attached_condition": "lcase(ssm_complete.cite_score_status) = 'complete'",
+                        "filtered": 100,
+                        "index_condition": "ssm_complete.doc_type = 'all' and ssm_complete.metric_year = coalesce(year(sd.cover_date),cast(right(sd.cover_display_date,4) as unsigned))",
+                        "key": "uq_scopus_source_year_type",
+                        "key_length": "271",
+                        "possible_keys": [
+                          "uq_scopus_source_year_type"
+                        ],
+                        "ref": [
+                          "scopus_insights_test_api.sd.source_id",
+                          "func",
+                          "const"
+                        ],
+                        "rows": 1,
+                        "table_name": "ssm_complete",
+                        "used_key_parts": [
+                          "source_id",
+                          "metric_year",
+                          "doc_type"
+                        ]
+                      }
+                    }
+                  ],
+                  "outer_ref_condition": "sd.source_id is not null",
+                  "select_id": 2
+                },
+                "state": "uninitialized"
+              }
+            }
+          ]
+        }
+      },
+      "select_id": 1
+    }
+  },
+  "fixture_only": true,
+  "frontend_real_api": {
+    "authenticated_real_api": true,
+    "blocked_external_origins": [],
+    "checks": [
+      {
+        "name": "real authenticated summary and explicit synthetic label",
+        "passed": true
+      },
+      {
+        "name": "real server pagination reaches document 246 beyond 200",
+        "passed": true
+      },
+      {
+        "name": "country partner uses matching real international membership",
+        "passed": true
+      },
+      {
+        "name": "real unknown evidence remains separate; links use safe protocols",
+        "passed": true
+      },
+      {
+        "name": "real 409 refreshes summary and restarts page one",
+        "passed": true
+      },
+      {
+        "name": "draft year sends no request; applied BE year reaches real API",
+        "passed": true
+      },
+      {
+        "name": "real API empty year renders zero without invented percentages",
+        "passed": true
+      },
+      {
+        "name": "real API mobile cards fit viewport",
+        "passed": true
+      }
+    ],
+    "fixture_only": true,
+    "native_mariadb": true,
+    "page_errors": [],
+    "passed": true,
+    "requests": [
+      {
+        "path": "/api/v1/profile",
+        "query": "",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights",
+        "query": "?open_access_mode=all\u0026scope=faculty",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=1\u0026page_size=200",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=2\u0026page_size=200",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026country_key=japan\u0026international_status=yes\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026international_status=unknown\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=54ee0195100dd125dc59a73aeee8529fa49d76795b83a8ce0227282df88495c1\u0026page=2\u0026page_size=25",
+        "status": 409
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights",
+        "query": "?open_access_mode=all\u0026scope=faculty",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026revision=f32bece995f574b015c0b6311497951ddb91e4f128eb918df43b3d5596c10efe\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026year_end_be=2569\u0026year_start_be=2569",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026year_end_be=2566\u0026year_start_be=2566",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights/drilldown",
+        "query": "?open_access_mode=all\u0026scope=faculty\u0026year_end_be=2566\u0026year_start_be=2566\u0026revision=004991f49b1864df235016362a47f0e1d6a25a4f720b30ed1e55198b54ff1070\u0026page=1\u0026page_size=25",
+        "status": 200
+      },
+      {
+        "path": "/api/v1/admin/scopus/dashboard/faculty-insights",
+        "query": "?open_access_mode=all\u0026scope=faculty",
+        "status": 200
+      }
+    ]
+  },
+  "native_mariadb": true,
+  "read_only_error_code": 1792
+}

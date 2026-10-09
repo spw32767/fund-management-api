@@ -17,6 +17,7 @@ import (
 	"fund-management-api/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -307,13 +308,15 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 	var created bool
 	var rosterChanged bool
 	var persisted models.ScopusDocument
+	// Counters describe committed work; an aborted transaction must not inflate a retry.
+	beforeResult := *result
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		docModel := buildScopusDocument(entry)
 		docModel.RawJSON = cloneJSON(raw)
 
 		var doc models.ScopusDocument
-		if err := tx.Where("eid = ?", docModel.EID).First(&doc).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("eid = ?", docModel.EID).First(&doc).Error; err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
@@ -359,6 +362,9 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 		if !created && result.DocumentAuthorsInserted > linksInsertedBefore {
 			rosterChanged = true
 		}
+		if err := synchronizeCoreInsight(tx, doc.ID, raw); err != nil {
+			return err
+		}
 		if rosterChanged {
 			if err := tx.Model(&models.ScopusDocument{}).Where("id = ?", doc.ID).
 				Updates(map[string]interface{}{"author_role_status": nil, "author_role_checked_at": nil}).Error; err != nil {
@@ -371,6 +377,7 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 	})
 
 	if err != nil {
+		*result = beforeResult
 		return nil, false, err
 	}
 
@@ -455,6 +462,11 @@ func (s *ScopusIngestService) upsertAffiliations(tx *gorm.DB, entry *scopusEntry
 			result.AffiliationsCreated++
 		} else {
 			model.ID = existing.ID
+			// A Search payload with no country is not a catalogue correction.
+			// Explicit catalogue edits can clear a mapping and trigger invalidation.
+			if model.Country == nil {
+				model.Country = existing.Country
+			}
 			if err := tx.Save(model).Error; err != nil {
 				return nil, err
 			}
