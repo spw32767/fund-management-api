@@ -78,12 +78,6 @@ func AdminImportUsers(c *gin.Context) {
 	}
 
 	now := time.Now()
-	hashedPassword, err := utils.HashPassword("changeme123")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถเตรียมข้อมูลรหัสผ่านได้"})
-		return
-	}
-
 	tx := config.DB.Begin()
 	imported := 0
 
@@ -100,30 +94,35 @@ func AdminImportUsers(c *gin.Context) {
 		if err != nil || roleVal <= 0 {
 			continue
 		}
+		accountStatus := optionalString(rowData["is_active"])
+		if accountStatus == nil {
+			active := "A"
+			accountStatus = &active
+		}
 		user := models.User{
-			UserFname:        strings.TrimSpace(rowData["user_fname"]),
-			UserLname:        strings.TrimSpace(rowData["user_lname"]),
-			Gender:           strings.TrimSpace(rowData["gender"]),
-			Email:            email,
-			ScholarAuthorID:  optionalString(rowData["scholar_author_id"]),
-			RoleID:           roleVal,
-			Password:         &hashedPassword,
-			Prefix:           optionalString(rowData["prefix"]),
-			ManagePosition:   optionalString(rowData["manage_position"]),
-			PositionTitle:    optionalString(rowData["position_title"]),
-			PositionEn:       optionalString(rowData["position_en"]),
-			PrefixPositionEn: optionalString(rowData["prefix_position_en"]),
-			NameEn:           optionalString(rowData["name_en"]),
-			SuffixEn:         optionalString(rowData["suffix_en"]),
-			Tel:              optionalString(rowData["tel"]),
-			TelFormat:        optionalString(rowData["tel_format"]),
-			TelEng:           optionalString(rowData["tel_eng"]),
-			ManagePositionEn: optionalString(rowData["manage_position_en"]),
-			LabName:          optionalString(rowData["lab_name"]),
-			Room:             optionalString(rowData["room"]),
-			CPWebID:          optionalString(rowData["cp_web_id"]),
-			ScopusID:         optionalString(rowData["scopus_id"]),
-			AccountStatus:    optionalString(rowData["is_active"]),
+			UserFname:         strings.TrimSpace(rowData["user_fname"]),
+			UserLname:         strings.TrimSpace(rowData["user_lname"]),
+			Gender:            strings.TrimSpace(rowData["gender"]),
+			Email:             email,
+			EmailNotification: optionalString(rowData["email_notification"]),
+			ScholarAuthorID:   optionalString(rowData["scholar_author_id"]),
+			RoleID:            roleVal,
+			Prefix:            optionalString(rowData["prefix"]),
+			ManagePosition:    optionalString(rowData["manage_position"]),
+			PositionTitle:     optionalString(rowData["position_title"]),
+			PositionEn:        optionalString(rowData["position_en"]),
+			PrefixPositionEn:  optionalString(rowData["prefix_position_en"]),
+			NameEn:            optionalString(rowData["name_en"]),
+			SuffixEn:          optionalString(rowData["suffix_en"]),
+			Tel:               optionalString(rowData["tel"]),
+			TelFormat:         optionalString(rowData["tel_format"]),
+			TelEng:            optionalString(rowData["tel_eng"]),
+			ManagePositionEn:  optionalString(rowData["manage_position_en"]),
+			LabName:           optionalString(rowData["lab_name"]),
+			Room:              optionalString(rowData["room"]),
+			CPWebID:           optionalString(rowData["cp_web_id"]),
+			ScopusID:          optionalString(rowData["scopus_id"]),
+			AccountStatus:     accountStatus,
 		}
 
 		if dob := strings.TrimSpace(rowData["date_of_employment"]); dob != "" {
@@ -136,10 +135,11 @@ func AdminImportUsers(c *gin.Context) {
 		user.CreateAt = &now
 		user.UpdateAt = &now
 
-		assignments := clause.Assignments(map[string]interface{}{
+		assignmentValues := map[string]interface{}{
 			"user_fname":         user.UserFname,
 			"user_lname":         user.UserLname,
 			"gender":             user.Gender,
+			"email_notification": user.EmailNotification,
 			"scholar_author_id":  user.ScholarAuthorID,
 			"role_id":            user.RoleID,
 			"date_of_employment": user.DateOfEmployment,
@@ -158,9 +158,12 @@ func AdminImportUsers(c *gin.Context) {
 			"Room":               user.Room,
 			"CP_WEB_ID":          user.CPWebID,
 			"Scopus_id":          user.ScopusID,
-			"Is_active":          user.AccountStatus,
 			"update_at":          now,
-		})
+		}
+		if strings.TrimSpace(rowData["is_active"]) != "" {
+			assignmentValues["Is_active"] = user.AccountStatus
+		}
+		assignments := clause.Assignments(assignmentValues)
 
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "email"}},
