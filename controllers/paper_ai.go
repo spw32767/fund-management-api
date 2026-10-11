@@ -209,6 +209,74 @@ func SummarizePaper(c *gin.Context) {
 	relayPaperAIResponse(c, status, body, callErr)
 }
 
+func SuggestPaperSDG(c *gin.Context) {
+	var request struct {
+		Title    string `json:"title"`
+		Abstract string `json:"abstract"`
+		Content  string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.Title) == "" ||
+		(strings.TrimSpace(request.Abstract) == "" && strings.TrimSpace(request.Content) == "") ||
+		len(request.Title) > 1000 || len(request.Abstract) > 100_000 || len(request.Content) > 500_000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title and abstract or content are required within size limits"})
+		return
+	}
+	var sdgs []models.SDG
+	if err := config.DB.Where("delete_at IS NULL").Order("sdg_number ASC").Find(&sdgs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load SDGs"})
+		return
+	}
+	if len(sdgs) == 0 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no active SDGs are available"})
+		return
+	}
+	options := make([]gin.H, 0, len(sdgs))
+	byNumber := make(map[int]models.SDG, len(sdgs))
+	for _, sdg := range sdgs {
+		options = append(options, gin.H{
+			"sdg_number": sdg.SDGNumber, "name_th": sdg.NameTH, "name_en": sdg.NameEN,
+			"description_th": sdg.DescriptionTH, "description_en": sdg.DescriptionEN,
+		})
+		byNumber[sdg.SDGNumber] = sdg
+	}
+	payload, _ := json.Marshal(gin.H{
+		"title": request.Title, "abstract": request.Abstract, "content": request.Content, "sdgs": options,
+	})
+	jobID := beginPaperAIJob(c, "suggest_sdg")
+	status, body, callErr := services.NewPaperAIClient().SuggestSDG(c.Request.Context(), payload)
+	if jobID != "" {
+		c.Header("X-Paper-AI-Job-ID", jobID)
+	}
+	if callErr != nil || status < 200 || status >= 300 {
+		finishPaperAIJob(jobID, status, body, callErr)
+		relayPaperAIResponse(c, status, body, callErr)
+		return
+	}
+	var suggestion struct {
+		SDGNumber    int    `json:"sdg_number"`
+		ReasonTH     string `json:"reason_th"`
+		Relationship string `json:"relationship"`
+		Model        string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &suggestion); err != nil || strings.TrimSpace(suggestion.ReasonTH) == "" ||
+		(suggestion.Relationship != "direct" && suggestion.Relationship != "closest") {
+		finishPaperAIJob(jobID, http.StatusBadGateway, nil, nil)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "paper reader returned an invalid SDG suggestion"})
+		return
+	}
+	selected, ok := byNumber[suggestion.SDGNumber]
+	if !ok {
+		finishPaperAIJob(jobID, http.StatusBadGateway, nil, nil)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "paper reader selected an unavailable SDG"})
+		return
+	}
+	finishPaperAIJob(jobID, status, body, nil)
+	c.JSON(http.StatusOK, gin.H{
+		"sdg_id": selected.SDGID, "sdg_number": selected.SDGNumber, "name_th": selected.NameTH,
+		"reason_th": suggestion.ReasonTH, "relationship": suggestion.Relationship, "model": suggestion.Model,
+	})
+}
+
 func ClassifyPaper(c *gin.Context) {
 	var request struct {
 		PaperID      any    `json:"paper_id"`

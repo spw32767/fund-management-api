@@ -341,6 +341,12 @@ func (s *ScopusIngestService) processEntry(ctx context.Context, raw json.RawMess
 				docModel.AuthorRoleStatus = doc.AuthorRoleStatus
 				docModel.AuthorRoleCheckedAt = doc.AuthorRoleCheckedAt
 			}
+			// Ingest refreshes Scopus metadata, but must not clear AI classification.
+			docModel.PaperCategoryID = doc.PaperCategoryID
+			docModel.ClassificationConfidence = doc.ClassificationConfidence
+			docModel.ClassificationModel = doc.ClassificationModel
+			docModel.ClassificationTaxonomyVersion = doc.ClassificationTaxonomyVersion
+			docModel.ClassifiedAt = doc.ClassifiedAt
 			if err := tx.Save(docModel).Error; err != nil {
 				return err
 			}

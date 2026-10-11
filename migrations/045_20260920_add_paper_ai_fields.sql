@@ -42,16 +42,17 @@ WHERE code NOT IN (
   'EDTECH_LEARNING_DIGITAL_LIBRARY'
 );
 
-ALTER TABLE scopus_benchmark_documents
-  ADD COLUMN category BIGINT UNSIGNED DEFAULT NULL COMMENT 'FK to paper_categories.category_id',
-  ADD COLUMN classification_confidence ENUM('High', 'Medium', 'Low') DEFAULT NULL,
-  ADD COLUMN classification_model VARCHAR(128) DEFAULT NULL,
-  ADD COLUMN classification_taxonomy_version VARCHAR(64) DEFAULT NULL,
-  ADD COLUMN classified_at DATETIME DEFAULT NULL,
-  ADD KEY idx_scopus_benchmark_paper_category (category),
-  ADD CONSTRAINT fk_scopus_benchmark_paper_category
-    FOREIGN KEY (category) REFERENCES paper_categories(category_id)
-    ON UPDATE CASCADE ON DELETE SET NULL;
+-- Migration 049 on the current main branch may already have added these
+-- benchmark columns. Preserve its existing classifications when enabling Paper AI.
+SET @paper_ai_benchmark_ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+   WHERE table_schema = DATABASE() AND table_name = 'scopus_benchmark_documents' AND column_name = 'category') = 0,
+  'ALTER TABLE scopus_benchmark_documents ADD COLUMN category BIGINT UNSIGNED DEFAULT NULL, ADD COLUMN classification_confidence ENUM(''High'', ''Medium'', ''Low'') DEFAULT NULL, ADD COLUMN classification_model VARCHAR(128) DEFAULT NULL, ADD COLUMN classification_taxonomy_version VARCHAR(64) DEFAULT NULL, ADD COLUMN classified_at DATETIME DEFAULT NULL, ADD KEY idx_scopus_benchmark_paper_category (category), ADD CONSTRAINT fk_scopus_benchmark_paper_category FOREIGN KEY (category) REFERENCES paper_categories(category_id) ON UPDATE CASCADE ON DELETE SET NULL',
+  'SELECT 1'
+);
+PREPARE paper_ai_benchmark_stmt FROM @paper_ai_benchmark_ddl;
+EXECUTE paper_ai_benchmark_stmt;
+DEALLOCATE PREPARE paper_ai_benchmark_stmt;
 
 ALTER TABLE publication_reward_details
   ADD COLUMN scopus_benchmark_document_id BIGINT UNSIGNED DEFAULT NULL,

@@ -2,14 +2,64 @@ package controllers
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
+
+	"fund-management-api/config"
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestSuggestPaperSDGMapsNumberToActiveDatabaseID(t *testing.T) {
+	db, state, cleanup := newScriptedGormDB(t, []*queryStep{{
+		kind:    stepQuery,
+		pattern: regexp.MustCompile(`(?is)SELECT .* FROM .*sdgs.*delete_at IS NULL`),
+		columns: []string{"sdg_id", "sdg_number", "name_th", "name_en"},
+		rows:    [][]driver.Value{{int64(42), int64(4), "การศึกษาที่มีคุณภาพ", "Quality Education"}},
+	}})
+	defer cleanup()
+	originalDB := config.DB
+	config.DB = db
+	defer func() { config.DB = originalDB }()
+	reader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			SDGs []struct {
+				SDGNumber int `json:"sdg_number"`
+			} `json:"sdgs"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.SDGs) != 1 || request.SDGs[0].SDGNumber != 4 {
+			t.Errorf("unexpected reader payload: %+v, %v", request, err)
+		}
+		_, _ = w.Write([]byte(`{"sdg_number":4,"reason_th":"ศึกษาการเรียนรู้","relationship":"direct","model":"fake"}`))
+	}))
+	defer reader.Close()
+	t.Setenv("PAPER_READER_API_URL", reader.URL)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/suggest-sdg", SuggestPaperSDG)
+	request := httptest.NewRequest(http.MethodPost, "/suggest-sdg", strings.NewReader(`{"title":"Learning study","abstract":"Classroom outcomes"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		SDGID int `json:"sdg_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.SDGID != 42 {
+		t.Fatalf("expected database ID 42, got %+v: %v", result, err)
+	}
+	if err := state.verifyComplete(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestExtractPaperRelaysReadableValidationError(t *testing.T) {
 	reader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

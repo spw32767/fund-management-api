@@ -70,8 +70,9 @@ done
 | 050 | 20261006_add_permission_modules_and_mou_access | แยกโมดูลสิทธิ์และเพิ่มสิทธิ์ MOU/การ์ด portal; ลงก่อน backend/frontend ใหม่ |
 | 051 | 20261007_researcher_management_permission_scope | ปรับคำอธิบายสิทธิ์จัดการบุคลากรให้ตรงกับขอบเขตหน้าและ API |
 | 052 | 20261009_remove_legacy_positions | ย้าย view ไปอ่าน `users.position` และลบ FK, คอลัมน์ `users.position_id`, ตาราง `positions` |
+| 053 | 20261011_scopus_bulk_classification | เพิ่มช่องจัดหมวดใน `scopus_documents` และตารางติดตามงานจัดหมวด Paper AI; ต้องลงหลัง 045/046 |
 
-Production ให้ลงเฉพาะ migration ที่ยังขาด ไม่รันทั้งโฟลเดอร์ซ้ำ โดยเฉพาะ 047 ซึ่งเพิ่มคอลัมน์แบบไม่ตรวจการมีอยู่ ดู [checklist deploy](../docs/SCOPUS_BENCHMARK_DEPLOY.md) เลข 045/046 ในตารางเป็นประวัติ migration ที่ไม่มีไฟล์ใน main ปัจจุบัน; release นี้ใช้ 049 เติม benchmark classification/taxonomy ที่ขาด
+Production ให้ลงเฉพาะ migration ที่ยังขาด ไม่รันทั้งโฟลเดอร์ซ้ำ โดยเฉพาะ 047 และ 053 ซึ่งเพิ่มคอลัมน์แบบไม่ตรวจการมีอยู่ ดู [checklist deploy](../docs/SCOPUS_BENCHMARK_DEPLOY.md) หาก 049 ลงไปก่อน 045 แล้ว 045 จะคงคอลัมน์และผลจัดหมวด benchmark ที่มีอยู่
 
 ## ✅ ครบแล้ว — schema + seed
 
