@@ -23,12 +23,6 @@ func (ScopusBenchmarkScope) TableName() string { return "scopus_benchmark_scopes
 // ScopusBenchmarkDocument mirrors scopus_documents but lives in an isolated table
 // so university/country harvests never leak into the faculty-facing views.
 type ScopusBenchmarkDocument struct {
-	Category                      *uint64    `gorm:"column:category" json:"category,omitempty"`
-	ClassificationConfidence      *string    `gorm:"column:classification_confidence" json:"classification_confidence,omitempty"`
-	ClassificationModel           *string    `gorm:"column:classification_model" json:"classification_model,omitempty"`
-	ClassificationTaxonomyVersion *string    `gorm:"column:classification_taxonomy_version" json:"classification_taxonomy_version,omitempty"`
-	ClassifiedAt                  *time.Time `gorm:"column:classified_at" json:"classified_at,omitempty"`
-	AffiliationsComplete          bool       `gorm:"column:affiliations_complete" json:"affiliations_complete"`
 	ID                            uint       `gorm:"primaryKey;column:id" json:"id"`
 	EID                           string     `gorm:"column:eid;uniqueIndex" json:"eid"`
 	ScopusID                      *string    `gorm:"column:scopus_id" json:"scopus_id,omitempty"`
@@ -63,6 +57,12 @@ type ScopusBenchmarkDocument struct {
 	LastSeenAt                    *time.Time `gorm:"column:last_seen_at" json:"last_seen_at,omitempty"`
 	CreatedAt                     time.Time  `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt                     time.Time  `gorm:"column:updated_at" json:"updated_at"`
+	Category                      *uint64    `gorm:"column:category" json:"category,omitempty"`
+	ClassificationConfidence      *string    `gorm:"column:classification_confidence" json:"classification_confidence,omitempty"`
+	ClassificationModel           *string    `gorm:"column:classification_model" json:"classification_model,omitempty"`
+	ClassificationTaxonomyVersion *string    `gorm:"column:classification_taxonomy_version" json:"classification_taxonomy_version,omitempty"`
+	ClassifiedAt                  *time.Time `gorm:"column:classified_at" json:"classified_at,omitempty"`
+	AffiliationsComplete          bool       `gorm:"column:affiliations_complete" json:"affiliations_complete"`
 }
 
 func (ScopusBenchmarkDocument) TableName() string { return "scopus_benchmark_documents" }
