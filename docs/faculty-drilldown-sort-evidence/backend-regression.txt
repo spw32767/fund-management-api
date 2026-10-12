@@ -1,0 +1,5 @@
+ok  	fund-management-api/controllers	2.970s
+?   	fund-management-api/models	[no test files]
+ok  	fund-management-api/services	3.784s
+ok  	fund-management-api/routes	2.294s
+ok  	fund-management-api/cmd/scopus-core-insights	0.528s

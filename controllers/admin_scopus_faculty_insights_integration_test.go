@@ -429,18 +429,31 @@ func TestFacultyInsightAPIPermissionGuard(t *testing.T) {
 		if w.Code != 403 {
 			t.Fatal("missing auth context bypassed")
 		}
-		for _, role := range []int{1, 3} {
+		// The merged permission middleware uses effective grants, not role alone.
+		for _, access := range []struct {
+			role    int
+			granted bool
+		}{{1, false}, {3, false}, {1, true}, {3, true}} {
 			r := gin.New()
-			r.Use(func(c *gin.Context) { c.Set("userID", 1); c.Set("roleID", role); c.Next() })
+			r.Use(func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Set("roleID", access.role)
+				permissions := []string{}
+				if access.granted {
+					permissions = append(permissions, "ui.page.admin.research_dashboard.view")
+				}
+				c.Set("permissions", permissions)
+				c.Next()
+			})
 			r.GET("/", middleware.RequirePermission("ui.page.admin.research_dashboard.view"), handler)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 			want := 403
-			if role == 3 {
+			if access.granted {
 				want = 503
 			}
 			if w.Code != want {
-				t.Fatalf("role %d code %d want %d", role, w.Code, want)
+				t.Fatalf("role %d grant %v code %d want %d", access.role, access.granted, w.Code, want)
 			}
 		}
 	}
