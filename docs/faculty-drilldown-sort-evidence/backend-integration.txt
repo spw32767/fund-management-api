@@ -1,0 +1,3 @@
+ok  	fund-management-api/controllers	4.429s
+ok  	fund-management-api/services	2.554s
+ok  	fund-management-api/routes	1.114s

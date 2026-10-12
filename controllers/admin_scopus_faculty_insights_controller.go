@@ -427,11 +427,21 @@ type facultyInsightDimensions struct {
 	Undated                                   bool
 	International, Role, CountryKey, Revision string
 	Search                                    string
+	SortField, SortDirection                  string
 	Page, PageSize                            int
 }
 
 func parseFacultyInsightDimensions(c *gin.Context) (facultyInsightDimensions, error) {
 	d := facultyInsightDimensions{Page: 1, PageSize: 50, International: c.Query("international_status"), Role: c.Query("faculty_role"), CountryKey: c.Query("country_key"), Revision: c.Query("revision")}
+	field, direction := c.Query("sort_field"), c.Query("sort_direction")
+	_, hasField := c.Request.URL.Query()["sort_field"]
+	_, hasDirection := c.Request.URL.Query()["sort_direction"]
+	if hasField || hasDirection {
+		if !hasField || !hasDirection || (field != "title" && field != "year" && field != "collaboration" && field != "faculty_role") || (direction != "asc" && direction != "desc") {
+			return d, errors.New("sort_field must be title, year, collaboration or faculty_role with sort_direction asc or desc")
+		}
+		d.SortField, d.SortDirection = field, direction
+	}
 	rawSearch := c.Query("drilldown_search")
 	if !utf8.ValidString(rawSearch) || utf8.RuneCountInString(rawSearch) > 200 || strings.ContainsFunc(rawSearch, unicode.IsControl) {
 		return d, errors.New("drilldown_search must contain at most 200 Unicode characters without control characters")
@@ -539,6 +549,9 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 			}
 		}
 		total := len(matching)
+		// Order the entire selected and searched population, never an individual page.
+		// The snapshot and its revision remain in their original ID order.
+		sortFacultyInsightDocuments(matching, dim.SortField, dim.SortDirection)
 		start := (dim.Page - 1) * dim.PageSize
 		end := start + dim.PageSize
 		if start > total {
@@ -547,7 +560,102 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 		if end > total {
 			end = total
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "contract_version": facultyInsightContractVersion, "source": "scopus_core", "scope": "faculty", "revision": snapshot.Revision, "scope_total": scopeTotal, "search": dim.Search, "total": total, "page": dim.Page, "page_size": dim.PageSize, "total_pages": (total + dim.PageSize - 1) / dim.PageSize, "sort": "document_id_asc", "documents": matching[start:end]})
+		order := "document_id_asc"
+		if dim.SortField != "" {
+			order = dim.SortField + "_" + dim.SortDirection
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "contract_version": facultyInsightContractVersion, "source": "scopus_core", "scope": "faculty", "revision": snapshot.Revision, "scope_total": scopeTotal, "search": dim.Search, "total": total, "page": dim.Page, "page_size": dim.PageSize, "total_pages": (total + dim.PageSize - 1) / dim.PageSize, "sort": order, "sort_field": dim.SortField, "sort_direction": dim.SortDirection, "documents": matching[start:end]})
+	})
+}
+
+// Lexical order is lowercase, trimmed Unicode code-point order, not numeric-aware
+// or locale-dependent collation. Labels match the table. Unknowns stay last in
+// both directions; equal values always use document ID ascending.
+func sortFacultyInsightDocuments(documents []facultyInsightDocument, field, direction string) {
+	if field == "" {
+		return
+	} // Snapshot already preserves the legacy ID ASC default.
+	type key struct {
+		missing         bool
+		text, countries string
+		year            int
+	}
+	keys := make(map[uint]key, len(documents))
+	for _, d := range documents {
+		k := key{}
+		switch field {
+		case "title":
+			if d.Title != nil {
+				k.text = strings.ToLower(strings.TrimSpace(*d.Title))
+			}
+			k.missing = k.text == ""
+		case "year":
+			k.missing = d.YearCE == nil
+			if !k.missing {
+				k.year = *d.YearCE
+			}
+		case "faculty_role":
+			switch d.FacultyRole {
+			case "coauthor":
+				k.text = "co-author"
+			case "corresponding":
+				k.text = "corresponding author"
+			case "first":
+				k.text = "first author"
+			default:
+				k.missing = true
+			}
+		case "collaboration":
+			switch d.InternationalStatus {
+			case "no":
+				k.text = "ภายในประเทศ"
+			case "yes":
+				k.text = "ร่วมกับต่างประเทศ"
+			default:
+				k.missing = true
+			}
+			k.missing = k.missing || !d.CountryEvidenceCurrent || len(d.Countries) == 0
+			if !k.missing {
+				names := make([]string, len(d.Countries))
+				for i, country := range d.Countries {
+					name := country.Name
+					if name == "Thailand" {
+						name = "ประเทศไทย"
+					}
+					names[i] = name
+				}
+				k.countries = strings.ToLower(strings.TrimSpace(strings.Join(names, ", ")))
+			}
+		}
+		keys[d.ID] = k
+	}
+	sort.Slice(documents, func(i, j int) bool {
+		a, b := keys[documents[i].ID], keys[documents[j].ID]
+		if a.missing != b.missing {
+			return !a.missing
+		}
+		comparison := 0
+		if !a.missing {
+			if field == "year" {
+				if a.year < b.year {
+					comparison = -1
+				} else if a.year > b.year {
+					comparison = 1
+				}
+			} else {
+				comparison = strings.Compare(a.text, b.text)
+			}
+			if comparison == 0 && field == "collaboration" {
+				comparison = strings.Compare(a.countries, b.countries)
+			}
+		}
+		if comparison == 0 {
+			return documents[i].ID < documents[j].ID
+		}
+		if direction == "desc" {
+			return comparison > 0
+		}
+		return comparison < 0
 	})
 }
 
