@@ -110,6 +110,73 @@ func TestStartPaperSDGJobReturnsBeforeReaderCompletes(t *testing.T) {
 	t.Fatal(state.verifyComplete())
 }
 
+func TestStartPaperExtractJobReturnsBeforeReaderCompletes(t *testing.T) {
+	db, state, cleanup := newScriptedGormDB(t, []*queryStep{
+		{kind: stepExec, pattern: regexp.MustCompile(`(?is)INSERT INTO .*paper_ai_jobs`)},
+		{kind: stepExec, pattern: regexp.MustCompile(`(?is)UPDATE .*paper_ai_jobs`)},
+	})
+	defer cleanup()
+	originalDB := config.DB
+	config.DB = db
+	defer func() { config.DB = originalDB }()
+	releaseReader := make(chan struct{})
+	reader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-releaseReader
+		_, _ = w.Write([]byte(`{"title":"Example paper","abstract":"Study abstract","text":"full text"}`))
+	}))
+	defer reader.Close()
+	t.Setenv("PAPER_READER_API_URL", reader.URL)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/extract/jobs", func(c *gin.Context) { c.Set("userID", 7); StartPaperExtractJob(c) })
+	var upload bytes.Buffer
+	writer := multipart.NewWriter(&upload)
+	part, err := writer.CreateFormFile("file", "paper.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte("%PDF-1.4\nexample"))
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/extract/jobs", &upload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		close(releaseReader)
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.JobID == "" {
+		close(releaseReader)
+		t.Fatalf("missing job ID: %s: %v", response.Body.String(), err)
+	}
+	close(releaseReader)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if state.verifyComplete() == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(state.verifyComplete())
+}
+
+func TestExtractJobResultKeepsMetadataWithoutFullText(t *testing.T) {
+	stored := compactPaperAIJobResult(json.RawMessage(`{"title":"Example paper","abstract":"Study abstract","text":"full PDF text"}`))
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stored), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["title"] != "Example paper" || result["abstract"] != "Study abstract" || result["text_omitted_from_job_log"] != true {
+		t.Fatalf("required metadata missing from job result: %s", stored)
+	}
+	if _, exists := result["text"]; exists {
+		t.Fatalf("full PDF text stored in job result: %s", stored)
+	}
+}
+
 func TestExtractPaperRelaysReadableValidationError(t *testing.T) {
 	reader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

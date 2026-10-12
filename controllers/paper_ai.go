@@ -93,22 +93,25 @@ func finishPaperAIJob(jobID string, status int, body json.RawMessage, callErr er
 		updates["error_message"] = message
 	} else {
 		updates["status"] = "completed"
-		stored := body
-		var compact map[string]any
-		if json.Unmarshal(stored, &compact) == nil {
-			if _, hasText := compact["text"]; hasText {
-				delete(compact, "text")
-				compact["text_omitted_from_job_log"] = true
-			}
-			stored, _ = json.Marshal(compact)
-		}
-		if len(stored) > 1024*1024 {
-			stored = json.RawMessage(`{"result_omitted_from_job_log":true}`)
-		}
-		result := string(stored)
-		updates["result_json"] = result
+		updates["result_json"] = compactPaperAIJobResult(body)
 	}
 	_ = config.DB.Model(&models.PaperAIJob{}).Where("job_id = ?", jobID).Updates(updates).Error
+}
+
+func compactPaperAIJobResult(body json.RawMessage) string {
+	stored := body
+	var compact map[string]any
+	if json.Unmarshal(stored, &compact) == nil {
+		if _, hasText := compact["text"]; hasText {
+			delete(compact, "text")
+			compact["text_omitted_from_job_log"] = true
+		}
+		stored, _ = json.Marshal(compact)
+	}
+	if len(stored) > 1024*1024 {
+		stored = json.RawMessage(`{"result_omitted_from_job_log":true}`)
+	}
+	return string(stored)
 }
 
 func GetPaperAIJob(c *gin.Context) {
@@ -152,6 +155,14 @@ func relayPaperAIResponse(c *gin.Context, status int, body json.RawMessage, err 
 }
 
 func ExtractPaper(c *gin.Context) {
+	handleExtractPaper(c, false)
+}
+
+func StartPaperExtractJob(c *gin.Context) {
+	handleExtractPaper(c, true)
+}
+
+func handleExtractPaper(c *gin.Context, asynchronous bool) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "PDF file is required"})
@@ -177,6 +188,21 @@ func ExtractPaper(c *gin.Context) {
 		return
 	}
 	jobID := beginPaperAIJob(c, "extract")
+	if asynchronous {
+		if jobID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "could not start PDF extraction"})
+			return
+		}
+		filename := fileHeader.Filename
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			status, body, callErr := services.NewPaperAIClient().Extract(ctx, filename, data)
+			finishPaperAIJob(jobID, status, body, callErr)
+		}()
+		c.JSON(http.StatusAccepted, gin.H{"job_id": jobID, "status": "processing"})
+		return
+	}
 	status, body, callErr := services.NewPaperAIClient().Extract(c.Request.Context(), fileHeader.Filename, data)
 	finishPaperAIJob(jobID, status, body, callErr)
 	if jobID != "" {
