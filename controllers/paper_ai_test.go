@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"fund-management-api/config"
 
@@ -59,6 +60,54 @@ func TestSuggestPaperSDGMapsNumberToActiveDatabaseID(t *testing.T) {
 	if err := state.verifyComplete(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestStartPaperSDGJobReturnsBeforeReaderCompletes(t *testing.T) {
+	db, state, cleanup := newScriptedGormDB(t, []*queryStep{
+		{kind: stepQuery, pattern: regexp.MustCompile(`(?is)SELECT .* FROM .*sdgs.*delete_at IS NULL`),
+			columns: []string{"sdg_id", "sdg_number", "name_th", "name_en"},
+			rows:    [][]driver.Value{{int64(42), int64(4), "การศึกษาที่มีคุณภาพ", "Quality Education"}}},
+		{kind: stepExec, pattern: regexp.MustCompile(`(?is)INSERT INTO .*paper_ai_jobs`)},
+		{kind: stepExec, pattern: regexp.MustCompile(`(?is)UPDATE .*paper_ai_jobs`)},
+	})
+	defer cleanup()
+	originalDB := config.DB
+	config.DB = db
+	defer func() { config.DB = originalDB }()
+	releaseReader := make(chan struct{})
+	reader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-releaseReader
+		_, _ = w.Write([]byte(`{"sdg_number":4,"reason_th":"ศึกษาการเรียนรู้","relationship":"direct","model":"fake"}`))
+	}))
+	defer reader.Close()
+	t.Setenv("PAPER_READER_API_URL", reader.URL)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/suggest-sdg/jobs", func(c *gin.Context) { c.Set("userID", 7); StartPaperSDGJob(c) })
+	request := httptest.NewRequest(http.MethodPost, "/suggest-sdg/jobs", strings.NewReader(`{"title":"Learning study","abstract":"Classroom outcomes"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		close(releaseReader)
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.JobID == "" {
+		close(releaseReader)
+		t.Fatalf("missing job ID: %s: %v", response.Body.String(), err)
+	}
+	close(releaseReader)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if state.verifyComplete() == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(state.verifyComplete())
 }
 
 func TestExtractPaperRelaysReadableValidationError(t *testing.T) {

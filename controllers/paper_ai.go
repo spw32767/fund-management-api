@@ -210,6 +210,14 @@ func SummarizePaper(c *gin.Context) {
 }
 
 func SuggestPaperSDG(c *gin.Context) {
+	handleSuggestPaperSDG(c, false)
+}
+
+func StartPaperSDGJob(c *gin.Context) {
+	handleSuggestPaperSDG(c, true)
+}
+
+func handleSuggestPaperSDG(c *gin.Context, asynchronous bool) {
 	var request struct {
 		Title    string `json:"title"`
 		Abstract string `json:"abstract"`
@@ -243,14 +251,32 @@ func SuggestPaperSDG(c *gin.Context) {
 		"title": request.Title, "abstract": request.Abstract, "content": request.Content, "sdgs": options,
 	})
 	jobID := beginPaperAIJob(c, "suggest_sdg")
-	status, body, callErr := services.NewPaperAIClient().SuggestSDG(c.Request.Context(), payload)
+	if asynchronous {
+		if jobID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "could not start SDG suggestion"})
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			status, body, callErr := executePaperSDGSuggestion(ctx, payload, byNumber)
+			finishPaperAIJob(jobID, status, body, callErr)
+		}()
+		c.JSON(http.StatusAccepted, gin.H{"job_id": jobID, "status": "processing"})
+		return
+	}
+	status, body, callErr := executePaperSDGSuggestion(c.Request.Context(), payload, byNumber)
 	if jobID != "" {
 		c.Header("X-Paper-AI-Job-ID", jobID)
 	}
+	finishPaperAIJob(jobID, status, body, callErr)
+	relayPaperAIResponse(c, status, body, callErr)
+}
+
+func executePaperSDGSuggestion(ctx context.Context, payload []byte, byNumber map[int]models.SDG) (int, json.RawMessage, error) {
+	status, body, callErr := services.NewPaperAIClient().SuggestSDG(ctx, payload)
 	if callErr != nil || status < 200 || status >= 300 {
-		finishPaperAIJob(jobID, status, body, callErr)
-		relayPaperAIResponse(c, status, body, callErr)
-		return
+		return status, body, callErr
 	}
 	var suggestion struct {
 		SDGNumber    int    `json:"sdg_number"`
@@ -260,21 +286,19 @@ func SuggestPaperSDG(c *gin.Context) {
 	}
 	if err := json.Unmarshal(body, &suggestion); err != nil || strings.TrimSpace(suggestion.ReasonTH) == "" ||
 		(suggestion.Relationship != "direct" && suggestion.Relationship != "closest") {
-		finishPaperAIJob(jobID, http.StatusBadGateway, nil, nil)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "paper reader returned an invalid SDG suggestion"})
-		return
+		result, _ := json.Marshal(gin.H{"error": "paper reader returned an invalid SDG suggestion"})
+		return http.StatusBadGateway, result, nil
 	}
 	selected, ok := byNumber[suggestion.SDGNumber]
 	if !ok {
-		finishPaperAIJob(jobID, http.StatusBadGateway, nil, nil)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "paper reader selected an unavailable SDG"})
-		return
+		result, _ := json.Marshal(gin.H{"error": "paper reader selected an unavailable SDG"})
+		return http.StatusBadGateway, result, nil
 	}
-	finishPaperAIJob(jobID, status, body, nil)
-	c.JSON(http.StatusOK, gin.H{
+	result, _ := json.Marshal(gin.H{
 		"sdg_id": selected.SDGID, "sdg_number": selected.SDGNumber, "name_th": selected.NameTH,
 		"reason_th": suggestion.ReasonTH, "relationship": suggestion.Relationship, "model": suggestion.Model,
 	})
+	return http.StatusOK, result, nil
 }
 
 func ClassifyPaper(c *gin.Context) {
