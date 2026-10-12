@@ -40,8 +40,13 @@ func TestFacultyInsightAPISortFullPopulationBeforePages(t *testing.T) {
 		return out
 	}
 	defaultPage := request("&page_size=200")
-	if defaultPage["sort"] != "document_id_asc" || ids(defaultPage)[0] != 1 || ids(defaultPage)[199] != 200 {
-		t.Fatal("default changed")
+	if defaultPage["sort"] != "year_desc" || defaultPage["sort_field"] != "year" || defaultPage["sort_direction"] != "desc" || ids(defaultPage)[0] != 1 || ids(defaultPage)[1] != 5 {
+		t.Fatal("default must be newest year first with stable ID ties")
+	}
+	defaultLast := request("&page=2&page_size=200")
+	lastDefaultDocs := defaultLast["documents"].([]interface{})
+	if lastDefaultDocs[len(lastDefaultDocs)-1].(map[string]interface{})["year_ce"] != nil || ids(defaultLast)[len(lastDefaultDocs)-1] != 246 {
+		t.Fatal("default undated must remain last")
 	}
 	for _, direction := range []string{"asc", "desc"} {
 		first := request("&page_size=200&sort_field=title&sort_direction=" + direction)

@@ -432,7 +432,7 @@ type facultyInsightDimensions struct {
 }
 
 func parseFacultyInsightDimensions(c *gin.Context) (facultyInsightDimensions, error) {
-	d := facultyInsightDimensions{Page: 1, PageSize: 50, International: c.Query("international_status"), Role: c.Query("faculty_role"), CountryKey: c.Query("country_key"), Revision: c.Query("revision")}
+	d := facultyInsightDimensions{Page: 1, PageSize: 50, SortField: "year", SortDirection: "desc", International: c.Query("international_status"), Role: c.Query("faculty_role"), CountryKey: c.Query("country_key"), Revision: c.Query("revision")}
 	field, direction := c.Query("sort_field"), c.Query("sort_direction")
 	_, hasField := c.Request.URL.Query()["sort_field"]
 	_, hasDirection := c.Request.URL.Query()["sort_direction"]
@@ -560,10 +560,7 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 		if end > total {
 			end = total
 		}
-		order := "document_id_asc"
-		if dim.SortField != "" {
-			order = dim.SortField + "_" + dim.SortDirection
-		}
+		order := dim.SortField + "_" + dim.SortDirection
 		c.JSON(http.StatusOK, gin.H{"success": true, "contract_version": facultyInsightContractVersion, "source": "scopus_core", "scope": "faculty", "revision": snapshot.Revision, "scope_total": scopeTotal, "search": dim.Search, "total": total, "page": dim.Page, "page_size": dim.PageSize, "total_pages": (total + dim.PageSize - 1) / dim.PageSize, "sort": order, "sort_field": dim.SortField, "sort_direction": dim.SortDirection, "documents": matching[start:end]})
 	})
 }
@@ -573,8 +570,8 @@ func AdminGetScopusFacultyInsightsDrilldown(c *gin.Context) {
 // both directions; equal values always use document ID ascending.
 func sortFacultyInsightDocuments(documents []facultyInsightDocument, field, direction string) {
 	if field == "" {
-		return
-	} // Snapshot already preserves the legacy ID ASC default.
+		field, direction = "year", "desc"
+	}
 	type key struct {
 		missing         bool
 		text, countries string

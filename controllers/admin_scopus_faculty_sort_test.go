@@ -63,9 +63,10 @@ func TestFacultyInsightSortLabelsTiesAndMissing(t *testing.T) {
 			}
 		}
 	}
-	docs := []facultyInsightDocument{{ID: 1}, {ID: 2}}
+	oldYear, newYear := 2024, 2026
+	docs := []facultyInsightDocument{{ID: 1}, {ID: 3, YearCE: &newYear}, {ID: 2, YearCE: &oldYear}, {ID: 4, YearCE: &newYear}}
 	sortFacultyInsightDocuments(docs, "", "")
-	if docs[0].ID != 1 {
-		t.Fatal("legacy default changed")
+	if docs[0].ID != 3 || docs[1].ID != 4 || docs[2].ID != 2 || docs[3].ID != 1 {
+		t.Fatal("default must be newest year first, undated last and ID ties ascending")
 	}
 }
