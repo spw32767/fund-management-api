@@ -45,7 +45,8 @@ type DocumentType struct {
 	DeleteAt         *time.Time `gorm:"column:delete_at" json:"delete_at,omitempty"`
 
 	// เพิ่มฟิลด์ใหม่
-	FundTypes *string `gorm:"column:fund_types" json:"fund_types"` // JSON field
+	FundTypes        *string `gorm:"column:fund_types" json:"fund_types"` // JSON field
+	SubcategoryScope *string `gorm:"column:subcategory_scope" json:"subcategory_scope"`
 }
 
 // TableName overrides

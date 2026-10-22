@@ -70,6 +70,83 @@ func computeDocumentTypeMetadata(dt models.DocumentType) documentTypeMetadata {
 	return meta
 }
 
+// Subcategory scope applies only to generic fund applications. A missing scope
+// keeps the existing shared checklist; unfiltered catalogs still return all names.
+type documentSubcategoryScope struct {
+	Mode string `json:"mode"`
+	IDs  []int  `json:"ids"`
+}
+
+func normalizeDocumentScope(scope documentSubcategoryScope) (documentSubcategoryScope, error) {
+	if scope.Mode == "" || scope.Mode == "all" {
+		return documentSubcategoryScope{Mode: "all", IDs: []int{}}, nil
+	}
+	if scope.Mode != "include" && scope.Mode != "exclude" {
+		return scope, fmt.Errorf("invalid subcategory scope mode")
+	}
+	ids := make([]int, 0, len(scope.IDs))
+	seen := make(map[int]bool)
+	for _, id := range scope.IDs {
+		if id <= 0 {
+			return scope, fmt.Errorf("subcategory IDs must be positive")
+		}
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	if len(ids) == 0 {
+		return scope, fmt.Errorf("กรุณาเลือกทุนย่อยอย่างน้อย 1 รายการ")
+	}
+	scope.IDs = ids
+	return scope, nil
+}
+
+func documentScopeMetadata(raw *string) documentSubcategoryScope {
+	if raw == nil {
+		return documentSubcategoryScope{Mode: "all", IDs: []int{}}
+	}
+	var scope documentSubcategoryScope
+	if err := json.Unmarshal([]byte(*raw), &scope); err == nil {
+		if normalized, err := normalizeDocumentScope(scope); err == nil {
+			return normalized
+		}
+	}
+	// A malformed scoped row must not become visible to every fund.
+	return documentSubcategoryScope{Mode: "include", IDs: []int{}}
+}
+
+func documentScopeMatches(raw *string, subcategoryID int) bool {
+	scope := documentScopeMetadata(raw)
+	if scope.Mode == "all" {
+		return true
+	}
+	matches := false
+	for _, id := range scope.IDs {
+		if id == subcategoryID {
+			matches = true
+			break
+		}
+	}
+	if scope.Mode == "exclude" {
+		return !matches
+	}
+	return matches
+}
+
+func encodeDocumentScope(scope documentSubcategoryScope) (*string, error) {
+	normalized, err := normalizeDocumentScope(scope)
+	if err != nil || normalized.Mode == "all" {
+		return nil, err
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	value := string(encoded)
+	return &value, nil
+}
+
 // UploadDocument handles document upload for application (User-Based Folders)
 func UploadDocument(c *gin.Context) {
 	applicationID := c.Param("id")
@@ -347,6 +424,15 @@ func GetDocumentTypes(c *gin.Context) {
 	var documentTypes []models.DocumentType
 
 	fundType := strings.TrimSpace(c.Query("fund_type"))
+	subcategoryID := 0
+	if fundType == "fund_application" && c.Query("subcategory_id") != "" {
+		id, err := strconv.Atoi(c.Query("subcategory_id"))
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subcategory_id"})
+			return
+		}
+		subcategoryID = id
+	}
 
 	if err := config.DB.Where("delete_at IS NULL").Order("document_order").Find(&documentTypes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch document types"})
@@ -377,7 +463,7 @@ func GetDocumentTypes(c *gin.Context) {
 			include = false
 		}
 
-		if !include {
+		if !include || (fundType == "fund_application" && !documentScopeMatches(dt.SubcategoryScope, subcategoryID)) {
 			continue
 		}
 
@@ -393,6 +479,7 @@ func GetDocumentTypes(c *gin.Context) {
 			"fund_type_mode":     meta.FundTypeMode,
 		}
 
+		documentTypeMap["subcategory_scope"] = documentScopeMetadata(dt.SubcategoryScope)
 		if dt.FundTypes != nil {
 			documentTypeMap["fund_types"] = meta.FundTypes
 		} else {
@@ -440,6 +527,7 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 			"fund_type_mode":     meta.FundTypeMode,
 		}
 
+		documentTypeMap["subcategory_scope"] = documentScopeMetadata(dt.SubcategoryScope)
 		if dt.FundTypes != nil {
 			documentTypeMap["fund_types"] = meta.FundTypes
 		} else {
@@ -467,12 +555,13 @@ func UpdateDocumentType(c *gin.Context) {
 	documentTypeID := c.Param("id")
 
 	var req struct {
-		DocumentTypeName *string   `json:"document_type_name"`
-		Code             *string   `json:"code"`
-		Required         *bool     `json:"required"`
-		Multiple         *bool     `json:"multiple"`
-		DocumentOrder    *int      `json:"document_order"`
-		FundTypes        *[]string `json:"fund_types"`
+		DocumentTypeName *string                   `json:"document_type_name"`
+		Code             *string                   `json:"code"`
+		Required         *bool                     `json:"required"`
+		Multiple         *bool                     `json:"multiple"`
+		DocumentOrder    *int                      `json:"document_order"`
+		FundTypes        *[]string                 `json:"fund_types"`
+		SubcategoryScope *documentSubcategoryScope `json:"subcategory_scope"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -523,6 +612,15 @@ func UpdateDocumentType(c *gin.Context) {
 		}
 	}
 
+	if req.SubcategoryScope != nil {
+		scope, err := encodeDocumentScope(*req.SubcategoryScope)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		updates["subcategory_scope"] = scope
+	}
+
 	updates["update_at"] = time.Now()
 
 	if err := config.DB.Model(&documentType).Updates(updates).Error; err != nil {
@@ -547,12 +645,13 @@ func CreateDocumentType(c *gin.Context) {
 	}
 
 	var req struct {
-		DocumentTypeName string   `json:"document_type_name" binding:"required"`
-		Code             string   `json:"code" binding:"required"`
-		Required         bool     `json:"required"`
-		Multiple         bool     `json:"multiple"`
-		DocumentOrder    int      `json:"document_order"`
-		FundTypes        []string `json:"fund_types"`
+		DocumentTypeName string                    `json:"document_type_name" binding:"required"`
+		Code             string                    `json:"code" binding:"required"`
+		Required         bool                      `json:"required"`
+		Multiple         bool                      `json:"multiple"`
+		DocumentOrder    int                       `json:"document_order"`
+		FundTypes        []string                  `json:"fund_types"`
+		SubcategoryScope *documentSubcategoryScope `json:"subcategory_scope"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -580,6 +679,15 @@ func CreateDocumentType(c *gin.Context) {
 		}
 		fundTypesStr := string(fundTypesJSON)
 		documentType.FundTypes = &fundTypesStr
+	}
+
+	if req.SubcategoryScope != nil {
+		scope, err := encodeDocumentScope(*req.SubcategoryScope)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		documentType.SubcategoryScope = scope
 	}
 
 	if err := config.DB.Create(&documentType).Error; err != nil {
