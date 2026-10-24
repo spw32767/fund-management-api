@@ -137,15 +137,7 @@ func BuildBenchmarkSummaryExcel(r *BenchmarkSummaryReport, view string) ([]byte,
 		if err = write("รายปี", countRows(rows, "รายการ"), []int{6, 8}); err != nil {
 			return nil, err
 		}
-		if err = write("Category รายปี", countRows(r.Categories, "Category"), []int{6, 8}); err != nil {
-			return nil, err
-		}
-		if err = write("Quartile ราย Category", countRows(r.Quartiles, "Category"), []int{6, 8}); err != nil {
-			return nil, err
-		}
-		c := r.FacultyRoles
-		rowsRole := [][]interface{}{{"ทั้งหมด", "First", "Corresponding", "First หรือ Corresponding", "Co-author เท่านั้น", "ยังสรุปไม่ได้"}, {c.Total, c.First, c.Corresponding, c.Lead, c.Co, c.Unknown}}
-		if err = write("บทบาทระดับคณะ", rowsRole, nil); err != nil {
+		if err = writeBenchmarkCategorySummarySheet(f, r); err != nil {
 			return nil, err
 		}
 	}
@@ -168,6 +160,15 @@ func BuildBenchmarkSummaryExcel(r *BenchmarkSummaryReport, view string) ([]byte,
 	}
 	for _, y := range r.Years {
 		notes = append(notes, []interface{}{fmt.Sprintf("สถานะปี %d", y.Year), fmt.Sprintf("%s; observed=%d; subject=%s", y.Status, y.Observed, y.SubjectArea)})
+	}
+	if view == "overview" {
+		filtered := notes[:0]
+		for _, row := range notes {
+			if row[0] != "บทบาท" && row[0] != "ข้อจำกัด" && row[0] != "หน่วย" {
+				filtered = append(filtered, row)
+			}
+		}
+		notes = filtered
 	}
 	for i, row := range notes {
 		cell, _ := excelize.CoordinatesToCellName(1, i+1)
