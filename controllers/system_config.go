@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"fund-management-api/utils"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ====== slot -> column map (ใช้ซ้ำหลาย handler) ======
@@ -107,7 +109,7 @@ func getCurrentBEYearStrFromConfig() string {
 // โดยไม่ต้องแก้โค้ดฝั่ง FE
 func getUserIDAny(c *gin.Context) *int {
 	// 1) ค่าใน Gin context (middleware อาจตั้งให้คีย์ต่างกัน)
-	for _, k := range []string{"user_id", "admin_id", "uid", "id"} {
+	for _, k := range []string{"userID", "user_id", "admin_id", "uid", "id"} {
 		if v, ok := c.Get(k); ok {
 			switch t := v.(type) {
 			case int:
@@ -300,26 +302,12 @@ func fetchCurrentAnnAssignment(slot string) (annID *int, start *time.Time, end *
 
 // GET /api/v1/system-config/current-year
 func GetSystemConfigCurrentYear(c *gin.Context) {
-	var row struct {
-		CurrentYear sql.NullString
-	}
-	if err := config.DB.Raw(`
-		SELECT current_year FROM system_config
-		ORDER BY config_id DESC
-		LIMIT 1
-	`).Scan(&row).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch current_year"})
+	year, err := currentBudgetYear(config.DB)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ยังไม่ได้เปิดใช้ปีงบประมาณ หรือปีที่ตั้งค่าไม่ได้เปิดใช้งาน", "code": "budget_year_unavailable"})
 		return
 	}
-
-	var cur interface{}
-	if row.CurrentYear.Valid {
-		cur = row.CurrentYear.String
-	} else {
-		cur = nil
-	}
-
-	c.JSON(http.StatusOK, gin.H{"current_year": cur})
+	c.JSON(http.StatusOK, gin.H{"current_year": year.Year, "year_id": year.YearID})
 }
 
 // GET /api/v1/system-config/submission-usage
@@ -351,24 +339,13 @@ func GetSubmissionUsageLimit(c *gin.Context) {
 		maxAllowed = int(cfg.MaxSubmissionsPerYear.Int64)
 	}
 
-	yearStr := getCurrentBEYearStrFromConfig()
-	if cfg.CurrentYear.Valid {
-		if only := onlyDigits(cfg.CurrentYear.String); len(only) >= 4 {
-			yearStr = only[:4]
-		}
-	}
-
-	var yearID sql.NullInt64
-	if err := config.DB.Raw(`
-		SELECT year_id
-		FROM years
-		WHERE year = ? AND delete_at IS NULL
-		ORDER BY year_id DESC
-		LIMIT 1
-	`, yearStr).Scan(&yearID).Error; err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve year"})
+	year, err := currentBudgetYear(config.DB)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ไม่พบปีงบประมาณที่เปิดใช้", "code": "budget_year_unavailable"})
 		return
 	}
+	yearStr := year.Year
+	yearID := sql.NullInt64{Int64: int64(year.YearID), Valid: true}
 
 	used := 0
 	if yearID.Valid {
@@ -714,6 +691,7 @@ func GetSystemConfigAdmin(c *gin.Context) {
 
 // PUT /api/v1/admin/system-config
 type updateWindowPayload struct {
+	CurrentYearID         *int    `json:"current_year_id"`
 	CurrentYear           *string `json:"current_year"`
 	StartDate             *string `json:"start_date"`
 	EndDate               *string `json:"end_date"`
@@ -724,75 +702,80 @@ type updateWindowPayload struct {
 func UpdateSystemConfigWindow(c *gin.Context) {
 	var p updateWindowPayload
 	if err := c.ShouldBindJSON(&p); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid payload"})
+		c.JSON(400, gin.H{"success": false, "error": "invalid payload"})
 		return
 	}
-
 	stPtr, err1 := parseTimePtr(p.StartDate)
 	enPtr, err2 := parseTimePtr(p.EndDate)
-	if err1 != nil || err2 != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid date format"})
+	if err1 != nil || err2 != nil || (stPtr != nil && enPtr != nil && stPtr.After(*enPtr)) {
+		c.JSON(400, gin.H{"success": false, "error": "วันเปิดต้องไม่เกินวันปิด และต้องเป็นวันที่ถูกต้อง"})
 		return
 	}
-
-	updatedBy := getUserIDAny(c)
-
-	// หาแถวล่าสุด
-	var cfgID sql.NullInt64
-	if err := config.DB.Raw(`
-		SELECT config_id
-		FROM system_config
-		ORDER BY config_id DESC
-		LIMIT 1
-	`).Row().Scan(&cfgID); err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to query system_config"})
+	if p.MaxSubmissionsPerYear != nil && *p.MaxSubmissionsPerYear < 0 {
+		c.JSON(400, gin.H{"error": "โควตาต้องไม่น้อยกว่า 0"})
 		return
 	}
-
-	if !cfgID.Valid {
-		maxSubmissions := p.MaxSubmissionsPerYear
-		if maxSubmissions == nil {
-			zero := 0
-			maxSubmissions = &zero
+	status := http.StatusInternalServerError
+	message := "ไม่สามารถบันทึกการตั้งค่าระบบได้"
+	var readiness *budgetYearReadiness
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		var cfg struct {
+			ConfigID              int
+			CurrentYear           sql.NullString
+			MaxSubmissionsPerYear sql.NullInt64
 		}
-		// insert
-		if err := config.DB.Exec(`
-                        INSERT INTO system_config (current_year, start_date, end_date, contact_info, max_submissions_per_year, last_updated, updated_by)
-                        VALUES (?, ?, ?, ?, ?, NOW(), ?)
-                `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, maxSubmissions, updatedBy).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to insert system_config"})
-			return
+		if err := tx.Raw(`SELECT config_id, current_year, max_submissions_per_year FROM system_config ORDER BY config_id DESC LIMIT 1 FOR UPDATE`).Scan(&cfg).Error; err != nil {
+			return err
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true})
-		return
-	}
-
-	maxSubmissions := p.MaxSubmissionsPerYear
-	if maxSubmissions == nil {
-		var currentMax sql.NullInt64
-		if err := config.DB.Raw(`
-			SELECT max_submissions_per_year
-			FROM system_config
-			WHERE config_id = ?
-		`, int(cfgID.Int64)).Row().Scan(&currentMax); err == nil && currentMax.Valid {
-			val := int(currentMax.Int64)
-			maxSubmissions = &val
+		selectedYear := cfg.CurrentYear.String
+		if p.CurrentYear != nil {
+			selectedYear = strings.TrimSpace(*p.CurrentYear)
+		}
+		var year budgetYear
+		query := tx.Table("years").Select("year_id, year, status").Where("delete_at IS NULL")
+		if p.CurrentYearID != nil {
+			query = query.Where("year_id = ?", *p.CurrentYearID)
 		} else {
-			zero := 0
-			maxSubmissions = &zero
+			query = query.Where("year = ?", selectedYear)
 		}
-	}
-
-	// update
-	if err := config.DB.Exec(`
-                UPDATE system_config
-                SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, max_submissions_per_year = ?, last_updated = NOW(), updated_by = ?
-                WHERE config_id = ?
-        `, p.CurrentYear, stPtr, enPtr, p.ContactInfo, maxSubmissions, updatedBy, int(cfgID.Int64)).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to update system_config"})
+		if err := query.Order("year_id DESC").Limit(1).Scan(&year).Error; err != nil {
+			return err
+		}
+		if year.YearID == 0 || year.Status != "active" {
+			status = 422
+			message = "กรุณาเลือกปีงบประมาณที่มีอยู่และเปิดใช้งานแล้ว"
+			return errors.New(message)
+		}
+		if p.CurrentYearID != nil && p.CurrentYear != nil && year.Year != selectedYear {
+			status = 400
+			message = "ปีงบประมาณและรหัสปีไม่ตรงกัน"
+			return errors.New(message)
+		}
+		if year.Year != cfg.CurrentYear.String {
+			report, err := inspectBudgetYear(tx, year)
+			if err != nil {
+				return err
+			}
+			readiness = &report
+			if !report.Ready {
+				status = 422
+				message = "ยังเปิดใช้ปีงบประมาณไม่ได้ กรุณาเตรียมข้อมูลตามรายการที่ไม่ผ่าน"
+				return errors.New(message)
+			}
+		}
+		maxSubmissions := int(cfg.MaxSubmissionsPerYear.Int64)
+		if p.MaxSubmissionsPerYear != nil {
+			maxSubmissions = *p.MaxSubmissionsPerYear
+		}
+		if cfg.ConfigID == 0 {
+			return tx.Exec(`INSERT INTO system_config (current_year, start_date, end_date, contact_info, max_submissions_per_year, last_updated, updated_by) VALUES (?, ?, ?, ?, ?, NOW(), ?)`, year.Year, stPtr, enPtr, p.ContactInfo, maxSubmissions, getUserIDAny(c)).Error
+		}
+		return tx.Exec(`UPDATE system_config SET current_year = ?, start_date = ?, end_date = ?, contact_info = ?, max_submissions_per_year = ?, last_updated = NOW(), updated_by = ? WHERE config_id = ?`, year.Year, stPtr, enPtr, p.ContactInfo, maxSubmissions, getUserIDAny(c), cfg.ConfigID).Error
+	})
+	if err != nil {
+		c.JSON(status, gin.H{"success": false, "error": message, "readiness": readiness})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 

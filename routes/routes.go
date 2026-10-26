@@ -922,6 +922,7 @@ func SetupRoutes(router *gin.Engine) {
 				systemConfig := admin.Group("/system-config")
 				{
 					systemConfig.GET("", controllers.GetSystemConfigAdmin)
+					systemConfig.GET("/year-readiness", controllers.GetBudgetYearReadiness)
 					systemConfig.PUT("", controllers.UpdateSystemConfigWindow)
 					systemConfig.PATCH("/announcements/:slot", controllers.UpdateSystemConfigAnnouncement)
 					systemConfig.GET("/announcements/:slot/history", controllers.ListAnnouncementHistory)

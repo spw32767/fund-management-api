@@ -263,6 +263,24 @@ func CreateSubmission(c *gin.Context) {
 		return
 	}
 
+	// Only new member requests follow the active year. Existing submissions and
+	// their drafts retain their stored year when viewed, edited or submitted.
+	if roleID != 3 && (req.SubmissionType == "fund_application" || req.SubmissionType == "publication_reward") {
+		activeYear, err := currentBudgetYear(config.DB)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ยังไม่ได้เปิดใช้ปีงบประมาณ กรุณาติดต่อผู้ดูแลระบบ", "code": "budget_year_unavailable"})
+			return
+		}
+		if req.YearID != activeYear.YearID {
+			c.JSON(http.StatusConflict, gin.H{"error": "ปีงบประมาณที่เปิดใช้เปลี่ยนแล้ว กรุณากลับไปเลือกทุนใหม่", "code": "budget_year_changed", "year_id": activeYear.YearID, "current_year": activeYear.Year})
+			return
+		}
+		if err := validateNewSubmissionFundYear(config.DB, activeYear.YearID, req.CategoryID, req.SubcategoryID, req.SubcategoryBudgetID); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "ทุนที่เลือกไม่ตรงกับปีงบประมาณที่เปิดใช้ กรุณากลับไปเลือกทุนใหม่", "code": "fund_year_mismatch"})
+			return
+		}
+	}
+
 	if roleID != 3 && req.SubcategoryID != nil {
 		if err := services.EnsureSubcategoryOpen(config.DB, *req.SubcategoryID); err != nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
