@@ -100,7 +100,11 @@ func TestDocumentTypesSubcategoryScope(t *testing.T) {
 
 func TestDocumentScopeCreateRejectsEmptySelection(t *testing.T) {
 	router := gin.New()
-	router.POST("/document-types", func(c *gin.Context) { c.Set("roleID", 3); CreateDocumentType(c) })
+	router.POST("/document-types", func(c *gin.Context) {
+		c.Set("roleID", 3)
+		c.Set("permissions", []string{"fund.settings.manage"})
+		CreateDocumentType(c)
+	})
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/document-types", strings.NewReader(`{"document_type_name":"test","code":"test","subcategory_scope":{"mode":"include","ids":[]}}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -121,7 +125,11 @@ func TestDocumentScopeOrderUpdatePreservesScope(t *testing.T) {
 	config.DB = db
 	defer func() { config.DB = original }()
 	router := gin.New()
-	router.PUT("/document-types/:id", func(c *gin.Context) { c.Set("roleID", 3); UpdateDocumentType(c) })
+	router.PUT("/document-types/:id", func(c *gin.Context) {
+		c.Set("roleID", 3)
+		c.Set("permissions", []string{"fund.settings.manage"})
+		UpdateDocumentType(c)
+	})
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/document-types/21", strings.NewReader(`{"document_order":5}`))
 	request.Header.Set("Content-Type", "application/json")

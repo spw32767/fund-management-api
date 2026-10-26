@@ -21,8 +21,8 @@ import (
 
 // AdminImportUsers handles Excel imports for user records using the provided template.
 func AdminImportUsers(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "users.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -192,8 +192,8 @@ func AdminImportUsers(c *gin.Context) {
 
 // AdminImportLegacySubmissions stores uploaded legacy submission spreadsheets for offline processing.
 func AdminImportLegacySubmissions(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "academic.import.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

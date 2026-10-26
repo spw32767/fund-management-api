@@ -104,7 +104,6 @@ func validateUniversityRankings(input string) (bool, string) {
 // GetPublicationRewards returns list of publication rewards
 func GetPublicationRewards(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var rewards []models.PublicationReward
 	query := config.DB.Preload("User").Preload("Coauthors.User").
@@ -112,7 +111,7 @@ func GetPublicationRewards(c *gin.Context) {
 		Where("publication_rewards.delete_at IS NULL")
 
 	// Filter by user if not admin
-	if roleID.(int) != 3 { // 3 = admin role
+	if !requestHasPermission(c, "submission.read.all") { // 3 = admin role
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -140,7 +139,6 @@ func GetPublicationRewards(c *gin.Context) {
 func GetPublicationReward(c *gin.Context) {
 	id := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var reward models.PublicationReward
 	query := config.DB.Preload("User").Preload("Coauthors.User").
@@ -148,7 +146,7 @@ func GetPublicationReward(c *gin.Context) {
 		Where("reward_id = ? AND publication_rewards.delete_at IS NULL", id)
 
 	// Check permission if not admin
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.read.all") {
 		query = query.Where("user_id = ?", userID)
 	}
 

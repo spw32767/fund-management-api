@@ -61,7 +61,6 @@ func checkSubcategoryVisibility(targetRolesJSON *string, userRoleID int) bool {
 // GetApplications returns list of applications
 func GetApplications(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var applications []models.FundApplication
 	query := config.DB.Preload("User").Preload("Year").Preload("Subcategory").
@@ -69,7 +68,7 @@ func GetApplications(c *gin.Context) {
 		Where("fund_applications.delete_at IS NULL")
 
 	// Filter by user if not admin
-	if roleID.(int) != 3 { // 3 = admin role
+	if !requestHasPermission(c, "submission.read.all") { // 3 = admin role
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -97,7 +96,6 @@ func GetApplications(c *gin.Context) {
 func GetApplication(c *gin.Context) {
 	id := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var application models.FundApplication
 	query := config.DB.Preload("User").Preload("Year").Preload("Subcategory").
@@ -106,7 +104,7 @@ func GetApplication(c *gin.Context) {
 		Where("application_id = ? AND fund_applications.delete_at IS NULL", id)
 
 	// Check permission if not admin
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.read.all") {
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -521,7 +519,7 @@ func GetSubcategories(c *gin.Context) {
 
 	// Apply role-based filtering
 	roleIDStr := fmt.Sprintf("%d", roleID.(int))
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "fund.visibility.all") { // Not admin
 		query = query.Where("(fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))",
 			fmt.Sprintf(`"%s"`, roleIDStr))
 		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
@@ -617,7 +615,7 @@ func GetTeacherSubcategories(c *gin.Context) {
 
 	// Role-based filtering
 	roleIDStr := fmt.Sprintf("%d", roleID.(int))
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "fund.visibility.all") { // Not admin
 		conditions = append(conditions, "(fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))")
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
 		fmt.Printf("Applied role filtering for role: %s\n", roleIDStr)
@@ -974,8 +972,8 @@ func GetAllSubcategoriesAdmin(c *gin.Context) {
 // UpdateSubcategoryTargetRoles - Admin only endpoint to update target_roles
 func UpdateSubcategoryTargetRoles(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1033,8 +1031,8 @@ func UpdateSubcategoryTargetRoles(c *gin.Context) {
 // CreateSubcategoryWithRoles - Admin only endpoint to create subcategory with target_roles
 func CreateSubcategoryWithRoles(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

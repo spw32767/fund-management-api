@@ -11,7 +11,6 @@ import (
 
 // GetUsers returns list of users for dropdown selection
 func GetUsers(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
 
 	var users []models.User
 	// ดึงบทบาทของผู้ใช้พร้อมรายชื่อ
@@ -26,7 +25,7 @@ func GetUsers(c *gin.Context) {
 	}
 
 	// Non-admins can only see teachers
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "users.view") {
 		query = query.Where("role_id = ?", 1) // Only teachers
 	}
 

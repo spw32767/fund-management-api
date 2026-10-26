@@ -35,8 +35,7 @@ func GetSubmissionSDGs(c *gin.Context) {
 	}
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
-	roleValue, isAdmin := c.Get("roleID")
-	if roleID, ok := roleValue.(int); !isAdmin || !ok || roleID != 3 {
+	if !requestHasPermission(c, "submission.read.all") {
 		query = query.Where("user_id = ?", c.MustGet("userID"))
 	}
 	if err := query.Preload("Status").First(&submission).Error; err != nil {
@@ -58,7 +57,6 @@ func UpdateSubmissionSDGs(c *gin.Context) {
 		return
 	}
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var req struct {
 		SDGIDs []int `json:"sdg_ids"`
@@ -85,8 +83,7 @@ func UpdateSubmissionSDGs(c *gin.Context) {
 
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
-	roleValue, isAdmin := roleID.(int)
-	if !isAdmin || roleValue != 3 {
+	if !requestHasPermission(c, "submission.manage.all") {
 		query = query.Where("user_id = ?", userID)
 	}
 	if err := query.Preload("Status").First(&submission).Error; err != nil {
@@ -94,7 +91,7 @@ func UpdateSubmissionSDGs(c *gin.Context) {
 		return
 	}
 	canEdit := submission.IsEditable() || strings.EqualFold(submission.Status.StatusCode, "needs_more_info")
-	if (!isAdmin || roleValue != 3) && !canEdit {
+	if (!requestHasPermission(c, "submission.manage.all")) && !canEdit {
 		c.JSON(http.StatusConflict, gin.H{"error": "Submission is not editable"})
 		return
 	}

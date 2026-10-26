@@ -2,8 +2,10 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,9 +19,10 @@ import (
 )
 
 type accessRoleRow struct {
-	RoleID          int    `json:"role_id"`
-	Role            string `json:"role"`
-	PermissionCount int64  `json:"permission_count"`
+	RoleID          int      `json:"role_id"`
+	Role            string   `json:"role"`
+	PermissionCount int64    `json:"permission_count"`
+	PermissionCodes []string `json:"permission_codes"`
 }
 
 type accessPermissionRow struct {
@@ -62,7 +65,92 @@ type updateRolePermissionsRequest struct {
 }
 
 type updateUserOverridesRequest struct {
-	Overrides *[]accessUserOverride `json:"overrides"`
+	Overrides         *[]accessUserOverride `json:"overrides"`
+	AdditionalRoleIDs *[]int                `json:"additional_role_ids"`
+}
+
+var errInvalidAccessRoles = errors.New("invalid additional roles")
+var errAccessUserChanged = errors.New("primary role changed; reload the user before saving")
+
+func AdminSearchAccessUsers(c *gin.Context) {
+	search := strings.ToLower(strings.TrimSpace(c.Query("q")))
+	if search == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing q"})
+		return
+	}
+	// Access viewers need identity information to select an account, without
+	// exposing the contact/authentication details in the user-management API.
+	type result struct {
+		UserID    int    `json:"user_id"`
+		UserFname string `json:"user_fname"`
+		UserLname string `json:"user_lname"`
+		Email     string `json:"email"`
+		RoleID    int    `json:"role_id"`
+		IsTest    bool   `json:"is_test"`
+	}
+	rows := make([]result, 0)
+	query := config.DB.Table("users AS u").
+		Select("u.user_id, u.user_fname, u.user_lname, u.email, u.role_id, u.is_test").
+		Where("u.delete_at IS NULL")
+	includeTest, _ := strconv.ParseBool(c.Query("include_test"))
+	if !includeTest {
+		query = query.Where("u.is_test = ?", 0)
+	}
+	query = query.Where("LOWER(CONCAT(COALESCE(u.user_fname, ''), ' ', COALESCE(u.user_lname, ''), ' ', COALESCE(u.email, ''))) LIKE ?", "%"+search+"%")
+	if err := query.Order("u.user_fname ASC, u.user_lname ASC, u.user_id ASC").Limit(100).Scan(&rows).Error; err != nil {
+		InternalError(c, "access_control: user search", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
+}
+
+func normalizeAdditionalRoleIDs(ids []int, primaryRoleID int) ([]int, error) {
+	set := map[int]struct{}{}
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, errInvalidAccessRoles
+		}
+		if id != primaryRoleID {
+			set[id] = struct{}{}
+		}
+	}
+	result := make([]int, 0, len(set))
+	for id := range set {
+		result = append(result, id)
+	}
+	sort.Ints(result)
+	return result, nil
+}
+
+func replaceAdditionalAccessRoles(tx *gorm.DB, c *gin.Context, userID, primaryRoleID int, requested []int, now time.Time) error {
+	ids, err := normalizeAdditionalRoleIDs(requested, primaryRoleID)
+	if err != nil {
+		return err
+	}
+	if len(ids) > 0 {
+		var roles []accessRoleDetail
+		if err := tx.Raw("SELECT role_id, role FROM roles WHERE role_id IN ? AND delete_at IS NULL FOR UPDATE", ids).Scan(&roles).Error; err != nil {
+			return err
+		}
+		if len(roles) != len(ids) {
+			return fmt.Errorf("%w: role does not exist or is deleted", errInvalidAccessRoles)
+		}
+	}
+	var previous []int
+	if err := tx.Raw("SELECT role_id FROM user_roles WHERE user_id = ? AND role_id <> ? AND delete_at IS NULL AND (is_active = 1 OR is_active IS NULL) ORDER BY role_id", userID, primaryRoleID).Scan(&previous).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("UPDATE user_roles SET is_active = 0, delete_at = ?, update_at = ? WHERE user_id = ? AND role_id <> ? AND delete_at IS NULL", now, now, userID, primaryRoleID).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := tx.Exec(`INSERT INTO user_roles (user_id, role_id, is_primary, is_active, create_at, update_at, delete_at)
+			VALUES (?, ?, 0, 1, ?, ?, NULL)
+			ON DUPLICATE KEY UPDATE is_primary = 0, is_active = 1, delete_at = NULL, update_at = VALUES(update_at)`, userID, id, now, now).Error; err != nil {
+			return err
+		}
+	}
+	return createAccessControlAudit(tx, c, "user_roles", userID, gin.H{"additional_role_ids": previous}, gin.H{"additional_role_ids": ids})
 }
 
 func AdminListAccessRoles(c *gin.Context) {
@@ -87,6 +175,14 @@ func AdminListAccessRoles(c *gin.Context) {
 		return
 	}
 
+	for i := range roles {
+		_, codes, err := getRolePermissions(roles[i].RoleID)
+		if err != nil {
+			InternalError(c, "access_control", err)
+			return
+		}
+		roles[i].PermissionCodes = codes
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": roles})
 }
 
@@ -265,13 +361,33 @@ func AdminGetUserPermissionOverrides(c *gin.Context) {
 	}
 
 	authz := services.GetAuthorizationService()
-	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
-	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	effectivePermissions, err := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	rolePermissions, err := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
 
+	userRoles, err := getAccessUserRoles(user)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	additionalIDs := make([]int, 0)
+	for _, role := range userRoles {
+		if !role.IsPrimary {
+			additionalIDs = append(additionalIDs, role.RoleID)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
-		"roles":                 getAccessUserRoles(user),
+		"additional_role_ids":   additionalIDs,
+		"roles":                 userRoles,
 		"overrides":             overrides,
 		"role_permissions":      rolePermissions,
 		"effective_permissions": effectivePermissions,
@@ -342,14 +458,30 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 		})
 		return
 	}
-	previousOverrides, err := getUserPermissionOverrides(userID)
-	if err != nil {
-		InternalError(c, "access_control", err)
-		return
-	}
 
 	now := time.Now()
 	err = config.DB.Transaction(func(tx *gorm.DB) error {
+		// Serialize access edits with primary-role changes, and audit both parts
+		// in the same transaction so a failed save cannot grant partial access.
+		var lockedUser models.User
+		if err := tx.Raw("SELECT * FROM users WHERE user_id = ? AND delete_at IS NULL FOR UPDATE", userID).Scan(&lockedUser).Error; err != nil {
+			return err
+		}
+		if lockedUser.UserID == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if lockedUser.RoleID != user.RoleID {
+			return errAccessUserChanged
+		}
+		previousOverrides, err := getUserPermissionOverridesFromDB(tx, userID)
+		if err != nil {
+			return err
+		}
+		if req.AdditionalRoleIDs != nil {
+			if err := replaceAdditionalAccessRoles(tx, c, userID, lockedUser.RoleID, *req.AdditionalRoleIDs, now); err != nil {
+				return err
+			}
+		}
 		if err := tx.Exec(
 			"UPDATE user_permissions SET delete_at = ?, update_at = ? WHERE user_id = ? AND delete_at IS NULL",
 			now,
@@ -381,6 +513,14 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 		return createAccessControlAudit(tx, c, "user_permissions", userID,
 			gin.H{"overrides": previousOverrides}, gin.H{"overrides": newOverrides})
 	})
+	if errors.Is(err, errAccessUserChanged) {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if errors.Is(err, errInvalidAccessRoles) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 	if err != nil {
 		InternalError(c, "access_control", err)
 		return
@@ -393,13 +533,33 @@ func AdminUpdateUserPermissionOverrides(c *gin.Context) {
 	}
 
 	authz := services.GetAuthorizationService()
-	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
-	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	effectivePermissions, err := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	rolePermissions, err := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
 
+	userRoles, err := getAccessUserRoles(user)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	additionalIDs := make([]int, 0)
+	for _, role := range userRoles {
+		if !role.IsPrimary {
+			additionalIDs = append(additionalIDs, role.RoleID)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
-		"roles":                 getAccessUserRoles(user),
+		"additional_role_ids":   additionalIDs,
+		"roles":                 userRoles,
 		"overrides":             overrides,
 		"override_count":        len(overrides),
 		"role_permissions":      rolePermissions,
@@ -425,13 +585,33 @@ func AdminGetUserEffectivePermissions(c *gin.Context) {
 	}
 
 	authz := services.GetAuthorizationService()
-	effectivePermissions, _ := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
-	rolePermissions, _ := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	effectivePermissions, err := authz.ResolvePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	rolePermissions, err := authz.ResolveRolePermissionCodes(user.UserID, user.RoleID)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
 
+	userRoles, err := getAccessUserRoles(user)
+	if err != nil {
+		InternalError(c, "access_control", err)
+		return
+	}
+	additionalIDs := make([]int, 0)
+	for _, role := range userRoles {
+		if !role.IsPrimary {
+			additionalIDs = append(additionalIDs, role.RoleID)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":               true,
 		"user":                  user,
-		"roles":                 getAccessUserRoles(user),
+		"additional_role_ids":   additionalIDs,
+		"roles":                 userRoles,
 		"role_permissions":      rolePermissions,
 		"effective_permissions": effectivePermissions,
 	})
@@ -622,7 +802,7 @@ func getAccessUserByID(userID int) (accessUserDetail, error) {
 	}, nil
 }
 
-func getAccessUserRoles(user accessUserDetail) []accessUserRoleDetail {
+func getAccessUserRoles(user accessUserDetail) ([]accessUserRoleDetail, error) {
 	roles := make([]accessUserRoleDetail, 0, 2)
 	seen := map[int]struct{}{}
 
@@ -654,7 +834,7 @@ func getAccessUserRoles(user accessUserDetail) []accessUserRoleDetail {
 		ORDER BY COALESCE(ur.is_primary, 0) DESC, r.role_id ASC
 	`, user.UserID).Scan(&additionalRoles).Error
 	if err != nil {
-		return roles
+		return nil, err
 	}
 
 	for _, item := range additionalRoles {
@@ -671,17 +851,21 @@ func getAccessUserRoles(user accessUserDetail) []accessUserRoleDetail {
 		seen[item.RoleID] = struct{}{}
 	}
 
-	return roles
+	return roles, nil
 }
 
 func getUserPermissionOverrides(userID int) ([]accessUserOverride, error) {
+	return getUserPermissionOverridesFromDB(config.DB, userID)
+}
+
+func getUserPermissionOverridesFromDB(db *gorm.DB, userID int) ([]accessUserOverride, error) {
 	type row struct {
 		Code   string
 		Effect string
 	}
 
 	var rows []row
-	err := config.DB.Raw(`
+	err := db.Raw(`
 		SELECT p.code, up.effect
 		FROM user_permissions up
 		INNER JOIN permissions p ON p.permission_id = up.permission_id

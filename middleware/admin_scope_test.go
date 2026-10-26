@@ -27,7 +27,10 @@ func TestDelegatedAdminPermissionIsLimitedToItsArea(t *testing.T) {
 		{"projects viewer cannot create projects", http.MethodPost, "/api/v1/admin/projects", 1, []string{"ui.page.admin.projects.view"}, http.StatusForbidden},
 		{"read permission cannot write role grants", http.MethodPut, "/api/v1/admin/access/roles/3/permissions", 1, []string{"access.view"}, http.StatusForbidden},
 		{"manager can write role grants", http.MethodPut, "/api/v1/admin/access/roles/3/permissions", 1, []string{"access.manage"}, http.StatusNoContent},
-		{"admin can use legacy endpoint", http.MethodGet, "/api/v1/admin/files/stats", 3, []string{"portal.admin.access"}, http.StatusNoContent},
+		{"admin identity cannot bypass missing permission", http.MethodGet, "/api/v1/admin/files/stats", 3, []string{"portal.admin.access"}, http.StatusForbidden},
+		{"teacher with users permission can use files endpoint", http.MethodGet, "/api/v1/admin/files/stats", 1, []string{"users.view"}, http.StatusNoContent},
+		{"teacher with settings manage can update years", http.MethodPut, "/api/v1/admin/years/1", 1, []string{"fund.settings.manage"}, http.StatusNoContent},
+		{"teacher with projects manage can create", http.MethodPost, "/api/v1/admin/projects", 1, []string{"projects.manage"}, http.StatusNoContent},
 	}
 
 	for _, tc := range tests {

@@ -14,8 +14,8 @@ import (
 )
 
 func requireAdminForSDG(c *gin.Context) bool {
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return false
 	}

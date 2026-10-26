@@ -46,7 +46,6 @@ func mapFrontendRoleToDatabase(frontendRole string) string {
 func AddSubmissionUser(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type AddUserRequest struct {
 		UserID        int    `json:"user_id" binding:"required"`
@@ -74,7 +73,7 @@ func AddSubmissionUser(c *gin.Context) {
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -152,13 +151,12 @@ func AddSubmissionUser(c *gin.Context) {
 func GetSubmissionUsers(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Find submission and check permission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.read.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -233,7 +231,6 @@ func GetSubmissionUsers(c *gin.Context) {
 func SetCoauthors(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type SetCoauthorsRequest struct {
 		Coauthors []struct {
@@ -260,7 +257,7 @@ func SetCoauthors(c *gin.Context) {
 	var submission models.Submission
 	query := config.DB.Preload("User").Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -370,7 +367,6 @@ func UpdateSubmissionUser(c *gin.Context) {
 	submissionID := c.Param("id")
 	targetUserID := c.Param("user_id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type UpdateUserRequest struct {
 		Role          string `json:"role"`
@@ -388,7 +384,7 @@ func UpdateSubmissionUser(c *gin.Context) {
 	var submission models.Submission
 	query := config.DB.Preload("User").Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -439,13 +435,12 @@ func RemoveSubmissionUser(c *gin.Context) {
 	submissionID := c.Param("id")
 	targetUserID := c.Param("user_id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Find submission and check permission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -484,7 +479,6 @@ func RemoveSubmissionUser(c *gin.Context) {
 func AddMultipleUsers(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type AddMultipleUsersRequest struct {
 		Users []struct {
@@ -505,7 +499,7 @@ func AddMultipleUsers(c *gin.Context) {
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 

@@ -23,7 +23,6 @@ import (
 // GetAllSubmissions returns paginated list of submissions with filters
 func GetAllSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Parse query parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -67,7 +66,7 @@ func GetAllSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL")
 
 	// Permission-based filtering
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.read.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -137,11 +136,10 @@ func GetAllSubmissions(c *gin.Context) {
 // GetTeacherSubmissions returns submissions for authenticated teacher (and dept head)
 func GetTeacherSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Allow both teacher (1) and dept_head (4) to view "my submissions"
-	rid := roleID.(int)
-	if rid != 1 && rid != 4 {
+
+	if !requestHasPermission(c, "submission.read.own") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Teacher or Dept Head access required"})
 		return
 	}
@@ -225,10 +223,9 @@ func GetTeacherSubmissions(c *gin.Context) {
 
 // GetStaffSubmissions returns submissions for staff review
 func GetStaffSubmissions(c *gin.Context) {
-	roleID, _ := c.Get("roleID")
 
 	// Ensure user is staff
-	if roleID.(int) != 2 {
+	if !requestHasPermission(c, "submission.staff.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Staff access required"})
 		return
 	}
@@ -842,7 +839,6 @@ func GetAdminSubmissions(c *gin.Context) {
 // SearchSubmissions provides advanced search functionality
 func SearchSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Parse search parameters
 	keyword := c.Query("q")
@@ -873,7 +869,7 @@ func SearchSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL")
 
 	// Permission-based filtering
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.read.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 

@@ -44,8 +44,8 @@ func nullStringToInterface(value sql.NullString) interface{} {
 // GetAllCategories - Admin can view all categories
 func GetAllCategories(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -73,8 +73,8 @@ func GetAllCategories(c *gin.Context) {
 // CreateCategory - Admin creates new fund category
 func CreateCategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -126,8 +126,8 @@ func CreateCategory(c *gin.Context) {
 // UpdateCategory - Admin updates fund category
 func UpdateCategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -198,8 +198,8 @@ func UpdateCategory(c *gin.Context) {
 // DeleteCategory - Admin soft deletes fund category
 func DeleteCategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -349,8 +349,8 @@ func DeleteCategory(c *gin.Context) {
 // ToggleCategoryStatus - Admin toggles category active/disable status
 func ToggleCategoryStatus(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -393,8 +393,8 @@ func ToggleCategoryStatus(c *gin.Context) {
 // GetAllSubcategories - Admin can view all subcategories
 func GetAllSubcategories(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -529,8 +529,8 @@ func GetAllSubcategories(c *gin.Context) {
 // CreateSubcategory - Admin creates new fund subcategory
 func CreateSubcategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -627,8 +627,8 @@ func CreateSubcategory(c *gin.Context) {
 // UpdateSubcategory - Admin updates fund subcategory
 func UpdateSubcategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -752,8 +752,8 @@ func UpdateSubcategory(c *gin.Context) {
 // DeleteSubcategory - Admin soft deletes fund subcategory
 func DeleteSubcategory(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -876,8 +876,8 @@ func DeleteSubcategory(c *gin.Context) {
 // ToggleSubcategoryStatus - Admin toggles subcategory active/disable status
 func ToggleSubcategoryStatus(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -920,8 +920,8 @@ func ToggleSubcategoryStatus(c *gin.Context) {
 // BulkUpdateSubcategoryRoles - Admin bulk updates target_roles for multiple subcategories
 func BulkUpdateSubcategoryRoles(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1003,8 +1003,8 @@ func BulkUpdateSubcategoryRoles(c *gin.Context) {
 // GetAllYears - Admin can view all years
 func GetAllYears(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1027,8 +1027,8 @@ func GetAllYears(c *gin.Context) {
 // CreateYear - Admin creates new year
 func CreateYear(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1082,8 +1082,8 @@ func CreateYear(c *gin.Context) {
 // UpdateYear - Admin updates year
 func UpdateYear(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1153,8 +1153,8 @@ func UpdateYear(c *gin.Context) {
 // DeleteYear - Admin soft deletes year
 func DeleteYear(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1217,8 +1217,8 @@ func DeleteYear(c *gin.Context) {
 // ToggleYearStatus - Admin toggles year active/inactive status
 func ToggleYearStatus(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1259,8 +1259,8 @@ func ToggleYearStatus(c *gin.Context) {
 // GetYearStats - Admin gets year statistics
 func GetYearStats(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1360,8 +1360,8 @@ func GetYearStats(c *gin.Context) {
 // GetAllSubcategoryBudgets - Admin can view all subcategory budgets
 func GetAllSubcategoryBudgets(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1519,8 +1519,8 @@ func GetAllSubcategoryBudgets(c *gin.Context) {
 // GetSubcategoryBudget - Admin gets specific subcategory budget
 func GetSubcategoryBudget(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1637,8 +1637,8 @@ func GetSubcategoryBudget(c *gin.Context) {
 // CreateSubcategoryBudget - Admin creates new subcategory budget
 func CreateSubcategoryBudget(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1778,8 +1778,8 @@ func CreateSubcategoryBudget(c *gin.Context) {
 // UpdateSubcategoryBudget - Admin updates subcategory budget
 func UpdateSubcategoryBudget(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1959,8 +1959,8 @@ func UpdateSubcategoryBudget(c *gin.Context) {
 // DeleteSubcategoryBudget - Admin soft deletes subcategory budget
 func DeleteSubcategoryBudget(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -2029,8 +2029,8 @@ func DeleteSubcategoryBudget(c *gin.Context) {
 // ToggleSubcategoryBudgetStatus - Admin toggles budget active/disable status
 func ToggleSubcategoryBudgetStatus(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -2069,8 +2069,8 @@ func ToggleSubcategoryBudgetStatus(c *gin.Context) {
 // CopyFundConfigurationToYear - Admin duplicates categories, subcategories, and budgets to a new year
 func CopyFundConfigurationToYear(c *gin.Context) {
 	// Ensure admin role
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -2439,8 +2439,8 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 // GetCategoryStats - Admin gets category statistics
 func GetCategoryStats(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

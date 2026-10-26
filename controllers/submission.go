@@ -39,7 +39,6 @@ const mergedSubmissionDocumentTypeCode = "แบบฟอร์มคำร้�
 // GetSubmissions returns user's submissions
 func GetSubmissions(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	submissionType := c.Query("submission_type")
 	status := c.Query("status")
@@ -57,7 +56,7 @@ func GetSubmissions(c *gin.Context) {
 		Where("deleted_at IS NULL")
 
 	// Filter by user if not admin
-	if roleID.(int) != 3 { // 3 = admin role
+	if !requestHasPermission(c, "submission.read.all") { // 3 = admin role
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -112,7 +111,6 @@ func GetSubmissions(c *gin.Context) {
 func GetSubmission(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var submission models.Submission
 	query := config.DB.Model(&models.Submission{}).
@@ -135,7 +133,7 @@ func GetSubmission(c *gin.Context) {
 	query = query.Preload("SubmissionSDGs")
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.read.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -223,12 +221,6 @@ func GetSubmission(c *gin.Context) {
 // CreateSubmission creates a new submission
 func CreateSubmission(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	roleID := 0
-	if roleVal, exists := c.Get("roleID"); exists {
-		if cast, ok := roleVal.(int); ok {
-			roleID = cast
-		}
-	}
 
 	type CreateSubmissionRequest struct {
 		SubmissionType      string  `json:"submission_type" binding:"required"` // 'fund_application', 'publication_reward', ...
@@ -265,7 +257,7 @@ func CreateSubmission(c *gin.Context) {
 
 	// Only new member requests follow the active year. Existing submissions and
 	// their drafts retain their stored year when viewed, edited or submitted.
-	if roleID != 3 && (req.SubmissionType == "fund_application" || req.SubmissionType == "publication_reward") {
+	if !requestHasPermission(c, "submission.manage.all") && (req.SubmissionType == "fund_application" || req.SubmissionType == "publication_reward") {
 		activeYear, err := currentBudgetYear(config.DB)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ยังไม่ได้เปิดใช้ปีงบประมาณ กรุณาติดต่อผู้ดูแลระบบ", "code": "budget_year_unavailable"})
@@ -281,7 +273,7 @@ func CreateSubmission(c *gin.Context) {
 		}
 	}
 
-	if roleID != 3 && req.SubcategoryID != nil {
+	if !requestHasPermission(c, "submission.manage.all") && req.SubcategoryID != nil {
 		if err := services.EnsureSubcategoryOpen(config.DB, *req.SubcategoryID); err != nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
 			return
@@ -295,7 +287,7 @@ func CreateSubmission(c *gin.Context) {
 		return
 	}
 
-	statusID, err := determineInitialStatusID(req.SubmissionType, req.StatusID, roleID)
+	statusID, err := determineInitialStatusID(req.SubmissionType, req.StatusID, requestHasPermission(c, "submission.manage.all"))
 	if err != nil {
 		InternalError(c, "submission", err)
 		return
@@ -353,7 +345,7 @@ func CreateSubmission(c *gin.Context) {
 	})
 }
 
-func determineInitialStatusID(submissionType string, requestedStatusID *int, roleID int) (int, error) {
+func determineInitialStatusID(submissionType string, requestedStatusID *int, canManageAll bool) (int, error) {
 	// Admins may explicitly choose any status; honour the request if provided.
 	if requestedStatusID != nil {
 		status, err := utils.GetApplicationStatusByID(*requestedStatusID)
@@ -361,7 +353,7 @@ func determineInitialStatusID(submissionType string, requestedStatusID *int, rol
 			return 0, err
 		}
 
-		if roleID == 3 {
+		if canManageAll {
 			return status.ApplicationStatusID, nil
 		}
 
@@ -379,7 +371,7 @@ func determineInitialStatusID(submissionType string, requestedStatusID *int, rol
 
 	// Default initial status: admins keep the previous behaviour while member-facing
 	// clients receive a server-managed draft that can later be submitted.
-	if roleID == 3 {
+	if canManageAll {
 		switch submissionType {
 		case "fund_application", "publication_reward":
 			return utils.GetStatusIDByCode(utils.StatusCodeDeptHeadPending)
@@ -395,7 +387,6 @@ func determineInitialStatusID(submissionType string, requestedStatusID *int, rol
 func UpdateSubmission(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type UpdateSubmissionRequest struct {
 		CategoryID                  *int    `json:"category_id"`
@@ -418,7 +409,7 @@ func UpdateSubmission(c *gin.Context) {
 
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
-	if roleID.(int) != 3 { // ถ้าไม่ใช่ admin ต้องเป็นเจ้าของรายการเท่านั้น
+	if !requestHasPermission(c, "submission.manage.all") { // ถ้าไม่ใช่ admin ต้องเป็นเจ้าของรายการเท่านั้น
 		query = query.Where("user_id = ?", userID)
 	}
 	if err := query.First(&submission).Error; err != nil {
@@ -426,7 +417,7 @@ func UpdateSubmission(c *gin.Context) {
 		return
 	}
 
-	if roleID.(int) != 3 && req.SubcategoryID != nil {
+	if !requestHasPermission(c, "submission.manage.all") && req.SubcategoryID != nil {
 		if err := services.EnsureSubcategoryOpen(config.DB, *req.SubcategoryID); err != nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
 			return
@@ -511,14 +502,13 @@ func UpdateSubmission(c *gin.Context) {
 func DeleteSubmission(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -558,7 +548,6 @@ func HardDeleteSubmission(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	tx := config.DB.Begin()
 	if tx.Error != nil {
@@ -568,7 +557,7 @@ func HardDeleteSubmission(c *gin.Context) {
 
 	var submission models.Submission
 	query := tx.Where("submission_id = ?", submissionID)
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.manage.all") {
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -1223,14 +1212,11 @@ func MergeSubmissionDocuments(c *gin.Context) {
 
 	log.Printf("[MergeSubmissionDocuments] user %d requested merge for submission %d", userID, submissionID)
 
-	roleIDValue, _ := c.Get("roleID")
-	roleID, _ := roleIDValue.(int)
-
 	query := config.DB.
 		Preload("Documents.File").
 		Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
-	if roleID != 3 { // allow admin (role id 3) to access every submission
+	if !requestHasPermission(c, "submission.read.all") { // allow admin (role id 3) to access every submission
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -2070,13 +2056,12 @@ func AttachDocumentToSubmission(c *gin.Context) {
 func GetFile(c *gin.Context) {
 	fileID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var file models.FileUpload
 	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
 
 	// Check permission (user can see own files, admin can see all)
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.read.all") {
 		query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
 	}
 
@@ -2095,13 +2080,12 @@ func GetFile(c *gin.Context) {
 func DownloadFile(c *gin.Context) {
 	fileID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var file models.FileUpload
 	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
 
 	// Check permission
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.read.all") {
 		query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
 	}
 
@@ -2147,13 +2131,12 @@ func DownloadFile(c *gin.Context) {
 func DeleteFile(c *gin.Context) {
 	fileID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var file models.FileUpload
 	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
 
 	// Check permission (user can delete own files, admin can delete all)
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.manage.all") {
 		query = query.Where("uploaded_by = ?", userID)
 	}
 
@@ -2192,7 +2175,6 @@ func DeleteFile(c *gin.Context) {
 func AttachDocument(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	type AttachDocumentRequest struct {
 		FileID            int    `json:"file_id" binding:"required"`
@@ -2214,7 +2196,7 @@ func AttachDocument(c *gin.Context) {
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -2232,7 +2214,7 @@ func AttachDocument(c *gin.Context) {
 	// Validate file exists and user has access
 	var file models.FileUpload
 	fileQuery := config.DB.Where("file_id = ? AND delete_at IS NULL", req.FileID)
-	if roleID.(int) != 3 {
+	if !requestHasPermission(c, "submission.manage.all") {
 		fileQuery = fileQuery.Where("uploaded_by = ?", userID)
 	}
 
@@ -2312,14 +2294,13 @@ func AttachDocument(c *gin.Context) {
 func GetSubmissionDocuments(c *gin.Context) {
 	submissionID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID.(int) != 3 && roleID.(int) != 4 { // เดิมเช็คแค่ != 3
+	if !requestHasPermission(c, "submission.read.all") && !requestHasPermission(c, "submission.read.department") { // เดิมเช็คแค่ != 3
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -2391,14 +2372,13 @@ func DetachDocument(c *gin.Context) {
 	submissionID := c.Param("id")
 	documentID := c.Param("doc_id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Find submission
 	var submission models.Submission
 	query := config.DB.Where("submission_id = ? AND deleted_at IS NULL", submissionID)
 
 	// Check permission
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.manage.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -3041,9 +3021,7 @@ func AddFundDetails(c *gin.Context) {
 		return
 	}
 
-	roleID, _ := c.Get("roleID")
-	isAdmin, _ := roleID.(int)
-	if isAdmin != 3 {
+	if !requestHasPermission(c, "submission.manage.all") {
 		if err := services.EnsureSubcategoryOpen(config.DB, req.SubcategoryID); err != nil {
 			c.JSON(http.StatusConflict, gin.H{"error": "Fund is closed for applications", "code": "fund_closed"})
 			return

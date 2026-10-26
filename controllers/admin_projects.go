@@ -26,8 +26,8 @@ import (
 
 // ensureAdmin checks if the current request is performed by an admin user
 func ensureAdmin(c *gin.Context) bool {
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !canAccessProjectArea(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return false
 	}
@@ -2107,7 +2107,7 @@ func DownloadProjectAttachment(c *gin.Context) {
 		attachmentID,
 	)
 
-	if roleIDValue, exists := c.Get("roleID"); !exists || roleIDValue.(int) != 3 {
+	if !requestHasPermission(c, "ui.page.admin.projects.view") {
 		query = query.Where("is_public = ?", true)
 	}
 

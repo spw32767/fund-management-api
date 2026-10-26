@@ -449,6 +449,10 @@ func AdminListSubmissions(c *gin.Context) {
 
 // UpdatePublicationRewardApprovalAmounts updates *_approve_amount fields for a publication_reward submission
 func UpdatePublicationRewardApprovalAmounts(c *gin.Context) {
+	if !requestHasPermission(c, "publication.reward.approve") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Approval permission required"})
+		return
+	}
 	submissionIDStr := c.Param("id")
 	submissionID, err := strconv.Atoi(submissionIDStr)
 	if err != nil {
@@ -551,6 +555,11 @@ func ApproveSubmission(c *gin.Context) {
 		First(&submission).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+	if !canApproveSubmissionType(c, submission.SubmissionType) {
+		tx.Rollback()
+		c.JSON(http.StatusForbidden, gin.H{"error": "Approval permission required"})
 		return
 	}
 
@@ -713,6 +722,11 @@ func RejectSubmission(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
 		return
 	}
+	if !canApproveSubmissionType(c, submission.SubmissionType) {
+		tx.Rollback()
+		c.JSON(http.StatusForbidden, gin.H{"error": "Approval permission required"})
+		return
+	}
 
 	allowed, err := utils.StatusMatchesCodes(
 		submission.StatusID,
@@ -835,6 +849,11 @@ func RequestSubmissionRevision(c *gin.Context) {
 	if err := tx.First(&submission, submissionID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Submission not found"})
+		return
+	}
+	if !canApproveSubmissionType(c, submission.SubmissionType) {
+		tx.Rollback()
+		c.JSON(http.StatusForbidden, gin.H{"error": "Approval permission required"})
 		return
 	}
 
@@ -1854,4 +1873,11 @@ func buildClosureComment(comment string, closing bool) string {
 		return "Submission closed by admin"
 	}
 	return "Submission reopened by admin"
+}
+
+func canApproveSubmissionType(c *gin.Context, submissionType string) bool {
+	if submissionType == "publication_reward" {
+		return requestHasPermission(c, "publication.reward.approve")
+	}
+	return requestHasPermission(c, "fund.request.approve")
 }

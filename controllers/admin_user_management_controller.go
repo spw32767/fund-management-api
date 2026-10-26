@@ -25,6 +25,7 @@ const (
 )
 
 type adminManagedUserRow struct {
+	IsTest            bool       `gorm:"column:is_test" json:"is_test"`
 	UserID            int        `gorm:"column:user_id" json:"user_id"`
 	Prefix            *string    `gorm:"column:prefix" json:"prefix,omitempty"`
 	UserFname         string     `gorm:"column:user_fname" json:"user_fname"`
@@ -77,9 +78,11 @@ func AdminListManagedUsers(c *gin.Context) {
 		pageSize = maxAdminUserPageSize
 	}
 
-	query := config.DB.Table("users AS u").
-		Where("u.delete_at IS NULL").
-		Where("u.is_test = ?", 0)
+	query := config.DB.Table("users AS u").Where("u.delete_at IS NULL")
+	includeTest, _ := strconv.ParseBool(c.Query("include_test"))
+	if !includeTest {
+		query = query.Where("u.is_test = ?", 0)
+	}
 
 	if search := strings.ToLower(strings.TrimSpace(c.Query("q"))); search != "" {
 		like := "%" + search + "%"
@@ -334,6 +337,7 @@ func AdminUpdateManagedUser(c *gin.Context) {
 
 const adminManagedUserSelect = `
 	u.user_id,
+	u.is_test,
 	u.prefix,
 	COALESCE(u.user_fname, '') AS user_fname,
 	COALESCE(u.user_lname, '') AS user_lname,

@@ -2,6 +2,19 @@ package services
 
 import "testing"
 
+func TestFundSettingsPageRetainsReadAccessWithoutBypassingDeny(t *testing.T) {
+	set := map[string]struct{}{"ui.page.admin.fund_settings.view": {}}
+	applyPermissionImplications(set, nil)
+	if _, ok := set["fund.settings.read"]; !ok {
+		t.Fatal("existing page grant lost reference-data access")
+	}
+	set = map[string]struct{}{"ui.page.admin.fund_settings.view": {}}
+	applyPermissionImplications(set, map[string]struct{}{"fund.settings.read": {}})
+	if _, ok := set["fund.settings.read"]; ok {
+		t.Fatal("page grant restored explicit deny")
+	}
+}
+
 func TestPermissionImplicationsReturnsDefensiveCopy(t *testing.T) {
 	first := PermissionImplications()
 	targets := first["ui.page.admin.access_control.view"]

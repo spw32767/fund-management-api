@@ -810,7 +810,6 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	roleID, _ := getCurrentRoleID(c)
 
 	sid, err := strconv.Atoi(c.Param("submissionId"))
 	if err != nil || sid <= 0 {
@@ -829,7 +828,7 @@ func NotifySubmissionSubmitted(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
 		return
 	}
-	if uid != sub.UserID && roleID != 3 {
+	if uid != sub.UserID && !requestHasPermission(c, "submission.manage.all") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
@@ -1121,8 +1120,8 @@ func NotifyAdminApproved(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	roleID, _ := getCurrentRoleID(c)
-	if roleID != 3 {
+
+	if !requestHasPermission(c, "fund.request.approve") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
@@ -1209,8 +1208,8 @@ func NotifyAdminRejected(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	roleID, _ := getCurrentRoleID(c)
-	if roleID != 3 {
+
+	if !requestHasPermission(c, "fund.request.approve") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}

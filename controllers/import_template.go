@@ -68,8 +68,8 @@ func GetImportTemplatesAdmin(c *gin.Context) {
 
 // CreateImportTemplateAdmin handles upload and creation of new import templates
 func CreateImportTemplateAdmin(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "academic.import.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -190,8 +190,8 @@ func CreateImportTemplateAdmin(c *gin.Context) {
 
 // UpdateImportTemplateAdmin updates metadata and optionally replaces file
 func UpdateImportTemplateAdmin(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "academic.import.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -326,8 +326,8 @@ func UpdateImportTemplateAdmin(c *gin.Context) {
 
 // DeleteImportTemplateAdmin performs a soft delete
 func DeleteImportTemplateAdmin(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "academic.import.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

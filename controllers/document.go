@@ -301,11 +301,10 @@ func UploadDocument(c *gin.Context) {
 func GetDocuments(c *gin.Context) {
 	applicationID := c.Param("id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Check permissions
 	query := config.DB.Where("application_id = ?", applicationID)
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "submission.read.all") { // Not admin
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -334,7 +333,6 @@ func GetDocuments(c *gin.Context) {
 func DownloadDocument(c *gin.Context) {
 	documentID := c.Param("document_id")
 	userID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	// Get document info
 	var document models.ApplicationDocument
@@ -346,7 +344,7 @@ func DownloadDocument(c *gin.Context) {
 	}
 
 	// Check permissions
-	if roleID.(int) != 3 && document.Application.UserID != userID.(int) {
+	if !requestHasPermission(c, "submission.read.all") && document.Application.UserID != userID.(int) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -498,8 +496,8 @@ func GetDocumentTypes(c *gin.Context) {
 // GetDocumentTypesAdmin - Admin endpoint to manage document types (CRUD)
 func GetDocumentTypesAdmin(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.read") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -546,8 +544,8 @@ func GetDocumentTypesAdmin(c *gin.Context) {
 // UpdateDocumentType - Admin updates document type including fund_types
 func UpdateDocumentType(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -638,8 +636,8 @@ func UpdateDocumentType(c *gin.Context) {
 // CreateDocumentType - Admin creates new document type
 func CreateDocumentType(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -705,8 +703,8 @@ func CreateDocumentType(c *gin.Context) {
 // DeleteDocumentType - Admin soft deletes document type
 func DeleteDocumentType(c *gin.Context) {
 	// Check if user is admin
-	roleID, _ := c.Get("roleID")
-	if roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.settings.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}

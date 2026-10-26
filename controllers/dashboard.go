@@ -2609,13 +2609,12 @@ func GetApplicationsSummary(c *gin.Context) {
 
 	// For non-admin users, force filter by their user_id
 	currentUserID, _ := c.Get("userID")
-	roleID, _ := c.Get("roleID")
 
 	var applicationsSummary []map[string]interface{}
 	query := config.DB.Table("view_fund_applications_summary")
 
 	// Apply filters
-	if roleID.(int) != 3 { // Not admin
+	if !requestHasPermission(c, "dashboard.view.admin") { // Not admin
 		// TODO: This is a temporary solution. The view should include user_id column
 		// For now, we'll filter by exact match on email or use a different approach
 		// Option 1: Get user info and filter by name (not ideal)
@@ -2637,7 +2636,7 @@ func GetApplicationsSummary(c *gin.Context) {
 		query = query.Where("year = ?", year)
 	}
 
-	if userID != "" && roleID.(int) == 3 { // Admin can filter by user
+	if userID != "" && requestHasPermission(c, "dashboard.view.admin") { // Admin can filter by user
 		// Need to modify view to include user_id for proper filtering
 	}
 

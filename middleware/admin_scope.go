@@ -8,21 +8,11 @@ import (
 )
 
 // RequireAdminAreaPermission prevents one delegated admin-page grant from
-// authorizing unrelated /admin endpoints. Primary admins retain the legacy
-// admin API; delegated users need the permission for the requested area and
-// a manage permission for mutations.
+// authorizing unrelated /admin endpoints. Every user needs the permission
+// for the requested area and a manage permission for mutations.
 func RequireAdminAreaPermission() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
-		roleID, ok := c.Get("roleID")
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_CONTEXT_MISSING", "error": "Role information not found"})
-			return
-		}
-		if roleID == 3 {
-			c.Next()
-			return
-		}
 
 		required := delegatedAdminPermissions(c.Request.Method, c.FullPath())
 		if len(required) == 0 {
@@ -49,12 +39,24 @@ func delegatedAdminPermissions(method, fullPath string) []string {
 		case under("/users"), under("/import/users"), under("/files"):
 			return []string{"users.manage"}
 		case under("/submissions"), under("/applications"):
-			return []string{"fund.request.approve", "publication.reward.approve"}
+			if strings.HasSuffix(path, "/approve") || strings.HasSuffix(path, "/reject") || strings.HasSuffix(path, "/request-revision") {
+				return []string{"fund.request.approve", "publication.reward.approve"}
+			}
+			if strings.HasSuffix(path, "/approval-amounts") {
+				return []string{"publication.reward.approve"}
+			}
+			return []string{"submission.manage.all"}
+		case under("/projects"), under("/project-types"), under("/project-budget-plans"):
+			return []string{"projects.manage"}
+		case under("/years"), under("/installments"), under("/sdgs"), under("/categories"), under("/subcategories"), under("/budgets"), under("/funds"), under("/end-of-contract"), under("/document-types"), under("/system-config"):
+			return []string{"fund.settings.manage"}
+		case under("/user-publications"), under("/import"), under("/import-templates"), under("/legacy-submissions"), under("/paper-ai"), under("/trigger"), under("/kku-people"), under("/scopus"), under("/thaijo"):
+			return []string{"academic.import.manage"}
 		case under("/notification-messages"), under("/announcements"):
 			return []string{"announcement.manage"}
 		case under("/reward-config"):
 			return []string{"publication.reward.rate.manage"}
-		case under("/instructors"), under("/ranking-weights"), under("/ranking-sources"), under("/courses"):
+		case under("/instructors"), under("/ranking-weights"), under("/ranking-sources"), under("/courses"), strings.HasPrefix(path, "/instructor-"):
 			return []string{"portal.card.researcher_management.access"}
 		default:
 			return nil
@@ -90,7 +92,7 @@ func delegatedAdminPermissions(method, fullPath string) []string {
 		return []string{"ui.page.admin.applications.view", "ui.page.admin.import_export.view"}
 	case under("/import/users"):
 		return []string{"users.manage"}
-	case under("/import"), under("/import-templates"):
+	case under("/paper-ai"), under("/import"), under("/import-templates"):
 		return []string{"ui.page.admin.import_export.view"}
 	case under("/notification-messages"), under("/announcements"):
 		return []string{"announcement.manage"}
@@ -107,7 +109,7 @@ func delegatedAdminPermissions(method, fullPath string) []string {
 	case under("/reward-config"):
 		return []string{"publication.reward.rate.manage"}
 	case under("/years"), under("/installments"), under("/sdgs"), under("/categories"), under("/project-types"), under("/project-budget-plans"), under("/subcategories"), under("/budgets"), under("/funds"), under("/end-of-contract"), under("/document-types"), under("/system-config"):
-		return []string{"ui.page.admin.fund_settings.view"}
+		return []string{"fund.settings.read"}
 	default:
 		return nil
 	}

@@ -68,7 +68,7 @@ func GetFundStructure(c *gin.Context) {
 		}
 
 		// Get subcategories for this category (grouped)
-		subcategories := getGroupedSubcategories(catID, roleID.(int))
+		subcategories := getGroupedSubcategories(catID, roleID.(int), requestHasPermission(c, "fund.visibility.all"))
 
 		// Only add category if it has visible subcategories
 		if len(subcategories) > 0 {
@@ -93,7 +93,7 @@ func GetFundStructure(c *gin.Context) {
 }
 
 // getGroupedSubcategories - Helper function to get subcategories grouped by subcategory_id
-func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{} {
+func getGroupedSubcategories(categoryID int, roleID int, canSeeAll bool) []map[string]interface{} {
 	// Query ที่ดึงข้อมูล subcategories และใช้ budget จากรายการแรกที่พบ (ไม่รวม)
 	// เพราะ budget ที่มี subcategory_id เดียวกันใช้เงินก้อนเดียวกัน
 	query := `
@@ -137,7 +137,7 @@ func getGroupedSubcategories(categoryID int, roleID int) []map[string]interface{
 	args = append(args, categoryID)
 
 	// Role-based filtering
-	if roleID != 3 { // Not admin
+	if !canSeeAll { // Not admin
 		roleIDStr := fmt.Sprintf("%d", roleID)
 		query += " AND (fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))"
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))
@@ -288,7 +288,7 @@ func GetFundStructureAlternative(c *gin.Context) {
 	}
 
 	// Role-based filtering
-	if roleID != 3 {
+	if !requestHasPermission(c, "fund.visibility.all") {
 		roleIDStr := fmt.Sprintf("%d", roleID)
 		query += " AND (fs.target_roles IS NULL OR fs.target_roles = '' OR JSON_CONTAINS(fs.target_roles, ?))"
 		args = append(args, fmt.Sprintf(`"%s"`, roleIDStr))

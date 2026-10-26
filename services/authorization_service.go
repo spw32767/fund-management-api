@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 
 	"fund-management-api/config"
 
@@ -14,11 +13,6 @@ import (
 type AuthorizationService struct {
 	db *gorm.DB
 }
-
-var (
-	authorizationServiceOnce sync.Once
-	authorizationServiceInst *AuthorizationService
-)
 
 var defaultPermissionsByRole = map[int][]string{
 	1: {
@@ -43,6 +37,7 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.notifications.view",
 	},
 	2: {
+		"submission.staff.read",
 		"portal.card.research_fund.access",
 		"portal.card.external_fund.access",
 		"portal.card.links.access",
@@ -64,6 +59,8 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.notifications.view",
 	},
 	3: {
+		"users.view", "users.manage", "api.clients.manage", "submission.approval_attachment.manage",
+		"fund.settings.read", "fund.settings.manage", "projects.manage", "academic.import.manage", "submission.manage.all", "fund.visibility.all",
 		"mou.read",
 		"mou.manage",
 		"portal.card.research_fund.access",
@@ -129,6 +126,7 @@ var defaultPermissionsByRole = map[int][]string{
 		"ui.page.member.dept_review.view",
 	},
 	5: {
+		"fund.settings.read", "submission.read.all",
 		"portal.card.research_fund.access",
 		"portal.card.external_fund.access",
 		"portal.card.links.access",
@@ -144,6 +142,8 @@ var defaultPermissionsByRole = map[int][]string{
 }
 
 var impliedPermissions = map[string][]string{
+	"fund.settings.manage":                  {"fund.settings.read"},
+	"ui.page.admin.fund_settings.view":      {"fund.settings.read"},
 	"access.manage":                         {"access.view"},
 	"mou.manage":                            {"mou.read"},
 	"ui.page.admin.dashboard.view":          {"dashboard.view.admin"},
@@ -166,32 +166,29 @@ func PermissionImplications() map[string][]string {
 	return result
 }
 
-func GetAuthorizationService() *AuthorizationService {
-	authorizationServiceOnce.Do(func() {
-		authorizationServiceInst = &AuthorizationService{db: config.DB}
-	})
-	return authorizationServiceInst
-}
+func NewAuthorizationService(db *gorm.DB) *AuthorizationService { return &AuthorizationService{db: db} }
+
+func GetAuthorizationService() *AuthorizationService { return NewAuthorizationService(config.DB) }
 
 func (s *AuthorizationService) ResolvePermissionCodes(userID int, roleID int) ([]string, error) {
 	set := map[string]struct{}{}
 
-	if !s.hasAuthorizationTables() {
+	available, err := s.hasAuthorizationTables()
+	if err != nil {
+		return nil, err
+	}
+	if !available {
 		applyDefaultRolePermissions(set, roleID)
 		applyPermissionImplications(set, nil)
 		return sortedPermissionKeys(set), nil
 	}
 
 	if err := s.mergeRolePermissions(userID, roleID, set); err != nil {
-		applyDefaultRolePermissions(set, roleID)
-		applyPermissionImplications(set, nil)
-		return sortedPermissionKeys(set), nil
+		return nil, err
 	}
 
 	if err := s.applyUserOverrides(userID, set); err != nil {
-		applyDefaultRolePermissions(set, roleID)
-		applyPermissionImplications(set, nil)
-		return sortedPermissionKeys(set), nil
+		return nil, err
 	}
 
 	return sortedPermissionKeys(set), nil
@@ -204,16 +201,18 @@ func (s *AuthorizationService) ResolvePermissionCodes(userID int, roleID int) ([
 func (s *AuthorizationService) ResolveRolePermissionCodes(userID int, roleID int) ([]string, error) {
 	set := map[string]struct{}{}
 
-	if !s.hasAuthorizationTables() {
+	available, err := s.hasAuthorizationTables()
+	if err != nil {
+		return nil, err
+	}
+	if !available {
 		applyDefaultRolePermissions(set, roleID)
 		applyPermissionImplications(set, nil)
 		return sortedPermissionKeys(set), nil
 	}
 
 	if err := s.mergeRolePermissions(userID, roleID, set); err != nil {
-		applyDefaultRolePermissions(set, roleID)
-		applyPermissionImplications(set, nil)
-		return sortedPermissionKeys(set), nil
+		return nil, err
 	}
 
 	applyPermissionImplications(set, nil)
@@ -240,19 +239,23 @@ func (s *AuthorizationService) HasPermission(userID int, roleID int, permissionC
 	return false
 }
 
-func (s *AuthorizationService) hasAuthorizationTables() bool {
+func (s *AuthorizationService) hasAuthorizationTables() (bool, error) {
 	required := []string{"permissions", "role_permissions"}
 	for _, table := range required {
-		if !s.tableExists(table) {
-			return false
+		exists, err := s.tableExists(table)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func (s *AuthorizationService) tableExists(tableName string) bool {
+func (s *AuthorizationService) tableExists(tableName string) (bool, error) {
 	if s.db == nil {
-		return false
+		return false, nil
 	}
 
 	var count int64
@@ -261,10 +264,10 @@ func (s *AuthorizationService) tableExists(tableName string) bool {
 		tableName,
 	).Scan(&count).Error
 	if err != nil {
-		return false
+		return false, err
 	}
 
-	return count > 0
+	return count > 0, nil
 }
 
 func (s *AuthorizationService) mergeRolePermissions(userID int, roleID int, set map[string]struct{}) error {
@@ -276,6 +279,7 @@ func (s *AuthorizationService) mergeRolePermissions(userID int, roleID int, set 
 		SELECT DISTINCT p.code
 		FROM permissions p
 		INNER JOIN role_permissions rp ON rp.permission_id = p.permission_id
+		INNER JOIN roles r ON r.role_id = rp.role_id AND r.delete_at IS NULL
 		LEFT JOIN user_roles ur
 			ON ur.role_id = rp.role_id
 			AND ur.user_id = ?
@@ -307,7 +311,11 @@ func (s *AuthorizationService) mergeRolePermissions(userID int, roleID int, set 
 }
 
 func (s *AuthorizationService) applyUserOverrides(userID int, set map[string]struct{}) error {
-	if s.db == nil || !s.tableExists("user_permissions") {
+	exists, err := s.tableExists("user_permissions")
+	if err != nil {
+		return err
+	}
+	if !exists {
 		applyPermissionImplications(set, nil)
 		return nil
 	}
@@ -318,7 +326,7 @@ func (s *AuthorizationService) applyUserOverrides(userID int, set map[string]str
 	}
 
 	var rows []overrideRow
-	err := s.db.Raw(`
+	err = s.db.Raw(`
 		SELECT p.code, up.effect
 		FROM user_permissions up
 		INNER JOIN permissions p ON p.permission_id = up.permission_id

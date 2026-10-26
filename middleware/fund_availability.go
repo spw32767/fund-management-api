@@ -14,11 +14,9 @@ import (
 
 func RequireOpenSubmissionFund() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if roleID, ok := c.Get("roleID"); ok {
-			if role, valid := roleID.(int); valid && role == 3 {
-				c.Next()
-				return
-			}
+		if HasEffectivePermission(c, "submission.manage.all") {
+			c.Next()
+			return
 		}
 
 		submissionID, err := strconv.Atoi(c.Param("id"))

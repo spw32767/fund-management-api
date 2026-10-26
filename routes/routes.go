@@ -197,9 +197,9 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/countries", controllers.GetCountries)           // List available countries
 				mou.GET("/faculties", controllers.GetFaculties)           // List available faculties
 				mou.GET("/partner-types", controllers.GetMouPartnerTypes) // List partner types
-				mou.POST("/partner-types", middleware.RequireRole(3), controllers.CreateMouPartnerType)
-				mou.PUT("/partner-types/:id", middleware.RequireRole(3), controllers.UpdateMouPartnerType)
-				mou.DELETE("/partner-types/:id", middleware.RequireRole(3), controllers.DeleteMouPartnerType)
+				mou.POST("/partner-types", middleware.RequirePermission("mou.manage"), controllers.CreateMouPartnerType)
+				mou.PUT("/partner-types/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateMouPartnerType)
+				mou.DELETE("/partner-types/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteMouPartnerType)
 				mou.GET("/levels", controllers.GetMouLevels) // List distinct levels
 				mou.GET("/expired", controllers.GetExpiredMous)
 				mou.POST("", middleware.RequirePermission("mou.manage"), controllers.CreateMou)
@@ -207,13 +207,13 @@ func SetupRoutes(router *gin.Engine) {
 				mou.GET("/active-by-year", controllers.GetMouActiveByYear) // MOUs active in a given year
 				mou.GET("/notifications", controllers.GetMouNotifications) // Notifications for bell icon
 				mou.GET("/activity-types", controllers.GetActivityTypes)   // List activity types
-				mou.POST("/activity-types", middleware.RequireRole(3), controllers.CreateActivityType)
-				mou.PUT("/activity-types/:id", middleware.RequireRole(3), controllers.UpdateActivityType)
-				mou.DELETE("/activity-types/:id", middleware.RequireRole(3), controllers.DeleteActivityType)
+				mou.POST("/activity-types", middleware.RequirePermission("mou.manage"), controllers.CreateActivityType)
+				mou.PUT("/activity-types/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateActivityType)
+				mou.DELETE("/activity-types/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteActivityType)
 				mou.GET("/okrs", controllers.GetOkrList) // List OKRs
-				mou.POST("/okrs", middleware.RequireRole(3), controllers.CreateOkr)
-				mou.PUT("/okrs/:id", middleware.RequireRole(3), controllers.UpdateOkr)
-				mou.DELETE("/okrs/:id", middleware.RequireRole(3), controllers.DeleteOkr)
+				mou.POST("/okrs", middleware.RequirePermission("mou.manage"), controllers.CreateOkr)
+				mou.PUT("/okrs/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateOkr)
+				mou.DELETE("/okrs/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteOkr)
 				mou.POST("/activities", middleware.RequirePermission("mou.manage"), controllers.CreateMouActivity)
 				mou.GET("/activities/:id", controllers.GetMouActivity) // Get activity detail
 				mou.PUT("/activities/:id", middleware.RequirePermission("mou.manage"), controllers.UpdateMouActivity)
@@ -227,12 +227,12 @@ func SetupRoutes(router *gin.Engine) {
 				mou.PUT("/:id/lock", middleware.RequirePermission("mou.manage"), controllers.ToggleLockMou)
 				mou.PUT("/:id/renew", middleware.RequirePermission("mou.manage"), controllers.RenewMou)
 				mou.GET("/export", controllers.ExportMouCsv) // Export MOU list as CSV
-				mou.GET("/notification-recipients", middleware.RequireRole(3), controllers.ListMouNotificationRecipients)
-				mou.GET("/notification-preview", middleware.RequireRole(3), controllers.GetMouNotificationPreview)
-				mou.POST("/send-notifications", middleware.RequireRole(3), controllers.SendMouNotifications)
-				mou.GET("/notification-settings", middleware.RequireRole(3), controllers.GetMouNotificationSetting)
-				mou.PUT("/notification-settings", middleware.RequireRole(3), controllers.UpdateMouNotificationSetting)
-				mou.GET("/notifications/:id/recipients", middleware.RequireRole(3), controllers.GetMouNotificationRecipients)
+				mou.GET("/notification-recipients", middleware.RequirePermission("mou.manage"), controllers.ListMouNotificationRecipients)
+				mou.GET("/notification-preview", middleware.RequirePermission("mou.manage"), controllers.GetMouNotificationPreview)
+				mou.POST("/send-notifications", middleware.RequirePermission("mou.manage"), controllers.SendMouNotifications)
+				mou.GET("/notification-settings", middleware.RequirePermission("mou.manage"), controllers.GetMouNotificationSetting)
+				mou.PUT("/notification-settings", middleware.RequirePermission("mou.manage"), controllers.UpdateMouNotificationSetting)
+				mou.GET("/notifications/:id/recipients", middleware.RequirePermission("mou.manage"), controllers.GetMouNotificationRecipients)
 				mou.DELETE("/:id", middleware.RequirePermission("mou.manage"), controllers.DeleteMou)
 			}
 
@@ -552,7 +552,7 @@ func SetupRoutes(router *gin.Engine) {
 
 			// Executive read-only routes (dashboard + export source data)
 			executive := protected.Group("/executive")
-			executive.Use(middleware.RequireRole(5))
+			executive.Use(middleware.RequirePermission("portal.executive.access"))
 			{
 				executive.GET("/dashboard/stats", controllers.GetDashboardStats)
 				executive.GET("/submissions", controllers.GetAdminSubmissions)
@@ -618,6 +618,7 @@ func SetupRoutes(router *gin.Engine) {
 
 				accessControl := admin.Group("/access")
 				{
+					accessControl.GET("/users/search", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminSearchAccessUsers)
 					accessControl.GET("/roles", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminListAccessRoles)
 					accessControl.GET("/permissions", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminListAccessPermissions)
 					accessControl.GET("/roles/:id/permissions", middleware.RequirePermission("access.view", "ui.page.admin.access_control.view"), controllers.AdminGetRolePermissions)

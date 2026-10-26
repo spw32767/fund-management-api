@@ -410,25 +410,12 @@ func getUserIDFromContext(c *gin.Context) (uint, bool) {
 func resolveTargetUserID(c *gin.Context) (uint, error) {
 	queryUser := strings.TrimSpace(c.Query("user_id"))
 	if queryUser != "" {
-		if roleRaw, ok := c.Get("roleID"); ok {
-			switch role := roleRaw.(type) {
-			case int:
-				if role == 3 {
-					id64, err := strconv.ParseUint(queryUser, 10, 64)
-					if err != nil || id64 == 0 {
-						return 0, fmt.Errorf("invalid user_id")
-					}
-					return uint(id64), nil
-				}
-			case string:
-				if parsed, err := strconv.Atoi(role); err == nil && parsed == 3 {
-					id64, err := strconv.ParseUint(queryUser, 10, 64)
-					if err != nil || id64 == 0 {
-						return 0, fmt.Errorf("invalid user_id")
-					}
-					return uint(id64), nil
-				}
+		if requestHasPermission(c, "scopus.publications.read_by_user") {
+			id64, err := strconv.ParseUint(queryUser, 10, 64)
+			if err != nil || id64 == 0 {
+				return 0, fmt.Errorf("invalid user_id")
 			}
+			return uint(id64), nil
 		}
 	}
 

@@ -94,7 +94,11 @@ func TestWholeBudgetYearCopyCommitsOrRollsBackAsOneBundle(t *testing.T) {
 			config.DB = db
 			defer func() { config.DB = original }()
 			r := gin.New()
-			r.POST("/copy", func(c *gin.Context) { c.Set("roleID", 3); CopyFundConfigurationToYear(c) })
+			r.POST("/copy", func(c *gin.Context) {
+				c.Set("roleID", 3)
+				c.Set("permissions", []string{"fund.settings.manage"})
+				CopyFundConfigurationToYear(c)
+			})
 			response := httptest.NewRecorder()
 			body := `{"source_year_id":9,"target_year_id":10,"copy_all":true}`
 			if newTarget {

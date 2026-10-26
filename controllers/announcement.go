@@ -171,8 +171,8 @@ func GetAnnouncement(c *gin.Context) {
 // CreateAnnouncement - สร้างประกาศ (Admin only)
 // CreateAnnouncement - สร้างประกาศ (บันทึกไฟล์ที่ uploads/announcements ชื่อเดิม)
 func CreateAnnouncement(c *gin.Context) {
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "announcement.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -314,8 +314,8 @@ func CreateAnnouncement(c *gin.Context) {
 // UpdateAnnouncement - แก้ไขประกาศ (Admin only)
 func UpdateAnnouncement(c *gin.Context) {
 	// Check admin role
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "announcement.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -442,8 +442,8 @@ func UpdateAnnouncement(c *gin.Context) {
 // DeleteAnnouncement - ลบประกาศ (Admin only)
 func DeleteAnnouncement(c *gin.Context) {
 	// Check admin role
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "announcement.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -691,8 +691,8 @@ func GetFundForm(c *gin.Context) {
 // CreateFundForm - สร้างแบบฟอร์ม (ไฟล์อยู่ uploads/fund_forms ชื่อเดิม)
 func CreateFundForm(c *gin.Context) {
 	// 1) ตรวจสิทธิ์
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.form.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -831,8 +831,8 @@ func CreateFundForm(c *gin.Context) {
 // UpdateFundForm - แทนที่ไฟล์/แก้เมทาดาทา (ไฟล์อยู่ uploads/fund_forms ชื่อเดิม)
 func UpdateFundForm(c *gin.Context) {
 	// 1) ตรวจสิทธิ์
-	roleID, ok := c.Get("roleID")
-	if !ok || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.form.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -964,8 +964,8 @@ func UpdateFundForm(c *gin.Context) {
 // DeleteFundForm - ลบแบบฟอร์ม (Admin only)
 func DeleteFundForm(c *gin.Context) {
 	// Check admin role
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "fund.form.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -1077,8 +1077,8 @@ func ViewFundForm(c *gin.Context) {
 // GetAnnouncementStats - สถิติประกาศ (Admin only)
 func GetAnnouncementStats(c *gin.Context) {
 	// Check admin role
-	roleID, exists := c.Get("roleID")
-	if !exists || roleID.(int) != 3 {
+
+	if !requestHasPermission(c, "announcement.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
