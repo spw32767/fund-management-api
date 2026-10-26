@@ -4,6 +4,7 @@ package controllers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -2078,6 +2079,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		SourceYearID int    `json:"source_year_id" binding:"required"`
 		TargetYear   string `json:"target_year"`
 		TargetYearID *int   `json:"target_year_id"`
+		CopyAll      bool   `json:"copy_all"`
 	}
 
 	var req CopyRequest
@@ -2109,11 +2111,23 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Target year not found"})
 			return
 		}
+		if targetYear.YearID == sourceYear.YearID || targetYear.Year == sourceYear.Year {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ปีต้นทางและปลายทางต้องต่างกัน"})
+			return
+		}
+		if targetYearValue != "" && targetYearValue != targetYear.Year {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ปีปลายทางและรหัสปีไม่ตรงกัน"})
+			return
+		}
 		usingExistingTarget = true
 		if targetYearValue == "" {
 			targetYearValue = targetYear.Year
 		}
 	} else {
+		if len(targetYearValue) != 4 || onlyDigits(targetYearValue) != targetYearValue {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุปีปลายทางเป็นตัวเลข 4 หลัก"})
+			return
+		}
 		// Ensure target year does not exist when creating a new record
 		var existingYear models.Year
 		if err := config.DB.Where("year = ? AND delete_at IS NULL", targetYearValue).
@@ -2149,7 +2163,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 			Year:   targetYearValue,
 			Status: sourceYear.Status,
 		}
-		if targetYear.Status == "" {
+		if req.CopyAll || targetYear.Status == "" {
 			targetYear.Status = "active"
 		}
 		targetYear.CreateAt = &now
@@ -2157,6 +2171,17 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 
 		if err := tx.Create(&targetYear).Error; err != nil {
 			rollbackWithError(http.StatusInternalServerError, "Failed to create target year", err.Error())
+			return
+		}
+	}
+
+	if req.CopyAll {
+		if err := ensureBudgetYearBundleEmpty(tx, targetYear); err != nil {
+			if errors.Is(err, errBudgetYearBundleNotEmpty) {
+				rollbackWithError(http.StatusConflict, err.Error(), "")
+			} else {
+				rollbackWithError(http.StatusInternalServerError, "ไม่สามารถตรวจข้อมูลปีปลายทางได้", err.Error())
+			}
 			return
 		}
 	}
@@ -2216,6 +2241,7 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 				CategoryID:      mappedCategoryID,
 				YearID:          targetYear.YearID,
 				SubcategoryName: subcategory.SubcategoryName,
+				SubcategoryCode: subcategory.SubcategoryCode,
 				FundCondition:   subcategory.FundCondition,
 				TargetRoles:     subcategory.TargetRoles,
 				FormType:        subcategory.FormType,
@@ -2367,6 +2393,16 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		}
 	}
 
+	var extraCounts budgetYearExtraCopyCounts
+	if req.CopyAll {
+		var err error
+		extraCounts, err = copyBudgetYearExtras(tx, sourceYear, targetYear, time.Now())
+		if err != nil {
+			rollbackWithError(http.StatusInternalServerError, "คัดลอกอัตรารางวัล วงเงินค่าธรรมเนียม หรือวันตัดรอบไม่สำเร็จ ระบบย้อนกลับทั้งชุดแล้ว", err.Error())
+			return
+		}
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		InternalError(c, "admin_fund: finalize copy", err)
 		return
@@ -2386,12 +2422,16 @@ func CopyFundConfigurationToYear(c *gin.Context) {
 		"message":           message,
 		"year":              targetYear,
 		"existing_target":   usingExistingTarget,
+		"copy_all":          req.CopyAll,
 		"target_year_id":    targetYear.YearID,
 		"target_year_value": targetYearValue,
 		"copied": gin.H{
 			"categories":    len(categoryMap),
 			"subcategories": len(subcategoryMap),
 			"budgets":       budgetsCopied,
+			"reward_rates":  extraCounts.RewardRates,
+			"fee_limits":    extraCounts.FeeLimits,
+			"installments":  extraCounts.Installments,
 		},
 	})
 }

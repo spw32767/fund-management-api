@@ -42,8 +42,9 @@ type queryStep struct {
 }
 
 type scriptedDB struct {
-	mu    sync.Mutex
-	steps []*queryStep
+	mu                 sync.Mutex
+	steps              []*queryStep
+	commits, rollbacks int
 }
 
 func (db *scriptedDB) next(kind stepKind, query string, args []driver.NamedValue) (*queryStep, error) {
@@ -98,9 +99,9 @@ func (c *scriptedConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("prepare not supported")
 }
 func (c *scriptedConn) Close() error              { return nil }
-func (c *scriptedConn) Begin() (driver.Tx, error) { return scriptedTx{}, nil }
+func (c *scriptedConn) Begin() (driver.Tx, error) { return scriptedTx{db: c.db}, nil }
 func (c *scriptedConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
-	return scriptedTx{}, nil
+	return scriptedTx{db: c.db}, nil
 }
 
 func (c *scriptedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -166,10 +167,20 @@ func (r *scriptedRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-type scriptedTx struct{}
+type scriptedTx struct{ db *scriptedDB }
 
-func (scriptedTx) Commit() error   { return nil }
-func (scriptedTx) Rollback() error { return nil }
+func (tx scriptedTx) Commit() error {
+	tx.db.mu.Lock()
+	defer tx.db.mu.Unlock()
+	tx.db.commits++
+	return nil
+}
+func (tx scriptedTx) Rollback() error {
+	tx.db.mu.Lock()
+	defer tx.db.mu.Unlock()
+	tx.db.rollbacks++
+	return nil
+}
 
 type scriptedResult struct {
 	lastInsertID int64
