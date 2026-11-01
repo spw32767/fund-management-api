@@ -606,6 +606,7 @@ func SetupRoutes(router *gin.Engine) {
 				admin.PUT("/import-templates/:id", controllers.UpdateImportTemplateAdmin)
 				admin.DELETE("/import-templates/:id", controllers.DeleteImportTemplateAdmin)
 				admin.POST("/import/users", controllers.AdminImportUsers)
+				admin.POST("/import/users/preview", controllers.AdminPreviewImportUsers)
 				admin.POST("/import/legacy-submissions", controllers.AdminImportLegacySubmissions)
 
 				notificationMessages := admin.Group("/notification-messages")

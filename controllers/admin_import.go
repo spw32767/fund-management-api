@@ -3,6 +3,7 @@ package controllers
 import (
 	"archive/zip"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"fund-management-api/config"
 	"fund-management-api/models"
@@ -16,11 +17,22 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm/clause"
+	mysqlDriver "github.com/go-sql-driver/mysql"
+	"gorm.io/gorm"
 )
 
 // AdminImportUsers handles Excel imports for user records using the provided template.
 func AdminImportUsers(c *gin.Context) {
+	adminImportUsers(c, false)
+}
+
+// AdminPreviewImportUsers always inspects without creating or updating accounts.
+// A separate route also makes older API deployments reject preview requests safely.
+func AdminPreviewImportUsers(c *gin.Context) {
+	adminImportUsers(c, true)
+}
+
+func adminImportUsers(c *gin.Context, previewOnly bool) {
 
 	if !requestHasPermission(c, "users.manage") {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
@@ -79,14 +91,67 @@ func AdminImportUsers(c *gin.Context) {
 
 	now := time.Now()
 	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถเริ่มนำเข้าผู้ใช้ได้"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Inspect the whole file before inserting anything, including inactive/deleted accounts.
+	seenEmails := make(map[string]int)
+	blockedEmails := make(map[string]string)
+	for rowIdx := 1; rowIdx < len(rows); rowIdx++ {
+		data := readRow(headers, rows[rowIdx])
+		email := strings.ToLower(strings.TrimSpace(data["email"]))
+		if email == "" {
+			continue
+		}
+		role, roleErr := strconv.Atoi(strings.TrimSpace(data["role_id"]))
+		if !utils.ValidateEmail(email) || strings.TrimSpace(data["user_fname"]) == "" || strings.TrimSpace(data["user_lname"]) == "" || roleErr != nil || role <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("ข้อมูลผู้ใช้แถว %d ไม่ถูกต้อง กรุณาตรวจชื่อ นามสกุล อีเมล และ role_id", rowIdx+1)})
+			return
+		}
+		if _, exists := seenEmails[email]; exists {
+			if blockedEmails[email] == "" {
+				blockedEmails[email] = "ซ้ำในไฟล์"
+			}
+			continue
+		}
+		seenEmails[email] = rowIdx + 1
+		var count int64
+		if err := tx.Model(&models.User{}).Where("LOWER(TRIM(email)) = ?", email).Count(&count).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถตรวจสอบผู้ใช้ซ้ำได้ ยกเลิกการนำเข้า"})
+			return
+		}
+		if count > 0 {
+			blockedEmails[email] = "มีผู้ใช้อยู่แล้วในระบบ"
+		}
+	}
+	duplicates := make([]gin.H, 0)
+	for rowIdx := 1; rowIdx < len(rows); rowIdx++ {
+		data := readRow(headers, rows[rowIdx])
+		email := strings.ToLower(strings.TrimSpace(data["email"]))
+		if reason := blockedEmails[email]; reason != "" {
+			duplicates = append(duplicates, gin.H{"row": rowIdx + 1, "name": strings.TrimSpace(data["user_fname"] + " " + data["user_lname"]), "email": email, "reason": reason})
+		}
+	}
+	newCount := len(seenEmails) - len(blockedEmails)
+	if previewOnly || c.PostForm("preview") == "true" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "preview": true, "duplicates": duplicates, "new_count": newCount})
+		return
+	}
+	if len(duplicates) > 0 && c.PostForm("skip_duplicates") != "true" {
+		c.JSON(http.StatusConflict, gin.H{"error": "พบผู้ใช้ซ้ำ กรุณาตรวจสอบรายชื่อแล้วเลือกเพิ่มเฉพาะผู้ใช้ที่ไม่ซ้ำ หรือยกเลิกการเพิ่ม", "code": "USER_ALREADY_EXISTS", "duplicates": duplicates, "new_count": newCount})
+		return
+	}
 	imported := 0
 
 	for rowIdx := 1; rowIdx < len(rows); rowIdx++ {
 		row := rows[rowIdx]
 		rowData := readRow(headers, row)
 
-		email := strings.TrimSpace(rowData["email"])
-		if email == "" {
+		email := strings.ToLower(strings.TrimSpace(rowData["email"]))
+		if email == "" || blockedEmails[email] != "" {
 			continue
 		}
 
@@ -135,41 +200,15 @@ func AdminImportUsers(c *gin.Context) {
 		user.CreateAt = &now
 		user.UpdateAt = &now
 
-		assignmentValues := map[string]interface{}{
-			"user_fname":         user.UserFname,
-			"user_lname":         user.UserLname,
-			"gender":             user.Gender,
-			"email_notification": user.EmailNotification,
-			"scholar_author_id":  user.ScholarAuthorID,
-			"role_id":            user.RoleID,
-			"date_of_employment": user.DateOfEmployment,
-			"prefix":             user.Prefix,
-			"manage_position":    user.ManagePosition,
-			"position":           user.PositionTitle,
-			"position_en":        user.PositionEn,
-			"prefix_position_en": user.PrefixPositionEn,
-			"Name_en":            user.NameEn,
-			"suffix_en":          user.SuffixEn,
-			"TEL":                user.Tel,
-			"TELformat":          user.TelFormat,
-			"TEL_ENG":            user.TelEng,
-			"manage_position_en": user.ManagePositionEn,
-			"LAB_Name":           user.LabName,
-			"Room":               user.Room,
-			"CP_WEB_ID":          user.CPWebID,
-			"Scopus_id":          user.ScopusID,
-			"update_at":          now,
-		}
-		if strings.TrimSpace(rowData["is_active"]) != "" {
-			assignmentValues["Is_active"] = user.AccountStatus
-		}
-		assignments := clause.Assignments(assignmentValues)
-
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "email"}},
-			DoUpdates: assignments,
-		}).Create(&user).Error; err != nil {
+		// Plain INSERT: a concurrent import must fail on the unique email constraint,
+		// never update an existing account. Roll back every earlier insert as well.
+		if err := tx.Create(&user).Error; err != nil {
 			tx.Rollback()
+			var mysqlErr *mysqlDriver.MySQLError
+			if errors.Is(err, gorm.ErrDuplicatedKey) || (errors.As(err, &mysqlErr) && mysqlErr.Number == 1062) {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("มีผู้ใช้อยู่แล้วหรือข้อมูลซ้ำ (แถว %d อีเมล %s) ยกเลิกการนำเข้าทั้งไฟล์ ไม่มีการบันทึกหรือเขียนทับข้อมูล", rowIdx+1, email), "code": "USER_ALREADY_EXISTS"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดระหว่างนำเข้าผู้ใช้"})
 			return
 		}
@@ -182,11 +221,12 @@ func AdminImportUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":      true,
-		"message":      fmt.Sprintf("นำเข้าผู้ใช้สำเร็จ %d รายการ (อัปเดตหากมีอยู่แล้ว)", imported),
-		"count":        imported,
-		"file":         safeName,
-		"content_type": ct,
+		"success":       true,
+		"message":       fmt.Sprintf("นำเข้าผู้ใช้ใหม่สำเร็จ %d รายการ", imported),
+		"count":         imported,
+		"skipped_count": len(duplicates),
+		"file":          safeName,
+		"content_type":  ct,
 	})
 }
 
