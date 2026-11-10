@@ -2084,9 +2084,21 @@ func DownloadFile(c *gin.Context) {
 	var file models.FileUpload
 	query := config.DB.Where("file_id = ? AND delete_at IS NULL", fileID)
 
-	// Check permission
+	// Check permission: full readers see everything; others see their own or
+	// public files. Department reviewers (dept head) may also read any file
+	// attached to a live submission, matching /dept-head/submissions/:id/details.
 	if !requestHasPermission(c, "submission.read.all") {
-		query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
+		if requestHasPermission(c, "submission.read.department") {
+			query = query.Where(
+				"uploaded_by = ? OR is_public = ? OR EXISTS ("+
+					"SELECT 1 FROM submission_documents sd "+
+					"JOIN submissions s ON s.submission_id = sd.submission_id AND s.deleted_at IS NULL "+
+					"WHERE sd.file_id = file_uploads.file_id)",
+				userID, true,
+			)
+		} else {
+			query = query.Where("uploaded_by = ? OR is_public = ?", userID, true)
+		}
 	}
 
 	if err := query.First(&file).Error; err != nil {
